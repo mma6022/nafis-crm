@@ -494,3 +494,10 @@ body:has([data-testid="dci-page"]) .ts-wz{
 body:has([data-testid="dci-page"]) .dci-right > .dci-empty + h2 {
   margin-top: 24px;
 }
+
+/* v1.9: name pencil after name + #id */
+.dci-who{min-width:0}
+.dci-who .dci-nmr{display:inline-flex;flex-wrap:wrap;align-items:center;min-width:0;max-width:100%;gap:0 2px}
+.dci-who .dci-nmr h2{min-width:0}
+.dci-who .ed-form.ed-desk{margin-top:8px;width:100%}
+.dci-tags{margin-top:0}

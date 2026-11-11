@@ -1,7 +1,7 @@
 /**
  * instant-credit-check v1 — «اعتبارسنجی فوری» in the call form (Armita sales-shell v1.0.3 §4د scenes 16–23; code step per v1.0.4 scenes 24–27).
  * Shown only after «جواب داد» → «صحبت کردیم». Optional: it never blocks «بعدی»/«ثبت».
- * Flow: national ID (from the file, read-only; or typed + checksum) → required consent tick → «اعتبارسنجی» (ICS24 initiate, SMS to
+ * Flow: national ID (typed + checksum; saved on the customer; later masked first3+••••+last3 with «تغییر») → required consent tick → «اعتبارسنجی» (ICS24 initiate, SMS to
  * the customer) → the expert types the SMS code into a masked field → validate → rank A1–E3 (saved in the file by the server).
  * The OTP lives only in this component's state until submit; it is cleared before the request returns and never shown again.
  */
@@ -9,7 +9,7 @@ import './team-sales.css';
 import { AlertTriangle, Check, Clock, History, Lock, MessageSquare, Phone, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { GRADE_LETTERS } from '@/lib/credit-grade';
-import { fa, fetchCustomerIdentity, fmtDateTime, listCreditChecks, refreshCreditCheckStatus, renewCreditOtp, startCreditCheck,
+import { fa, fetchCustomerIdentity, fmtDateTime, listCreditChecks, refreshCreditCheckStatus, renewCreditOtp, saveQuickCreditNationalCode, startCreditCheck,
   TeamSalesApiError, validateCreditOtp, type CreditCheckLite } from './api';
 
 const toLatin = (s: string) => s.replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
@@ -18,6 +18,12 @@ export function validNid(code: string): boolean {
   if (!/^\d{10}$/.test(code) || /^(\d)\1{9}$/.test(code)) return false;
   const s = code.slice(0, 9).split('').reduce((n, d, i) => n + Number(d) * (10 - i), 0) % 11;
   return (s < 2 ? s : 11 - s) === Number(code[9]);
+}
+/** t327u: first 3 + «••••» + last 3, Persian digits on the visible groups. Never return the full code. */
+export function maskNationalCode(raw: string): string {
+  const d = normalizeNid(raw);
+  if (d.length < 10) return '—';
+  return `${fa(d.slice(0, 3))}••••${fa(d.slice(-3))}`;
 }
 const RECENT_DAYS = 30;
 const POLL_MS = 3000, POLL_MAX = 20;
@@ -38,6 +44,8 @@ export function InstantCreditCheck({ customerId, onRank, embedded }: { customerI
   const [note, setNote] = useState('');
   const [err, setErr] = useState('');
   const [prevFail, setPrevFail] = useState<string | null>(null);
+  const [nidConfirm, setNidConfirm] = useState(false);
+  const [nidSaveErr, setNidSaveErr] = useState('');
   const [phone, setPhone] = useState<string | null>(null);
   const [consentAt, setConsentAt] = useState<string | null>(null);
   const [wrong, setWrong] = useState(0);
@@ -68,6 +76,24 @@ export function InstantCreditCheck({ customerId, onRank, embedded }: { customerI
     });
     return () => { off = true; };
   }, [customerId]);
+
+  useEffect(() => {
+    const code = normalizeNid(nid);
+    if (!validNid(code) || fileNid || st !== 'idle') return;
+    let off = false;
+    void saveQuickCreditNationalCode(customerId, code, false).then((r) => {
+      if (off) return;
+      if (r.needsConfirm) { setNidConfirm(true); return; }
+      setFileNid(code);
+      setNid('');
+      setNidConfirm(false);
+      setNidSaveErr('');
+    }).catch((e: TeamSalesApiError) => {
+      if (off) return;
+      setNidSaveErr(e.status === 409 ? 'این کد ملی در پرونده‌ی مشتری دیگری ثبت است؛ دوباره از مشتری بپرس یا به مدیر خبر بده.' : 'کد ملی ذخیره نشد. دوباره امتحان کنید.');
+    });
+    return () => { off = true; };
+  }, [nid, fileNid, customerId, st]);
 
   const code = fileNid ?? normalizeNid(nid);
   const nidOk = validNid(code);
@@ -135,8 +161,21 @@ export function InstantCreditCheck({ customerId, onRank, embedded }: { customerI
   };
   const again = () => { setConsent(false); setConsentAt(null); setExpired(false); setOtp(''); setRes(null); setCheck(null); setErr(''); setNote(''); setSt('idle'); };
 
+  const changeNid = () => { setFileNid(null); setNid(''); setNidTouched(false); setNidConfirm(false); setNidSaveErr(''); };
+  const confirmNid = () => {
+    const c = normalizeNid(nid);
+    if (!validNid(c)) return;
+    void saveQuickCreditNationalCode(customerId, c, true).then((r) => {
+      if (r.needsConfirm) return;
+      setFileNid(c); setNid(''); setNidConfirm(false); setNidSaveErr('');
+    }).catch((e: TeamSalesApiError) => {
+      setNidSaveErr(e.status === 409 ? 'این کد ملی در پرونده‌ی مشتری دیگری ثبت است؛ دوباره از مشتری بپرس یا به مدیر خبر بده.' : 'کد ملی ذخیره نشد. دوباره امتحان کنید.');
+    });
+  };
   const nidRO = (fileNid || (st !== 'idle' && nidOk)) ? <div className="nid" data-testid="cv-nid"><span className="nl">کد ملی</span>
-    <span className="nv" dir="ltr">{fa(code)}</span><Lock className="nk" aria-hidden="true" /></div> : null;
+    <span className="nv" dir="ltr">{maskNationalCode(code)}</span>
+    {st === 'idle' && fileNid ? <button type="button" className="cv-chg" data-testid="cv-nid-change" onClick={changeNid}>تغییر</button> : <Lock className="nk" aria-hidden="true" />}
+  </div> : null;
   const consentBox = <label className="cns" data-testid="cv-consent"><input type="checkbox" id="cvC" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
     <span className="bx" aria-hidden="true"><Check className="i" /></span><span className="cl">مشتری با استعلام اعتبار موافقت کرد</span></label>;
   const hint = 'تا تیک موافقت مشتری نخورد، دکمه غیرفعال است.';
@@ -162,9 +201,11 @@ export function InstantCreditCheck({ customerId, onRank, embedded }: { customerI
       <p className="ts-muted small" id="cvNh">۱۰ رقم؛ با رقم فارسی یا انگلیسی. فاصله و خط تیره خودکار حذف می‌شود.</p>
       {nidBad ? <p className="cve" id="cvE" role="alert"><AlertTriangle size={16} aria-hidden="true" /><span>این کد ملی معتبر نیست؛ رقم کنترل نمی‌خواند. رقم‌ها را دوباره از مشتری بپرس.</span></p> : null}
     </>}
+    {nidConfirm ? <p className="cve" role="status" data-testid="cv-nid-confirm">این مشتری کد ملی دیگری دارد؛ برای جایگزینی تأیید کنید. <button type="button" className="cv-chg" onClick={confirmNid}>تأیید و ذخیره</button></p> : null}
+    {nidSaveErr ? <p className="cve" role="alert">{nidSaveErr}</p> : null}
     {consentBox}
     <div className="cvr">{recent ? btn('استعلام دوباره', <RefreshCw size={18} aria-hidden="true" />) : btn('اعتبارسنجی')}
-      <span className="ts-muted small" id="cvH">{fileNid ? 'کد ملی در پرونده هست؛ دوباره پرسیده نمی‌شود. ' : ''}{hint}{recent ? ' نتیجه‌ی تازه جای این نتیجه در پرونده می‌نشیند؛ نتیجه‌ی قبلی در سابقه می‌ماند.' : ''}</span></div>
+      <span className="ts-muted small" id="cvH">{hint}{recent ? ' نتیجه‌ی تازه جای این نتیجه در پرونده می‌نشیند؛ نتیجه‌ی قبلی در سابقه می‌ماند.' : ''}</span></div>
     {prevFail ? <p className="cvp"><History size={14} aria-hidden="true" /><span>تلاش قبلی، {fmtDateTime(prevFail)}: سرویس استعلام در دسترس نبود.</span></p> : null}
   </>;
   else if (st === 'starting' || st === 'verifying' || st === 'processing') body = <>{nidRO}

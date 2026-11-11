@@ -1,4 +1,4 @@
-/** today-layout v1.8 layout fixtures. No live DB, no phones, no secrets, no user 29. */
+/** today-layout v1.9 layout fixtures. No live DB, no phones, no secrets, no user 29. */
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -98,6 +98,30 @@ check("v1.8.1 clips horizontal overflow and lets the queue rail shrink at 1024+"
   && !/body:has\(\[data-testid="dci-page"\]\) \.dci-tl \{\s*flex: 0 0 auto/.test(dciCss)
   && /body:has\(\[data-testid="dci-page"\]\) \.dci-tlw \{\s*flex: 0 0 auto/.test(dciCss));
 
+const iccTsx = fs.readFileSync(path.join(root, "features/team-sales/InstantCreditCheck.tsx"), "utf8");
+const cneTsx = fs.readFileSync(path.join(root, "features/customer-name-edit/CustomerNameEdit.tsx"), "utf8");
+const cneCss = fs.readFileSync(path.join(root, "features/customer-name-edit/customer-name-edit.css"), "utf8");
+check("v1.9 mid-card name row has a 44px ویرایش نام pencil (flag-gated CustomerNameEdit)",
+  dciTsx.includes("<CustomerNameEdit")
+  && dciTsx.includes('rowClassName="dci-nmr nmr ed-view"')
+  && cneTsx.includes('aria-label="ویرایش نام"')
+  && cneCss.includes("width:44px")
+  && cneCss.includes("height:44px"));
+check("v1.9 national ID is removed from mid/left identity and file lines; wizard step 1 is unchanged",
+  !dciTsx.includes("اطلاعات هویتی")
+  && !dciTsx.includes("dci-id-mid")
+  && !dciTsx.includes("dci-id-left")
+  && !feedTsx.includes('label: "کد ملی"')
+  && /function FirstCall[\s\S]*?کد ملی[\s\S]*?function /.test(dciTsx)
+  && dciTsx.includes('مرحله‌ی <span id="dci-sn">{fd(step)}</span> از {fd(3)}'));
+check("v1.9 instant credit shows a masked national ID with a 44px تغییر button and saves on the existing path",
+  iccTsx.includes("function maskNationalCode")
+  && iccTsx.includes("••••")
+  && iccTsx.includes(">تغییر</button>")
+  && iccTsx.includes("saveQuickCreditNationalCode")
+  && iccTsx.includes('data-testid="cv-nid-change"')
+  && fs.readFileSync(path.join(root, "features/team-sales/team-sales.css"), "utf8").includes("min-height:44px"));
+
 check("side column wraps notes then guarantor/wallet with 16px and no shared grid row",
   layCss.includes("grid-template-areas:\"mid side\"")
   && layCss.includes("align-content:start")
@@ -122,7 +146,7 @@ check("lockdown 403 still offers a path back to /today and tabs stay in the mark
   && (layCss.includes(".dci-tabs{display:none}") || dockCss.includes(".dci-tabs{display:none}")));
 
 check("inventory fields are still present",
-  ["کد ملی", "تکمیل پرونده در تماس اول", "ضامن", "درخواست تسهیلات جدید", "تاریخچه و یادداشت‌ها", "اعتبارسنجی فوری", "خلاصه‌ی تماس", "ثبت نتیجه‌ی تماس", "اطلاعات هویتی"]
+  ["کد ملی", "تکمیل پرونده در تماس اول", "ضامن", "درخواست تسهیلات جدید", "تاریخچه و یادداشت‌ها", "اعتبارسنجی فوری", "خلاصه‌ی تماس", "ثبت نتیجه‌ی تماس"]
     .every((txt) => dciTsx.includes(txt) || feedTsx.includes(txt) || dciCss.includes(txt) || layCss.includes(txt)));
 
 check("queue is a compact timeline (dot, turn, name, type tag) with no id, time, note or VoIP on the strip",
@@ -294,7 +318,7 @@ ${dockCss}
                 <p class="dci-cur">تماس ثبت‌شده‌ای در جریان نیست</p>
                 <div class="dci-head-main">
                   <div class="dci-who-row">
-                    <div class="dci-who"><h2>لیلا ژی</h2></div>
+                    <div class="dci-who"><div class="dci-nmr nmr ed-view"><h2>لیلا ژی</h2><button class="ed-pen" type="button" aria-label="ویرایش نام"></button></div></div>
                     <div class="dci-acts"><button class="btn pri" type="button" data-voip data-testid="dci-call">تماس</button></div>
                   </div>
                   <div class="dci-idrow dci-idrow-phone"><span class="ph"><span class="phn phd" dir="ltr">۰۹۱۲۰۰۰۰۰۰۰</span></span></div>
@@ -316,10 +340,7 @@ ${dockCss}
                 </div>
               </div>
               <div class="dci-rembar" data-testid="dci-rembar"><p>یادآور</p></div>
-              <div class="dci-id-mid">
-                <h2 class="dci-id-h">اطلاعات هویتی</h2>
-                <div class="dci-idrow"><span class="lbl">کد ملی</span> هنوز ثبت نشده است</div>
-              </div>
+              <div class="dci-tags" data-testid="dci-tags"><span>پیگیری</span></div>
               <section class="dci-filecard" id="dci-filecard" data-testid="dci-filecard"><h2>پرونده‌ی مشتری</h2>
                 <div class="dci-filebox" id="dci-filebox">
                   <p class="dci-empty">پرونده تماس اول هنوز تکمیل نشده است.</p>
