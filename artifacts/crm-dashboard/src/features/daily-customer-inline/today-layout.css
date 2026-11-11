@@ -518,7 +518,6 @@ body:has([data-testid="dci-page"]) .app-shell.ssv2 .topbar.ss-top{margin-bottom:
 .dci-gline{margin:8px 0 0;font-size:15px;font-weight:700;color:var(--nf-ink)}
 
 /* v1.7–v1.8: note under the call, call-summary quote, mid-card پرونده box */
-*/
 .dci-hist-item{margin:0;padding:10px 12px;border:1px solid var(--nf-line);border-radius:12px;background:var(--nf-surface-2,#f7f8fb);max-width:100%;box-sizing:border-box;overflow-x:hidden;min-width:0}
 .dci-hist-item p{margin:6px 0 0;font-size:15px;font-weight:600;color:var(--nf-ink);line-height:1.6;overflow-wrap:anywhere}
 .dci-hist-res{margin:6px 0 0}
