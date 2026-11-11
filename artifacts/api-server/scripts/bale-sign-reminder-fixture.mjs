@@ -1,13 +1,14 @@
 // bale-sign-reminder v1.0 fixture: scratch copy of a masked DB. No real Bale or SMS.
 import assert from "node:assert/strict";
 import { queryRow, queryRows, execute, executeChanges } from "../src/lib/crm-db.ts";
-import { ensureBaleBotSchema, _resetSchemaFlagForTests, setBaleBotFetch } from "../src/lib/bale-bot.ts";
-import { ensureBaleContactSchema, _resetBcSchemaFlagForTests, BC_GHASEMI_USER_ID } from "../src/lib/bale-contact.ts";
+import { ensureBaleBotSchema, _resetSchemaFlagForTests, setBaleBotFetch, attemptSend, botSends, botOfUser, BB_SHARED_BOT_USER_ID } from "../src/lib/bale-bot.ts";
+import { ensureBaleContactSchema, _resetBcSchemaFlagForTests, BC_GHASEMI_USER_ID, bcMaySendFromBot } from "../src/lib/bale-contact.ts";
 import {
-  SR_FLAG, SR_HISTORY_ACTION, SR_TEXTS, SR_DEFAULT_LOCK_HOURS, SR_DEFAULT_SIGN_URL,
+  SR_FLAG, SR_HISTORY_ACTION, SR_TEXTS, SR_DEFAULT_LOCK_HOURS, SR_DEFAULT_SIGN_URL, SR_CONNECT_HREF, SR_KEYBOARD_PREFIX,
   _resetSrForTests, ensureSignReminderSchema, srFlagOn, srSetFlag, srSetLockHours,
   srFormatFa, srChatView, srPreview, srSend, srCustomerStartedBot, srConfigNotes,
   setSrStatusFn, setSrLinkFn, setSrDeliverFn, srLastSuccessful, srLockHours, srStoredSignStatus,
+  isSignReminderOutbound,
 } from "../src/lib/bale-sign-reminder.ts";
 import { planLabelForCustomer } from "../src/lib/customer-bale.ts";
 import { historyActionLabel } from "../../crm-dashboard/src/lib/loan-history-fa.mjs";
@@ -158,6 +159,7 @@ makeGen(ghasemiApp, ghasemiCust);
 const kazemi = { id: kazemiUser.id, role: kazemiUser.role, salesperson_id: kazemiUser.salesperson_id };
 const hasani = { id: hasaniUser.id, role: hasaniUser.role, salesperson_id: hasaniUser.salesperson_id };
 const admin = { id: adminUser.id, role: "admin", salesperson_id: adminUser.salesperson_id };
+const ghasemi = { id: ghasemiUser.id, role: ghasemiUser.role, salesperson_id: ghasemiUser.salesperson_id };
 
 const deliveries = [];
 setSrDeliverFn(async ({ chatRow, botId, text, keyboard, authorUserId, at }) => {
@@ -338,15 +340,47 @@ await checkAsync("expired link is refused and does not send", async () => {
   assert.equal(deliveries.length, start);
 });
 
-await checkAsync("Ghasemi's bot never receives a reminder send", async () => {
+await checkAsync("sign reminder for a Ghasemi-owned case uses her bot (stubbed)", async () => {
   const start = deliveries.length;
-  const view = await srChatView(ghasemiChat.id, admin, NOW);
-  // started, but only on Ghasemi's unsending bot → treat as not started
-  assert.equal(view.state, "bot_not_started");
-  const send = await srSend(ghasemiChat.id, admin, NOW);
-  assert.equal(send.ok, false);
-  assert.equal(deliveries.length, start);
-  assert.ok(deliveries.every((d) => d.botId !== ghasemiBot.id));
+  const ownerView = await srChatView(ghasemiChat.id, ghasemi, NOW);
+  assert.equal(ownerView.state, "ready");
+  assert.equal(ownerView.canSend, true);
+  const adminView = await srChatView(ghasemiChat.id, admin, NOW);
+  assert.equal(adminView.state, "ready");
+  assert.equal(adminView.canSend, true);
+  const send = await srSend(ghasemiChat.id, ghasemi, NOW);
+  assert.equal(send.ok, true, send.ok ? "" : send.message);
+  assert.equal(deliveries.length, start + 1);
+  assert.equal(deliveries.at(-1).botId, ghasemiBot.id);
+  assert.equal(deliveries.at(-1).chatRow, ghasemiChat.id);
+  assert.ok(String(deliveries.at(-1).keyboard).startsWith(SR_KEYBOARD_PREFIX));
+  assert.equal(isSignReminderOutbound({ kind: "text", keyboard: deliveries.at(-1).keyboard }), true);
+});
+
+await checkAsync("any other outbound attempt through Ghasemi's bot is still blocked", async () => {
+  assert.equal(bcMaySendFromBot({ user_id: BC_GHASEMI_USER_ID }), false);
+  assert.equal(botSends(ghasemiBot), false);
+  setSetting("flag.bale_bot", "1");
+  setSetting("flag.bale_bot.user." + BC_GHASEMI_USER_ID, "1");
+  const chatId = String(nextId());
+  execute(
+    `INSERT INTO bale_bot_chats(bot_id,chat_id,first_name,last_name,username,customer_id,link_method,created_at,last_at)
+     VALUES(?,?,?,?,?,?, 'contact', ?, ?)`,
+    [ghasemiBot.id, chatId, "آزمون", "مسدود", "sample_u", ghasemiCust, AT, AT],
+  );
+  const row = queryRow("SELECT * FROM bale_bot_chats WHERE bot_id=? AND chat_id=?", [ghasemiBot.id, chatId]);
+  const msgId = execute(
+    `INSERT INTO bale_bot_messages(chat_row,dir,kind,text,keyboard,status,author_user_id,created_at)
+     VALUES(?,'out','text','سلام معمولی',NULL,'sending',?,?)`,
+    [row.id, ghasemi.id, AT],
+  );
+  const before = baleCalls.length;
+  await attemptSend(msgId);
+  const after = queryRow("SELECT status, error_code FROM bale_bot_messages WHERE id=?", [msgId]);
+  assert.equal(after.status, "failed");
+  assert.equal(after.error_code, "no_send");
+  assert.equal(baleCalls.length, before);
+  assert.equal(isSignReminderOutbound({ kind: "text", keyboard: null }), false);
 });
 
 
@@ -373,38 +407,90 @@ await checkAsync("default: send only in a chat the customer started, not the uns
   assert.equal(sendContractCalls.length, 0);
 });
 
-await checkAsync("no-token is inert: no send, no deliver, no sendContract, no SMS", async () => {
+await checkAsync("owner bot not connected: info-row copy, no send, connect link only for the owner", async () => {
   const tokenCust = insCust("نادر توکلی", "09120000026", kazemiSp);
   const tokenChat = openChat(kazemiBot, "نادر", "توکلی", tokenCust, true);
   makeApp(tokenCust);
   makeGen(queryRow("SELECT id FROM loan_applications WHERE customer_id=? ORDER BY id DESC LIMIT 1", [tokenCust]).id, tokenCust);
   const botId = kazemiBot.id;
-  const prev = queryRow("SELECT token_ct, token_key_id FROM bale_bots WHERE id=?", [botId]);
+  const prev = queryRow("SELECT token_ct, token_key_id, status FROM bale_bots WHERE id=?", [botId]);
   assert.ok(prev, "bot row");
   const start = deliveries.length;
   try {
-    executeChanges("UPDATE bale_bots SET token_ct=NULL, token_key_id=NULL WHERE id=?", [botId]);
+    executeChanges("UPDATE bale_bots SET token_ct=NULL, token_key_id=NULL, status='off' WHERE id=?", [botId]);
     const view = await srChatView(tokenChat.id, kazemi, NOW);
-    assert.equal(view.state, "no_token");
+    assert.equal(view.state, "bot_not_connected");
     assert.equal(view.canSend, false);
-    assert.equal(view.canOpenKeyCard, false);
-    assert.equal(view.reason, SR_TEXTS.noTokenExpert);
-    const admin = { id: 1, role: "admin" };
+    assert.equal(view.showConnectLink, true);
+    assert.equal(view.connectHref, SR_CONNECT_HREF);
+    assert.equal(view.reason, SR_TEXTS.notConnectedOwner);
     const adminView = await srChatView(tokenChat.id, admin, NOW);
-    assert.equal(adminView.state, "no_token");
+    assert.equal(adminView.state, "bot_not_connected");
     assert.equal(adminView.canSend, false);
-    assert.equal(adminView.canOpenKeyCard, true);
-    assert.equal(adminView.reason, SR_TEXTS.noToken);
+    assert.equal(adminView.showConnectLink, false);
+    assert.equal(adminView.connectHref, null);
+    assert.equal(adminView.reason, SR_TEXTS.notConnectedOther);
+    const otherView = await srChatView(tokenChat.id, hasani, NOW);
+    assert.equal(otherView.state, "bot_not_connected");
+    assert.equal(otherView.showConnectLink, false);
+    assert.equal(otherView.reason, SR_TEXTS.notConnectedOther);
     const send = await srSend(tokenChat.id, kazemi, NOW);
     assert.equal(send.ok, false);
     assert.equal(send.status, 409);
-    assert.equal(send.error, "no_token");
+    assert.equal(send.error, "bot_not_connected");
     assert.equal(deliveries.length, start);
     assert.equal(sendContractCalls.length, 0);
     assert.equal(smsCalls.length, 0);
   } finally {
-    executeChanges("UPDATE bale_bots SET token_ct=?, token_key_id=? WHERE id=?", [prev.token_ct, prev.token_key_id, botId]);
+    executeChanges("UPDATE bale_bots SET token_ct=?, token_key_id=?, status=? WHERE id=?", [prev.token_ct, prev.token_key_id, prev.status, botId]);
   }
+});
+
+await checkAsync("customer who started only the shared bot, not the owner's bot, gets nothing", async () => {
+  let shared = botOfUser(BB_SHARED_BOT_USER_ID) || queryRow("SELECT * FROM bale_bots WHERE user_id=?", [BB_SHARED_BOT_USER_ID]);
+  if (!shared) {
+    execute(
+      "INSERT INTO bale_bots(user_id,token_ct,status,created_at,updated_at) VALUES(?,NULL,'off',?,?)",
+      [BB_SHARED_BOT_USER_ID, AT, AT],
+    );
+    shared = botOfUser(BB_SHARED_BOT_USER_ID) || queryRow("SELECT * FROM bale_bots WHERE user_id=?", [BB_SHARED_BOT_USER_ID]);
+  }
+  assert.ok(shared, "shared bot row");
+  const onlyShared = insCust("هیوا شریفی", "09120000027", kazemiSp);
+  const sharedChat = openChat(shared, "هیوا", "شریفی", onlyShared, true);
+  makeApp(onlyShared);
+  makeGen(queryRow("SELECT id FROM loan_applications WHERE customer_id=? ORDER BY id DESC LIMIT 1", [onlyShared]).id, onlyShared);
+  const view = await srChatView(sharedChat.id, kazemi, NOW);
+  assert.equal(view.state, "bot_not_started");
+  assert.equal(view.canSend, false);
+  const start = deliveries.length;
+  const send = await srSend(sharedChat.id, kazemi, NOW);
+  assert.equal(send.ok, false);
+  assert.equal(send.error, "bot_not_started");
+  assert.equal(deliveries.length, start);
+  assert.ok(deliveries.every((d) => d.botId !== shared.id));
+});
+
+await checkAsync("when the case owner changes, the send target follows the new owner's bot", async () => {
+  const moved = insCust("کیانا جابجا", "09120000028", kazemiSp);
+  const kazemiChat = openChat(kazemiBot, "کیانا", "جابجا", moved, true);
+  const hasaniChat = openChat(hasaniBot, "کیانا", "جابجا", moved, true);
+  makeApp(moved);
+  makeGen(queryRow("SELECT id FROM loan_applications WHERE customer_id=? ORDER BY id DESC LIMIT 1", [moved]).id, moved);
+  const first = await srChatView(kazemiChat.id, kazemi, NOW);
+  assert.equal(first.state, "ready");
+  executeChanges("UPDATE customers SET salesperson_id=? WHERE id=?", [hasaniSp, moved]);
+  const after = await srChatView(kazemiChat.id, kazemi, NOW);
+  assert.equal(after.canSend, false);
+  const hasaniView = await srChatView(hasaniChat.id, hasani, NOW);
+  assert.equal(hasaniView.state, "ready");
+  assert.equal(hasaniView.canSend, true);
+  const start = deliveries.length;
+  const send = await srSend(kazemiChat.id, hasani, NOW);
+  assert.equal(send.ok, true, send.ok ? "" : send.message);
+  assert.equal(deliveries.length, start + 1);
+  assert.equal(deliveries.at(-1).botId, hasaniBot.id);
+  assert.equal(deliveries.at(-1).chatRow, hasaniChat.id);
 });
 
 check("no sendContract and no SMS after all cases", () => {

@@ -1,6 +1,6 @@
 /** bale-sign-reminder v1.0 — CRM actions, confirm modal, banners. Pixel-for-pixel from Armita's handoff CSS.
  *  Hidden entirely while flag.bale_sign_reminder is OFF (server omits chat.signReminder). */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'wouter';
 import { bbFetch, BbError, type BbChat, type SrView } from '../bale-bot/api';
 import { I, Cid, Ph } from '../bale-bot/ui';
@@ -28,17 +28,40 @@ export function SignReminderActs({
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<'confirm' | 'sending' | 'error'>('confirm');
   const [serverErr, setServerErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!refresh) return;
+    const onVis = () => { if (document.visibilityState === 'visible') refresh(); };
+    const onFocus = () => { refresh(); };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [refresh]);
   if (!sr?.enabled) return null;
 
-  const hideBtn = sr.state === 'already_signed' || sr.state === 'link_expired' || sr.state === 'no_contract' || (sr.state === 'no_token' && !sr.canOpenKeyCard) || (sr.otherExpert && !sr.canSend && sr.state !== 'cooldown' && sr.state !== 'no_token');
+  const notConnected = sr.state === 'bot_not_connected' || sr.state === 'no_token';
+  const hideBtn = sr.state === 'already_signed' || sr.state === 'link_expired' || sr.state === 'no_contract' || notConnected || (sr.otherExpert && !sr.canSend && sr.state !== 'cooldown');
   const otherLocked = sr.otherExpert && !sr.canSend;
   const disabled = sr.state === 'bot_not_started' || sr.state === 'cooldown' || !sr.canSend;
   const cool = sr.state === 'cooldown' || (sr.state === 'ready' && sr.lockUntilFa && !sr.canSend);
 
+  const notConnectedRow = notConnected ? (
+    <div className="sr-nc" role="status" data-testid="sr-not-connected">
+      {I({ n: 'alert' })}
+      <p className="sr-nc-text">{sr.reason}</p>
+      {sr.showConnectLink ? (
+        <Link className="sr-nc-link" href={sr.connectHref || '/bale-bot'} data-testid="sr-connect-bot">وصل کردن ربات</Link>
+      ) : null}
+    </div>
+  ) : null;
+
   const reminderBtn = () => {
+    if (notConnected) return null;
     if (hideBtn && !otherLocked) return null;
     if (otherLocked && sr.state !== 'cooldown') return null;
-    if (sr.state === 'bot_not_started' || sr.state === 'no_token') {
+    if (sr.state === 'bot_not_started') {
       return <button className="btn pri sm" type="button" aria-disabled="true" tabIndex={-1} data-testid="sr-remind">یادآوری امضا در بله</button>;
     }
     if (sr.state === 'cooldown' || cool) {
@@ -49,12 +72,7 @@ export function SignReminderActs({
   const refreshBtn = <button className="btn gh sm" type="button" data-testid="sr-refresh" onClick={onRefreshStatus}>به‌روزرسانی وضعیت</button>;
 
   const why = (() => {
-    if (sr.state === 'no_token') {
-      return <>
-        <p className="sr-why">{sr.reason}</p>
-        {sr.canOpenKeyCard ? <div className="sr-key-link"><Link className="btn gh sm" href="/bale-bot/admin?tab=keys" data-testid="sr-key-card">رفتن به کارت کلید</Link></div> : null}
-      </>;
-    }
+    if (notConnected) return null;
     if (sr.state === 'bot_not_started') return <p className="sr-why">{sr.reason}</p>;
     if (sr.state === 'link_expired' || sr.state === 'already_signed') return <p className="sr-why">{sr.reason}</p>;
     if (otherLocked) {
@@ -119,6 +137,7 @@ export function SignReminderActs({
   if (where === 'meta') {
     if (sr.state === 'no_contract' || sr.state === 'hidden') return null;
     return <>
+      {notConnectedRow}
       <div className="sr-acts" data-testid="sr-acts-meta">{reminderBtn()}{refreshBtn}</div>
       {lastLine}{why}
       {modal}
@@ -126,6 +145,7 @@ export function SignReminderActs({
   }
   return <>
     {lastLine}
+    {notConnectedRow}
     <div className="sr-acts" data-testid="sr-acts-pane">{reminderBtn()}{refreshBtn}</div>
     {why}
     {modal}

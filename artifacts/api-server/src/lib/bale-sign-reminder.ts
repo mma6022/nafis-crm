@@ -1,14 +1,16 @@
-/** Bale signature reminder v1.0.
+/** Bale signature reminder r4.
  *  Flag: flag.bale_sign_reminder (call_queue_settings; absent/≠'1' = OFF).
- *  Sends one real Bale reminder with the existing signature link. No SMS.
+ *  Sends one real Bale reminder with the existing signature link, from the
+ *  owning expert's bot only — never from the shared bot. No SMS.
  *  Never touches contract templates or the issuance / sendContract path.
- *  Ghasemi's bot never sends. Experts may send only for their own customers
- *  (admins / sales managers may also send). One successful send starts a
- *  server-side lock (default 24h); double-clicks are idempotent.
+ *  Ghasemi's bot may send this sign-reminder message type only; every other
+ *  outbound path stays behind the existing read-only / no-send guard.
+ *  Experts may send only for their own customers (admins / sales managers may
+ *  also send). One successful send starts a server-side lock (default 24h);
+ *  double-clicks are idempotent.
  */
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
-import { bcMaySendFromBot } from "./bale-contact";
-import { bbCanManage, bbLog, bbUser, botById } from "./bale-bot";
+import { bbCanManage, bbLog, bbUser, botById, botOfUser, fileOwnerUsers, isSharedCustomerBot } from "./bale-bot";
 import { cbActiveFiling, planLabelForCustomer } from "./customer-bale";
 import { classifyProviderState } from "./emzame-signature";
 
@@ -24,6 +26,8 @@ export const SR_DEFAULT_SIGN_URL = "https://web.emzame.ir/";
 export const SR_BUTTON = "امضای قرارداد";
 export const SR_HISTORY_ACTION = "bale-sign-reminder-sent";
 export const SR_KEYBOARD_PREFIX = "sr_sign:";
+/** Bottom-nav «ربات بله» page. Inbox has no connect-section hash today; admin token wizard is /bale-bot/admin. */
+export const SR_CONNECT_HREF = "/bale-bot";
 
 export const SR_TEXTS = {
   body: (first: string, plan: string) =>
@@ -36,6 +40,12 @@ export const SR_TEXTS = {
   expired: "لینک امضا منقضی شده است. یادآوری فرستاده نمی‌شود. لینک تازه فقط از مسیر صدور فعلی فرستاده می‌شود.",
   noToken: "کلید ربات بله روی سرور ثبت نشده است. یادآوری فرستاده نمی‌شود.",
   noTokenExpert: "یادآوری امضا در بله الان در دسترس نیست.",
+  /** Owner-expert copy when their bot is not connected (Armita r4). Easy to swap. */
+  notConnectedOwner: "ربات بله‌ی شما وصل نیست، برای همین یادآور امضا فرستاده نمی‌شود.",
+  /** Admin or another expert viewing the case (Armita r4). Easy to swap. */
+  notConnectedOther: "ربات بله‌ی کارشناس این پرونده وصل نیست، یادآور امضا فرستاده نمی‌شود.",
+  /** Text link on the owner-expert info row (Armita r4). Easy to swap. */
+  connectLink: "وصل کردن ربات",
   forbidden: "ارسال یادآوری فقط با کارشناس مشتری یا ادمین.",
   baleFailed: "ارتباط با بله برقرار نشد. دوباره تلاش کنید.",
   sentBanner: "فرستاده شد",
@@ -53,6 +63,7 @@ export type SrState =
   | "link_expired"
   | "no_contract"
   | "no_token"
+  | "bot_not_connected"
   | "hidden";
 
 export type SrSignStatus = "pending" | "signed" | "expired" | "none";
@@ -164,6 +175,14 @@ export function srReplyMarkup(keyboard: string | null | undefined): Record<strin
   return { inline_keyboard: [[{ text: SR_BUTTON, url }]] };
 }
 
+/** Narrow marker for this one outbound message type. Used by attemptSend so
+ *  Ghasemi's bot may deliver a sign reminder without loosening botSends(). */
+export function isSignReminderOutbound(m: { kind?: string | null; keyboard?: string | null } | null | undefined): boolean {
+  if (!m) return false;
+  if (m.kind && m.kind !== "text") return false;
+  return typeof m.keyboard === "string" && m.keyboard.startsWith(SR_KEYBOARD_PREFIX);
+}
+
 function firstNameOf(name: string | null | undefined, first: string | null | undefined): string {
   const f = String(first ?? "").trim();
   if (f) return f.split(/\s+/)[0]!;
@@ -186,17 +205,53 @@ export function srMaySend(viewer: { id: number; role: string; salesperson_id?: n
 }
 
 type StartedChat = { id: number; bot_id: number; customer_id: number | null; chat_id: string; user_id: number };
-/** A sendable bot the customer has actually messaged (started). Ghasemi is never used. */
+type BotConn = { id: number; user_id: number; status: string; token_ct?: string | null };
+
+/** Connected = token present in the masked field and status 'on'. Never opens or logs the secret.
+ *  The shared bot is never treated as connected for this feature. */
+export function srBotConnected(bot: BotConn | null | undefined): boolean {
+  if (!bot || isSharedCustomerBot(bot)) return false;
+  const stored = bot.token_ct;
+  const hasToken = typeof stored === "string" ? stored.trim().length > 0 : !!stored;
+  return hasToken && String(bot.status) === "on";
+}
+
+/** Case-owner expert users (customers.salesperson_id → active salesperson users). */
+export function srOwnerUserIds(customerId: number): number[] {
+  try { return fileOwnerUsers(customerId); } catch { return []; }
+}
+export function srOwnerUserId(customerId: number): number | null {
+  const ids = srOwnerUserIds(customerId);
+  if (!ids.length) return null;
+  const connected = ids.find((id) => srBotConnected(botOfUser(id) as BotConn | null));
+  return connected ?? ids[0] ?? null;
+}
+export function srOwnerBot(customerId: number): BotConn | null {
+  const uid = srOwnerUserId(customerId);
+  if (uid == null) return null;
+  return (botOfUser(uid) as BotConn | null) ?? null;
+}
+export function srOwnerBotConnected(customerId: number | null | undefined): boolean {
+  if (!customerId) return false;
+  return srBotConnected(srOwnerBot(customerId));
+}
+export function srIsOwningExpert(viewer: { id: number }, customerId: number | null | undefined): boolean {
+  if (customerId == null) return false;
+  return srOwnerUserIds(customerId).includes(viewer.id);
+}
+
+/** Chats the customer has actually started with the owning expert's bot (r4). Never the shared bot. */
 export function srStartedChats(customerId: number): StartedChat[] {
-  const rows = queryRows<StartedChat>(
+  const bot = srOwnerBot(customerId);
+  if (!bot || !srBotConnected(bot)) return [];
+  return queryRows<StartedChat>(
     `SELECT c.id, c.bot_id, c.customer_id, c.chat_id, b.user_id
      FROM bale_bot_chats c JOIN bale_bots b ON b.id=c.bot_id
-     WHERE c.customer_id=?
+     WHERE c.customer_id=? AND c.bot_id=?
        AND EXISTS (SELECT 1 FROM bale_bot_messages m WHERE m.chat_row=c.id AND m.dir='in')
      ORDER BY COALESCE(c.last_at, c.created_at) DESC`,
-    [customerId],
+    [customerId, bot.id],
   );
-  return rows.filter((r) => bcMaySendFromBot({ user_id: r.user_id }));
 }
 
 export function srCustomerStartedBot(customerId: number | null | undefined): boolean {
@@ -215,7 +270,7 @@ export function srBotHasToken(botId: number): boolean {
 
 export function srTargetHasToken(customerId: number, viewingChatRow: number): boolean {
   const target = pickSendChat(customerId, viewingChatRow);
-  return !!target && srBotHasToken(target.bot_id);
+  return !!target && srBotConnected(botById(target.bot_id) as BotConn | null);
 }
 
 type CaseRow = {
@@ -390,6 +445,8 @@ export type SrView = {
   reason: string | null;
   otherExpert: boolean;
   canOpenKeyCard: boolean;
+  showConnectLink: boolean;
+  connectHref: string | null;
 };
 
 function srCanOpenKeyCard(viewer: { id: number; role: string }): boolean {
@@ -409,7 +466,8 @@ export async function srChatView(chatRow: number, viewer: { id: number; role: st
     enabled: true, state: "no_contract", canSend: false, canRefresh: srOtherExpertRefresh(),
     applicationId: null, generationId: null, planLabel: null, messageText: null, buttonLabel: SR_BUTTON,
     signUrl: null, lastSentAt: null, lastSentFa: null, lockUntil: null, lockUntilFa: null,
-    lockHours: srLockHours(), reason: null, otherExpert: false, canOpenKeyCard: false, ...extra,
+    lockHours: srLockHours(), reason: null, otherExpert: false, canOpenKeyCard: false,
+    showConnectLink: false, connectHref: null, ...extra,
   });
   const chat = queryRow<{ customer_id: number | null; bot_id: number }>("SELECT customer_id, bot_id FROM bale_bot_chats WHERE id=?", [chatRow]);
   if (!chat) return empty({ state: "hidden", enabled: true });
@@ -438,14 +496,25 @@ export async function srChatView(chatRow: number, viewer: { id: number; role: st
   if (sign === "expired" && !srAllowExpired()) {
     return { ...base, state: "link_expired", reason: SR_TEXTS.expired, canSend: false };
   }
+  if (!srOwnerBotConnected(cse.customerId)) {
+    const ownerViewer = srIsOwningExpert(viewer, cse.customerId);
+    return {
+      ...base, state: "bot_not_connected", canSend: false,
+      reason: ownerViewer ? SR_TEXTS.notConnectedOwner : SR_TEXTS.notConnectedOther,
+      showConnectLink: ownerViewer,
+      connectHref: ownerViewer ? SR_CONNECT_HREF : null,
+    };
+  }
   if (!started) {
     return { ...base, state: "bot_not_started", reason: SR_TEXTS.botNotStarted, canSend: false };
   }
   if (!srTargetHasToken(cse.customerId, chatRow)) {
-    const canOpenKeyCard = base.canOpenKeyCard;
+    const ownerViewer = srIsOwningExpert(viewer, cse.customerId);
     return {
-      ...base, state: "no_token", canSend: false, canOpenKeyCard,
-      reason: canOpenKeyCard ? SR_TEXTS.noToken : SR_TEXTS.noTokenExpert,
+      ...base, state: "bot_not_connected", canSend: false,
+      reason: ownerViewer ? SR_TEXTS.notConnectedOwner : SR_TEXTS.notConnectedOther,
+      showConnectLink: ownerViewer,
+      connectHref: ownerViewer ? SR_CONNECT_HREF : null,
     };
   }
   if (locked) {
@@ -466,7 +535,10 @@ export type SrSendResult =
 
 const defaultDeliver: SrDeliverFn = async ({ chatRow, botId, text, keyboard, authorUserId, at }) => {
   const bot = botById(botId);
-  if (!bot || !bcMaySendFromBot(bot)) return { ok: false, message: SR_TEXTS.baleFailed };
+  // Sign-reminder deliver only: the owning expert's connected bot, including Ghasemi.
+  // The shared bot is never used. Generic no-send still applies to every other path.
+  if (!bot || isSharedCustomerBot(bot) || !srBotConnected(bot)) return { ok: false, message: SR_TEXTS.baleFailed };
+  if (!isSignReminderOutbound({ kind: "text", keyboard })) return { ok: false, message: SR_TEXTS.baleFailed };
   const delay = Number(setting("bale_sign_reminder.shot_delay_ms") || 0);
   if (Number.isFinite(delay) && delay > 0 && delay <= 15_000) await new Promise((r) => setTimeout(r, delay));
   if (setting("bale_sign_reminder.force_error") === "1") return { ok: false, message: SR_TEXTS.baleFailed };
@@ -531,11 +603,22 @@ async function doSend(
       lockUntil: last.lockUntil, lockUntilFa: srFormatFa(last.lockUntil), messageId: null, idempotent: true,
     };
   }
+  if (!srOwnerBotConnected(cse.customerId)) {
+    const ownerViewer = srIsOwningExpert(viewer, cse.customerId);
+    return {
+      ok: false, status: 409, error: "bot_not_connected",
+      message: ownerViewer ? SR_TEXTS.notConnectedOwner : SR_TEXTS.notConnectedOther,
+    };
+  }
   if (!srCustomerStartedBot(cse.customerId)) {
     return { ok: false, status: 409, error: "bot_not_started", message: SR_TEXTS.botNotStarted };
   }
   if (!srTargetHasToken(cse.customerId, chatRow)) {
-    return { ok: false, status: 409, error: "no_token", message: SR_TEXTS.noToken };
+    const ownerViewer = srIsOwningExpert(viewer, cse.customerId);
+    return {
+      ok: false, status: 409, error: "bot_not_connected",
+      message: ownerViewer ? SR_TEXTS.notConnectedOwner : SR_TEXTS.notConnectedOther,
+    };
   }
   const sign = await srResolveSignStatus(cse);
   if (sign === "signed" && srHideAfterSigned()) {
@@ -547,11 +630,8 @@ async function doSend(
   const target = pickSendChat(cse.customerId, chatRow);
   if (!target) return { ok: false, status: 409, error: "bot_not_started", message: SR_TEXTS.botNotStarted };
   const bot = botById(target.bot_id);
-  if (!bot || !bcMaySendFromBot(bot)) {
+  if (!bot || isSharedCustomerBot(bot) || !srBotConnected(bot) || bot.id !== srOwnerBot(cse.customerId)?.id) {
     return { ok: false, status: 409, error: "no_send", message: "ارسال از این ربات انجام نمی‌شود." };
-  }
-  if (!srBotHasToken(target.bot_id)) {
-    return { ok: false, status: 409, error: "no_token", message: SR_TEXTS.noToken };
   }
   const at = nowIso(now);
   const text = SR_TEXTS.body(cse.firstName, cse.planLabel);
@@ -630,7 +710,7 @@ export function srConfigNotes(): { key: string; defaultValue: string; meaning: s
     { key: SR_LOCK_HOURS_KEY, defaultValue: String(SR_DEFAULT_LOCK_HOURS), meaning: "مدت منع ارسال دوباره به ساعت، از زمان آخرین ارسال موفق. مقدار و زمان پایان را سرور می‌دهد." },
     { key: SR_ALLOW_EXPIRED_KEY, defaultValue: "0", meaning: "اگر لینک امضا منقضی باشد یادآوری فرستاده نشود؛ لینک تازه فقط از مسیر صدور فعلی." },
     { key: SR_HIDE_AFTER_SIGNED_KEY, defaultValue: "1", meaning: "پس از امضا دکمهٔ یادآوری نباشد؛ وضعیت «امضا شد»." },
-    { key: SR_USE_STARTED_CHAT_KEY, defaultValue: "1", meaning: "پیام در همان گفتگویی برود که مشتری ربات را در آن شروع کرده (ربات کارشناس یا ربات مشترک نفیس وام)." },
+    { key: SR_USE_STARTED_CHAT_KEY, defaultValue: "1", meaning: "پیام فقط در گفتگویی برود که مشتری با ربات بله‌ی کارشناسِ همان پرونده شروع کرده است. ربات مشترک هرگز هدف ارسال نیست." },
     { key: SR_OTHER_EXPERT_REFRESH_KEY, defaultValue: "1", meaning: "به‌روزرسانی وضعیت برای کارشناس دیگر باز بماند؛ ارسال فقط با مسئول و مدیر." },
     { key: SR_SIGN_URL_KEY, defaultValue: SR_DEFAULT_SIGN_URL, meaning: "لینک دکمه‌ی «امضای قرارداد» وقتی لینک یکتای ذخیره‌شده در سند نباشد. همان ورودی عمومی امضامی که پرتال مشتری استفاده می‌کند. مسیر صدور / sendContract صدا زده نمی‌شود." },
     { key: "bale_sign_reminder.local_stub", defaultValue: "unset", meaning: "فقط شات/تست محلی: پیام را بدون تماس با بله، sent ثبت می‌کند. در تولید نباید باشد." },

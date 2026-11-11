@@ -13,13 +13,13 @@ export type BbCustomerBot = {
   tasks?: { id: number; kind: string; status: string; detail: string | null; created_at: string; application_id: number | null }[];
 } | null;
 
-export type SrState = 'ready' | 'cooldown' | 'bot_not_started' | 'already_signed' | 'link_expired' | 'no_contract' | 'no_token' | 'hidden';
+export type SrState = 'ready' | 'cooldown' | 'bot_not_started' | 'already_signed' | 'link_expired' | 'no_contract' | 'no_token' | 'bot_not_connected' | 'hidden';
 export type SrView = {
   enabled: boolean; state: SrState; canSend: boolean; canRefresh: boolean;
   applicationId: number | null; generationId: number | null; planLabel: string | null;
   messageText: string | null; buttonLabel: string; signUrl: string | null;
   lastSentAt: string | null; lastSentFa: string | null; lockUntil: string | null; lockUntilFa: string | null;
-  lockHours: number; reason: string | null; otherExpert: boolean; canOpenKeyCard?: boolean;
+  lockHours: number; reason: string | null; otherExpert: boolean; canOpenKeyCard?: boolean; showConnectLink?: boolean; connectHref?: string | null;
 };
 export type BbMe = { enabled: boolean; view: 'own' | 'all'; canManage: boolean; name: string; bot: BbBot; unread: number; limits: BbLimits; contactFeature?: boolean; customerBot?: BbCustomerBotFlags; signReminder?: boolean };
 export type BbCustomer = { id: number; name: string; phone: string | null; status: string | null; salespersonId: number | null; expert: string | null; restricted: boolean; canOpen: boolean } | null;

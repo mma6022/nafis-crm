@@ -345,7 +345,10 @@ export async function attemptSend(msgId: number): Promise<void> {
   const bot = botById(m.bot_id);
   const fail = (code: string) => { executeChanges("UPDATE bale_bot_messages SET status='failed', error_code=?, retry_at=NULL WHERE id=?", [code, m.id]); bbLog({ botId: m.bot_id, chatRow: m.chat_row, action: "send", outcome: "failed", detail: { code } }); };
   if (!bot || !botLive(bot)) return fail("bot_off");
-  if (!botSends(bot)) return fail("no_send");
+  // Narrow, explicit allow: only the sign-reminder message type may leave a no-send bot
+  // (Ghasemi, salesperson id 4). botSends() itself is unchanged; every other outbound
+  // path (composer, contact ask, retry of non-reminder messages) stays blocked.
+  if (!botSends(bot) && !signReminder.isSignReminderOutbound(m)) return fail("no_send");
   const token = botToken(bot); if (!token) return fail("token_missing");
   executeChanges("UPDATE bale_bot_messages SET tries=tries+1 WHERE id=?", [m.id]);
   const replyId = m.reply_to ? queryRow<{ bale_message_id: number }>("SELECT bale_message_id FROM bale_bot_messages WHERE id=?", [m.reply_to])?.bale_message_id : null;
