@@ -87,8 +87,15 @@ body[data-page=today] .diag{display:none}
 
 /* از ۱۳۶۶: سه ستون، ستون وسط می‌تواند بچسبد */
 @media (min-width:1366px){
-  .dci-board{grid-template-columns:minmax(0,.9fr) minmax(0,1.45fr) minmax(0,1fr)}
-  .dci-mid{position:sticky;top:16px}
+  /* DOM is notes+file inside .dci-side (display:contents) then mid.
+     Name the areas so mid stays the center 1.45fr column (RTL: notes | mid | file). */
+  .dci-board{
+    grid-template-columns:minmax(0,.9fr) minmax(0,1.45fr) minmax(0,1fr);
+    grid-template-areas:"notes mid file";
+  }
+  .dci-right{grid-area:notes}
+  .dci-mid{grid-area:mid;position:sticky;top:16px}
+  .dci-left{grid-area:file}
 }
 
 /* ۱۰۲۴ تا ۱۳۶۵: دو ستون. ستون کناری یک ردیف است تا «ضامن و کیف پول»
