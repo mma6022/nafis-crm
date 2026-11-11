@@ -6,6 +6,7 @@ html, body{
   max-height:none;
   overflow-x:hidden;
   overflow-y:auto;
+  scroll-padding-bottom:calc(var(--dock-h, var(--ss-dock-h, 90px)) + 16px);
 }
 main.pg.dci-page, .dci-page{
   max-width:none;
@@ -103,6 +104,37 @@ body[data-page=today] .diag{display:none}
 .dci-head{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:8px 12px;margin:0 0 12px}
 .dci-who{min-width:0}
 .dci-who h2{font-size:26px;font-weight:800;margin:0;color:var(--nf-ink);display:inline;vertical-align:middle}
+
+/* Name row: «تماس» on the physical left, 48px. Wraps under the name, never under the priorities. */
+.dci-head-main{display:flex;flex-direction:column;align-items:stretch;gap:8px;width:100%;min-width:0}
+.dci-who-row{
+  display:flex;flex-wrap:wrap;align-items:center;
+  justify-content:space-between;gap:8px 12px;width:100%;min-width:0;
+}
+.dci-who-row .dci-who{flex:1 1 12rem;min-width:0;margin:0}
+.dci-who-row .dci-acts{flex:0 0 auto;margin:0;margin-inline-start:auto}
+.dci-mid .dci-head .dci-acts .btn,
+.dci-head-main .dci-acts .btn{
+  min-height:48px;height:48px;box-sizing:border-box;font-size:15px;padding:0 16px;
+}
+/* 390: full-width «تماس» under the number */
+@media (max-width:429.98px){
+  .dci-who-row{display:contents}
+  .dci-head-main > .dci-who, .dci-who-row .dci-who{order:1}
+  .dci-head-main > .dci-idrow-phone{order:2;margin:0}
+  .dci-head-main .dci-acts{order:3;width:100%;margin-inline-start:0}
+  .dci-head-main .dci-acts .btn{width:100%}
+}
+
+/* Priority chips: at least 44px, 15px type (beats the 768px 13px / 32–40 look). */
+.dci-page .dci-ps .csx-chip{
+  min-height:44px;height:auto;box-sizing:border-box;
+  font:inherit;font-size:15px;font-weight:600;line-height:1.4;
+}
+@media (max-width:767.98px){
+  .dci-page .dci-ps .csx-chip{min-height:44px;height:44px;font-size:15px}
+}
+
 .dci-page .cid{
   display:inline-flex;align-items:center;justify-content:center;
   min-height:44px;min-width:44px;padding:0 10px;margin-inline-start:8px;
@@ -226,6 +258,7 @@ body[data-page=today] .diag{display:none}
   margin:0 0 14px;padding:10px 12px;border-radius:12px;
   background:#FFF8E8;border:1px solid #E8D7A8;border-inline-start:4px solid #D4A017;
   color:var(--nf-ink);
+  scroll-margin-bottom:calc(var(--dock-h, var(--ss-dock-h, 90px)) + 16px);
 }
 .dci-rembar p{margin:0;font-size:15px;font-weight:600;line-height:1.6}
 .dci-rembar .dci-hint{font-size:13px;font-weight:600;color:var(--nf-ink-muted)}

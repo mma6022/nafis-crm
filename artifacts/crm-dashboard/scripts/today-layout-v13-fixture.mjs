@@ -67,6 +67,24 @@ check("inventory fields are still present",
   ["کد ملی", "تکمیل پرونده در تماس اول", "ضامن", "کیف پول", "درخواست تسهیلات جدید", "یادداشت‌ها", "تاریخچه‌ی تماس‌ها"]
     .every((s) => dciTsx.includes(s) || dciCss.includes(s) || layCss.includes(s)));
 
+
+check("phone number is shown in full with dir=ltr (shots may mask it)",
+  /<a className="phn phm" dir="ltr" href=\{\`tel:\$\{raw\}\`\}>\{f\}<\/a>/.test(dciTsx)
+  && /<span className="phn phd" dir="ltr">\{f\}<\/span>/.test(dciTsx)
+  && dciTsx.includes("const f = fd(raw)")
+  && /const fd = \(v:.+\) => String\(v\)\.replace\(\/\[0-9\]\/g/.test(dciTsx)
+  && layCss.includes("unicode-bidi:isolate"));
+
+check("تماس lives in the name row; rembar has dock+16 scroll-margin; chips are 44px / 15px",
+  dciTsx.includes("dci-who-row")
+  && /dci-who-row[\s\S]*CallActs/.test(dciTsx)
+  && /dci-head-main[\s\S]*\{ps\}/.test(dciTsx)
+  && layCss.includes("scroll-margin-bottom:calc(var(--dock-h, var(--ss-dock-h, 90px)) + 16px)")
+  && /\.dci-page \.dci-ps \.csx-chip\{[^}]*min-height:44px/.test(layCss)
+  && /\.dci-page \.dci-ps \.csx-chip\{[^}]*font-size:15px/.test(layCss)
+  && layCss.includes("min-height:48px;height:48px"));
+
+
 // —— mergeQueue unit checks ——
 const lead = { id: "p-1", kind: "plan", itemId: 1, customerId: 10, name: "لیلا ژی", typ: "لید تازه", ic: "i-plus", tm: "۱۰:۰۰", at: "2026-11-11T06:30:00.000Z" };
 const other = { id: "p-2", kind: "plan", itemId: 2, customerId: 11, name: "دیگر", typ: "کار امروز", ic: "i-today", tm: "۱۱:۰۰", at: "2026-11-11T07:30:00.000Z" };
@@ -130,9 +148,23 @@ ${dockCss}
               </section>
             </div>
             <section class="dci-col dci-mid" id="col-mid">
-              <div class="dci-head"><div class="dci-who"><h2>لیلا ژی</h2></div>
-                <button class="btn pri" type="button">تماس</button>
+              <div class="dci-head">
+                <p class="dci-cur">تماس ثبت‌شده‌ای در جریان نیست</p>
+                <div class="dci-head-main">
+                  <div class="dci-who-row">
+                    <div class="dci-who"><h2>لیلا ژی</h2></div>
+                    <div class="dci-acts"><button class="btn pri" type="button" data-voip data-testid="dci-call">تماس</button></div>
+                  </div>
+                  <div class="dci-idrow dci-idrow-phone"><span class="ph"><span class="phn phd" dir="ltr">۰۹۱۲۰۰۰۰۰۰۰</span></span></div>
+                </div>
+                <div class="csx dci-ps"><div class="csx-chips">
+                  <button class="csx-chip" type="button" data-p="1">اولویت ۱</button>
+                  <button class="csx-chip" type="button" data-p="3" aria-checked="true">اولویت ۳</button>
+                  <button class="csx-chip" type="button">بدون اولویت</button>
+                </div></div>
+                <div class="dci-prio"><button class="btn gh" type="button">ارتقا به اولویت ۱</button></div>
               </div>
+              <div class="dci-rembar" data-testid="dci-rembar"><p>یادآور</p></div>
               <section class="dci-filecard" data-testid="dci-filecard"><h2>پرونده‌ی مشتری</h2>
                 <div class="dci-fc"><p class="dci-step">مرحله‌ی ۱ از ۳</p><label class="dci-flab">کد ملی <input class="dci-inp"/></label></div>
               </section>
@@ -190,6 +222,38 @@ const measure = async (width, height = 800) => {
       dateUnderH1: h1 && date ? date.top - (h1.top - 40) : 0,
       emptyToNotes: empty && notesH ? Math.round(notesH.top - empty.bottom) : 0,
       filecardAboveCases: filecard && newBtn ? filecard.bottom <= newBtn.top + 1 : false,
+      call: (() => {
+        const who = document.querySelector(".dci-who")?.getBoundingClientRect();
+        const acts = document.querySelector(".dci-head-main .dci-acts, [data-testid=dci-call]")?.getBoundingClientRect();
+        const callBtn = document.querySelector("[data-testid=dci-call], .dci-head-main .btn.pri")?.getBoundingClientRect();
+        const phone = document.querySelector(".dci-idrow-phone")?.getBoundingClientRect();
+        const ps = document.querySelector(".dci-ps")?.getBoundingClientRect();
+        const chip = document.querySelector(".dci-ps .csx-chip");
+        const rem = document.querySelector(".dci-rembar");
+        const col = document.getElementById("col-file");
+        const midCol = document.getElementById("col-mid");
+        const sameRow = (a, b) => a && b && Math.max(a.top, b.top) < Math.min(a.bottom, b.bottom);
+        return {
+          callH: callBtn ? Math.round(callBtn.height) : 0,
+          callW: callBtn ? Math.round(callBtn.width) : 0,
+          callTop: callBtn ? Math.round(callBtn.top) : 0,
+          callLeft: callBtn ? Math.round(callBtn.left) : 0,
+          whoLeft: who ? Math.round(who.left) : 0,
+          whoRight: who ? Math.round(who.right) : 0,
+          nameAndCallSameRow: sameRow(who, callBtn),
+          callAbovePs: callBtn && ps ? callBtn.bottom <= ps.top + 1 : false,
+          callUnderNameNotPs: callBtn && who && ps ? callBtn.top >= who.top - 2 && callBtn.bottom <= ps.top + 1 : false,
+          phoneBottom: phone ? Math.round(phone.bottom) : 0,
+          callUnderPhone: callBtn && phone ? callBtn.top >= phone.bottom - 2 : false,
+          midW: midCol ? Math.round(midCol.getBoundingClientRect().width) : 0,
+          chipH: chip ? Math.round(chip.getBoundingClientRect().height) : 0,
+          chipFont: chip ? getComputedStyle(chip).fontSize : null,
+          remMargin: rem ? getComputedStyle(rem).scrollMarginBottom : null,
+          fileOverflow: col ? getComputedStyle(col).overflow : null,
+          fileMaxH: col ? getComputedStyle(col).maxHeight : null,
+          midOverflow: midCol ? getComputedStyle(midCol).overflow : null,
+        };
+      })(),
     };
   });
   await page.close();
@@ -221,6 +285,30 @@ try {
   check("wizard input is 48px; file card sits above loan actions; empty history to notes is 24px",
     at1280.inpH >= 47 && at1280.filecardAboveCases && at1280.emptyToNotes >= 20 && at1280.emptyToNotes <= 32,
     JSON.stringify({ inpH: at1280.inpH, filecardAboveCases: at1280.filecardAboveCases, emptyToNotes: at1280.emptyToNotes }));
+
+  const c1280 = at1280.call;
+  check("at 1280 «تماس» is 48px on the name row, to the left of the name, and not under the priorities",
+    c1280.callH >= 47 && c1280.callH <= 52 && c1280.nameAndCallSameRow && c1280.callAbovePs && c1280.callLeft < c1280.whoLeft,
+    JSON.stringify(c1280));
+  check("priority chips are at least 44px with 15px type",
+    c1280.chipH >= 44 && c1280.chipFont === "15px",
+    JSON.stringify({ chipH: c1280.chipH, chipFont: c1280.chipFont }));
+  check("amber rembar scroll-margin-bottom is dock height plus 16px; columns are not height-locked",
+    (c1280.remMargin === "106px" || /^\d+(\.\d+)?px$/.test(c1280.remMargin) && parseFloat(c1280.remMargin) >= 80)
+    && (c1280.fileOverflow === "visible" || c1280.fileOverflow === "visible visible")
+    && (c1280.fileMaxH === "none")
+    && (c1280.midOverflow === "visible" || c1280.midOverflow === "visible visible"),
+    JSON.stringify({ remMargin: c1280.remMargin, fileOverflow: c1280.fileOverflow, fileMaxH: c1280.fileMaxH, midOverflow: c1280.midOverflow }));
+
+  const c390 = at390.call;
+  check("at 390 «تماس» is 48px and full width under the number",
+    c390.callH >= 47 && c390.callUnderPhone && c390.callAbovePs && c390.callW >= (c390.midW * 0.9),
+    JSON.stringify(c390));
+
+  const c1356 = at1356.call;
+  check("at 1356 «تماس» stays on or under the name, never under the priorities, and is 48px",
+    c1356.callH >= 47 && c1356.callAbovePs && (c1356.nameAndCallSameRow || c1356.callUnderNameNotPs),
+    JSON.stringify(c1356));
 
   // dock pill position when collapsed
   const page = await browser.newPage();
