@@ -11,8 +11,8 @@ Timezone: 00:00 Tehran = 20:30 UTC = 12:30 PM America/Los_Angeles.
 | PostgreSQL 18 installed, localhost only, env file root-only | **Done** |
 | Migrator + checksums on a backup (unmasked, on the server) | **Done**: 327/327 tables matched, 241,352 rows, 243 FKs, 2 views, 36.4 s |
 | Masked copy loaded into `nafisvam_masked` (phones + national IDs) | **Done**: 35.3 s, checksums ok, triggers skipped (mask_copy drops them) |
-| All 205 triggers translated and verified | **Not done** (48 created, 157 failed on first pass; WHEN-clause fix pending re-run) |
-| `idx_call_logs_customer_actual_time` (`julianday`) | **Not done** at last successful run; rewrite uploaded |
+| All 205 triggers translated and verified | **Not done** (58 created, 147 failed after WHEN-clause fix: PG disallows subqueries in WHEN; some RAISE/GLOB/NEW bodies still need a plpgsql rewrite) |
+| `idx_call_logs_customer_actual_time` (`julianday`) | **Not done** (`julianday(text)` still missing at index build; 225/226 indexes succeed) |
 | `DB_DRIVER=sqlite\|pg` in the API, behavior identical | **Not done** — driver not landed; branch `feat/pg-migration` is for this work |
 | Full fixture suites + pkgtest against `nafisvam_masked` | **Not done** |
 | Hot-endpoint benches (after-call/pending, reminders, messages, today plan) vs SQLite | **Not done** (need the driver) |
