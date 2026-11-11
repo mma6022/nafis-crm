@@ -223,7 +223,6 @@ export function FileBox({ customerId, nationalCode, onOpen, wizard }: {
   const open = Boolean(wizard);
   const gLabel = init.g === "no" ? "ضامن ندارد" : init.g === "yes" ? "ضامن دارد" : (f?.answers?.guarantorAvailable ? firstCallValueText("guarantorAvailable", f.answers.guarantorAvailable) : "—");
   const rows: { label: string; value: string; ltr?: boolean }[] = [
-    { label: "کد ملی", value: nationalCode ? fd(nationalCode) : "هنوز ثبت نشده است", ltr: Boolean(nationalCode) },
     { label: "شهر", value: init.city || "—" },
     { label: "مبلغ درخواستی", value: init.amount ? formatTomanFa(init.amount) : "—" },
     { label: "شرح نیاز", value: init.need || "—" },

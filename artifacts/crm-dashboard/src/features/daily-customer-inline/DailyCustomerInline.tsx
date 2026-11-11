@@ -11,6 +11,7 @@ import { dpApi } from "@/features/daily-plan/api";
 import { fileCardKey, promoteToP1, useFileCard } from "@/features/history/api";
 import { InstantCreditCheck } from "@/features/team-sales/InstantCreditCheck";
 import { saveQuickCreditNationalCode, useIccEnabled } from "@/features/team-sales/api";
+import { CustomerNameEdit } from "@/features/customer-name-edit/CustomerNameEdit";
 import { useVcMe, vcApi } from "@/features/voip-call/api";
 import { DciError, dciApi, useDciBoard, useDciToday, type DciBoard, type DciCase, type DciDenied, type DciInbound, type DciTask } from "./api";
 import { FileBox, HistFeed, fileInitials, saveWizardFile } from "./today-feed";
@@ -371,6 +372,8 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
   const showPs = canEditPs || !!m.priorityStatusLocked;
   const noPermHint = "اجازهٔ تغییر اولویت در این حساب نیست.";
   const [stToast, setStToast] = useState(false);
+  const [nameOv, setNameOv] = useState<string | null>(null);
+  const [nameToast, setNameToast] = useState("");
   const stToastT = useRef(0);
   const curStatus: CustomerUpdateStatus = (PS_STATUSES.includes((m.customer.status || "") as CustomerUpdateStatus) ? m.customer.status : "in_progress") as CustomerUpdateStatus;
   const saveStatus = (value: CustomerUpdateStatus) => {
@@ -470,15 +473,19 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
       {PS_STATUSES.map((key) => <option key={key} value={key}>{STATUS_LABEL[key]}</option>)}
     </select>
   </div>;
-  const nid = m.customer.nationalCode
-    ? <span><span className="lbl">کد ملی</span> <b dir="ltr">{fd(m.customer.nationalCode)}</b></span>
-    : <span><span className="lbl">کد ملی</span> هنوز ثبت نشده است</span>;
+  const shownName = nameOv ?? m.customer.name;
   return <section className="dci-col dci-mid" aria-label="اطلاعات تماس و پرونده‌ها">
     <div className="dci-head">
     <p className="dci-cur">{m.call}</p>
     <div className="dci-head-main">
       <div className="dci-who-row">
-        <div className="dci-who"><h2>{fd(m.customer.name)}</h2> {cidBtn(m.customer.id, onCopy)}</div>
+        <div className="dci-who">
+          <CustomerNameEdit customerId={m.customer.id} name={shownName} toast={(msg) => { setNameToast(msg); window.setTimeout(() => setNameToast(""), 2500); }}
+            onSaved={(n) => { setNameOv(n); void qc.invalidateQueries({ queryKey: ["dci-board", m.customer.id] }); }}
+            rowClassName="dci-nmr nmr ed-view">
+            <h2>{fd(shownName)}</h2> {cidBtn(m.customer.id, onCopy)}
+          </CustomerNameEdit>
+        </div>
         <CallActs ext={ext} place="head" narrow={narrow} onCall={onCall} onResult={onResult} />
       </div>
       <div className="dci-idrow dci-idrow-phone">{m.customer.phone ? <Phone raw={m.customer.phone} big={!ext} onCopy={onCopy} /> : null}</div>
@@ -488,6 +495,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
       {st}
     </div>
     {stToast ? <div className="toast on" role="status" data-testid="dci-st-toast">وضعیت مشتری ذخیره شد.</div> : null}
+    {nameToast ? <div className="toast on" role="status" data-testid="dci-cne-toast">{nameToast}</div> : null}
     {promo?.open ? createPortal(<div className="dci-dlgw" data-testid="dci-promote-wrap" data-nodnd="true">
       <div className="dci-dlg dci-dlg-promo" role="dialog" aria-modal="true" aria-labelledby="dci-p1-t" data-testid="dci-promote">
         <h2 id="dci-p1-t">ارتقا به اولویت ۱</h2>
@@ -501,11 +509,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     </div>, document.body) : null}
     </div>
     {remBar ? <div className="dci-rembar" data-testid="dci-rembar" role="status"><p>{remBar.text}</p><span className="dci-hint">با ثبت نتیجه، این یادآور تمام می‌شود.</span></div> : null}
-    <div className="dci-id-mid">
-      <h2 className="dci-id-h">اطلاعات هویتی</h2>
-      <div className="dci-idrow">{nid}</div>
-      <div className="dci-tags">{tags}</div>
-    </div>
+    {tags.length ? <div className="dci-tags" data-testid="dci-tags">{tags}</div> : null}
     <section className="dci-filecard" id="dci-filecard" aria-label="پرونده‌ی مشتری" data-testid="dci-filecard">
       <h2>پرونده‌ی مشتری</h2>
       <FileBox customerId={m.customer.id} nationalCode={m.customer.nationalCode} onOpen={wizard.onOpen}
@@ -555,17 +559,7 @@ function RightCol({ m, ext, onCall, result, sumOpen }: {
 }
 
 function LeftCol({ m }: { m: DciBoard }) {
-  const tagCatalog = useListCustomerTags({ query: { queryKey: getListCustomerTagsQueryKey() } });
-  const tags = (m.customer.tags || []).map((x) => <span key={x}>{dciTagLabel(x, tagCatalog.data)}</span>);
-  const nid = m.customer.nationalCode
-    ? <span><span className="lbl">کد ملی</span> <b dir="ltr">{fd(m.customer.nationalCode)}</b></span>
-    : <span><span className="lbl">کد ملی</span> هنوز ثبت نشده است</span>;
-  return <section className="dci-col dci-left" aria-label="اطلاعات هویتی و اعتبارسنجی" data-testid="dci-left">
-    <div className="dci-id-left">
-      <h2 className="dci-id-h">اطلاعات هویتی</h2>
-      <div className="dci-idrow">{nid}</div>
-      <div className="dci-tags">{tags}</div>
-    </div>
+  return <section className="dci-col dci-left" aria-label="اعتبارسنجی فوری" data-testid="dci-left">
     <div className="dci-block" data-testid="dci-credit">
       <div className="dci-cvh"><h3>اعتبارسنجی فوری</h3><span className="dci-opt">اختیاری</span></div>
       <CreditBlock customerId={m.customer.id} state={m.credit.state} grade={m.credit.grade} at={m.credit.at} /></div>
