@@ -141,6 +141,6 @@ body.dock-autohide:not(.dock-collapsed) .ss-tb{
 body.dock-autohide:not(.dock-collapsed) .dk-reopen{display:none !important}
 /* فاصلهٔ پایین در حالت مخفی خودکار همان داک + ۲۴ می‌ماند */
 
-.ss-dock, .ss-tb, .dock, .tb{position:relative}
-.ss-dock{overflow:visible}
+/* Keep the live dock/tab-bar position:fixed; only allow the collapse toggle to paint outside the bar. */
+.ss-dock, .ss-tb{overflow:visible}
 .ss-dock .dk-toggle{inset-inline-end:8px}
