@@ -233,6 +233,9 @@ try {
     const r = el.getBoundingClientRect();
     return { display: st.display, left: r.left, bottom: window.innerHeight - r.bottom, height: r.height, dockDisplay: getComputedStyle(document.querySelector(".ss-dock")).display };
   });
+  check("dock-collapse.css does not override the fixed dock or mobile tab bar",
+    !/\\.ss-dock, \\.ss-tb, \\.dock, \\.tb\\{position:relative\\}/.test(dockCss)
+    && !/\\.ss-dock\\s*,\\s*\\.ss-tb\\s*,\\s*\\.dock\\s*,\\s*\\.tb\\s*\\{[^}]*position:\\s*relative/.test(dockCss));
   check("collapsed «منو» pill is 44px at left 24 / bottom 24 and the dock is hidden",
     pill.display !== "none" && Math.abs(pill.left - 24) <= 2 && Math.abs(pill.bottom - 24) <= 2 && pill.height >= 43 && pill.height <= 46 && pill.dockDisplay === "none",
     JSON.stringify(pill));
