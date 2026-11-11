@@ -147,8 +147,9 @@ button.sw{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding
 .ft-rows{display:flex;flex-direction:column;margin:0}
 .ft-row{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"title sw" "desc sw" "meta sw";column-gap:12px;row-gap:4px;align-items:center;min-height:56px;padding:10px 0;border-top:1px solid var(--nf-line)}
 .ft-row:first-child{border-top:0;padding-top:4px}
-.ft-hd{grid-area:title;min-width:0}
+.ft-hd{grid-area:title;display:flex;flex-wrap:wrap;align-items:center;column-gap:6px;row-gap:4px;min-width:0}
 .ft-hd .ft-name{margin:0;font-size:15px;font-weight:800;color:var(--nf-ink);line-height:1.6}
+.ft-badge{flex:none;display:inline-flex;align-items:center;white-space:nowrap;font-size:12px;font-weight:600;line-height:1.4;color:#475569;background:#F1F5F9;border-radius:6px;padding:2px 6px}
 .ft-sw{grid-area:sw;align-self:start;justify-self:start}
 .ft-card .sw{font-size:14px;color:var(--nf-ink)}
 .ft-desc{grid-area:desc;margin:0;font-size:14px;font-weight:400;color:var(--nf-ink-soft);line-height:1.7}

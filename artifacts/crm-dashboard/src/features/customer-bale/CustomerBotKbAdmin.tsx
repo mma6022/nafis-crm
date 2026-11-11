@@ -348,7 +348,7 @@ const FT_CHIP = 'کلید OpenAI وارد نشده';
 const FT_KEY_LINK = 'وارد کردن کلید';
 const CB_ANSWER_CAPTION = 'ربات بله با کمک پایگاه دانش به پیام مشتری پاسخ می‌دهد.';
 
-const FEATURES: { id: 'cbAnswerAi' | 'sttV2'; name: string; desc: string; toastOn: string; toastOff: string }[] = [
+const FEATURES: { id: 'cbAnswerAi' | 'sttV2'; name: string; badge?: string; desc: string; toastOn: string; toastOff: string }[] = [
   {
     id: 'cbAnswerAi',
     name: 'پاسخ هوش مصنوعی ربات بله',
@@ -358,7 +358,8 @@ const FEATURES: { id: 'cbAnswerAi' | 'sttV2'; name: string; desc: string; toastO
   },
   {
     id: 'sttV2',
-    name: 'تبدیل ویس به متن (نسخه‌ی ۲)',
+    name: 'تبدیل ویس به متن',
+    badge: 'نسخه‌ی ۲',
     desc: STT_V2_CAPTION,
     toastOn: 'تبدیل ویس به متن (نسخه‌ی ۲) روشن شد.',
     toastOff: 'تبدیل ویس به متن (نسخه‌ی ۲) خاموش شد.',
@@ -401,11 +402,15 @@ function AiFeaturesCard({ features, toast, reload }: { features?: AiFeaturesStat
     const locked = !masterOn || !keyPresent || busy !== null;
     const label = shownOn ? 'روشن' : 'خاموش';
     const since = shownOn ? sinceLine(st.lastEnabledAt) : '';
+    const ariaName = feat.badge ? `${feat.name}، ${feat.badge}` : feat.name;
     return <div className="ft-row" data-feat={feat.id} data-testid={`ai-feat-${feat.id}`}>
-      <div className="ft-hd"><p className="ft-name">{feat.name}</p></div>
+      <div className="ft-hd">
+        <p className="ft-name">{feat.name}</p>
+        {feat.badge ? <span className="ft-badge" data-testid={`ai-feat-${feat.id}-badge`}>{feat.badge}</span> : null}
+      </div>
       <div className="ft-sw">
         <button type="button" className={`sw${shownOn ? ' on' : ''}`} role="switch"
-          aria-checked={shownOn ? 'true' : 'false'} aria-label={`${feat.name}، ${label}`}
+          aria-checked={shownOn ? 'true' : 'false'} aria-label={`${ariaName}، ${label}`}
           aria-disabled={locked ? true : undefined} disabled={locked}
           data-testid={`ai-feat-${feat.id}-switch`}
           onClick={() => { if (locked) return; void apply(feat.id, !shownOn); }}>
