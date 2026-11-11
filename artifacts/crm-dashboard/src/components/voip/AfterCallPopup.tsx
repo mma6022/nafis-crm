@@ -34,10 +34,35 @@ export function AfterCallPopup() {
   const key = getListPendingVoipAfterCallsQueryKey();
   // perf 2026-10-26: the change stream pushes every call event, so with it open a 15 s safety poll is enough (was 2 s per tab).
   // The stream and the poll run only while this tab is visible; showing the tab refetches at once.
-  const { visible } = useTabState();
+  const { visible, leader } = useTabState();
   const [streamOpen, setStreamOpen] = useState(false);
-  const pendingQ = useListPendingVoipAfterCalls({ query: { queryKey: key, enabled: allowed, refetchInterval: streamOpen ? 15000 : 4000, refetchIntervalInBackground: false } });
+  const pendingQ = useListPendingVoipAfterCalls({
+    query: {
+      queryKey: key,
+      enabled: allowed && visible,
+      refetchInterval: (q) => {
+        if (!leader || !visible) return false;
+        if (q.state.status === 'error') return Math.min(30_000, 8_000 * 2 ** Math.min(q.state.fetchFailureCount, 2));
+        return streamOpen ? 15_000 : 8_000;
+      },
+      refetchIntervalInBackground: false,
+      retry: (n, err) => {
+        const status = (err as { status?: number } | undefined)?.status;
+        return status !== 401 && status !== 403 && n < 2;
+      },
+    },
+  });
   const data = pendingQ.data;
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return;
+    const ch = new BroadcastChannel('nafis-after-call-pending');
+    if (leader && visible && data) ch.postMessage(data);
+    const onMsg = (ev: MessageEvent) => {
+      if (!leader && ev.data && ev.data.items) queryClient.setQueryData(key, ev.data);
+    };
+    ch.addEventListener('message', onMsg);
+    return () => { ch.removeEventListener('message', onMsg); ch.close(); };
+  }, [leader, visible, data, queryClient, key]);
   const complete = useCompleteVoipAfterCall();
   const [deferred, setDeferred] = useState<number[]>([]);
   const [shown, setShown] = useState<number | null>(null);
@@ -57,13 +82,13 @@ export function AfterCallPopup() {
   const invalidateRef = useRef(invalidate); invalidateRef.current = invalidate;
 
   useEffect(() => {
-    if (!allowed || !visible || typeof EventSource === 'undefined') return;
+    if (!allowed || !visible || !leader || typeof EventSource === 'undefined') return;
     const es = new EventSource(`${import.meta.env.BASE_URL}api/voip/after-call/stream`, { withCredentials: true });
     es.onopen = () => setStreamOpen(true);
     es.onerror = () => setStreamOpen(false);
     es.onmessage = () => { setStreamOpen(true); invalidateRef.current(); };
     return () => { es.close(); setStreamOpen(false); };
-  }, [allowed,user?.id,visible]);
+  }, [allowed,user?.id,visible,leader]);
 
   useEffect(()=>{setDeferred([]);setShown(null);setDirty(false);setErr('');},[user?.id]);
 

@@ -53,6 +53,7 @@ import { SalesShellNav, useDockHeight, useSsOverlay, type SsItem, type SsGroup }
 import { CustLocked, RemLocked } from '@/features/sales-shell/LockedPages';
 import { useSiteNotifications } from '@/site-notifications/NotificationBell';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem } from './ui/dropdown-menu';
+import { useTabState } from '@/lib/tab-coordinator';
 
 const nafissLogoUrl = `${import.meta.env.BASE_URL}nafiss-financial-logo.png`;
 
@@ -187,6 +188,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
   // (EL_USERS + team members via flag.multi_team_v1). Trainee exclusion is unchanged on the server.
   const elMe = useLockdownMe(Boolean(user)).data;
   const elLocked = elMe?.locked === true;
+  const { visible, leader } = useTabState();
+  const mayPoll = visible || leader;
   const elPending = Boolean(user && EL_UIDS.includes(Number(user.id))) && elMe === undefined; // hold customer-list polls until we know (original three; team members rely on 403→/today)
   useEffect(() => { if (elLocked && location === '/') setLocation('/today'); }, [elLocked, location, setLocation]);
   usePageUsage(user?.id, location); // v10: page-usage tracker (route patterns + visible dwell only; silent on any failure)
@@ -206,8 +209,10 @@ export function CrmShell({ children }: { children: ReactNode }) {
     query: {
       queryKey: getListRemindersQueryKey(dueParams),
       enabled: Boolean(user?.role === 'admin' || user?.permissions?.includes('reminders.manage')) && !elLocked && !elPending && !panelMode && !rmOnForMe,
-      refetchInterval: 15_000,
+      refetchInterval: mayPoll && visible ? 15_000 : (mayPoll ? 30_000 : false),
+      refetchIntervalInBackground: false,
       refetchOnWindowFocus: true,
+      retry: (n: number, err: { status?: number }) => err?.status !== 401 && err?.status !== 403 && n < 2,
     },
   });
   const acknowledgeReminder = useAcknowledgeReminder();
@@ -215,7 +220,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const canTeam = Boolean(user && (user.role === 'admin' || user.permissions?.includes('internal_chat.use')));
   const team = useTeamInbox(canTeam);
   usePresence(staffChatPresence, canChat);
-  const unread = useQuery({ queryKey: ['chat', 'unread'], queryFn: fetchStaffUnread, enabled: canChat, refetchInterval: 10_000, retry: false });
+  const unread = useQuery({ queryKey: ['chat', 'unread'], queryFn: fetchStaffUnread, enabled: canChat && mayPoll, refetchInterval: visible ? 10_000 : 30_000, refetchIntervalInBackground: false, retry: false });
   const canCallbacks = Boolean(user && (user.role === 'admin' || user.permissions?.includes('callbacks.view'))) && !elLocked && !elPending;
   const callbacksBadge = useQuery({ queryKey: ['callbacks', 'badge'], queryFn: callbacksApi.badge, enabled: canCallbacks, refetchInterval: 30_000, retry: false });
   const canMarkPaid = Boolean(user && (user.role === 'admin' || (user.permissions?.includes('payment_orders.pay') && user.permissions?.includes('payment_orders.view'))));
@@ -258,7 +263,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const ctCfg = useCtConfig(Boolean(user) && isAdminUser).data;
   const bbMe = useBaleBotMe().data; // bale v1.1
   const lpMe = useLinkPageMe(Boolean(user) && isAdminUser).data; // links v1.0
-  const mtMe = useSalesTeamsMe(Boolean(user)).data; // multi-team v1
+  const mtMe = useSalesTeamsMe(Boolean(user) && !elLocked).data; // multi-team v1 — skip for locked experts (not an allowed shell endpoint)
   const spMe = useSalesPerformanceMe(Boolean(user)).data; // sales-performance v1
   const basePageTitle = isAdminUser && (location === '/my-wallet' || location.startsWith('/my-wallet/')) ? 'کیف پول کارشناس‌ها' : location === '/settings/links' && !lpMe?.enabled ? 'تنظیمات' /* links v1.0 off: same title as before */ : location === '/sales-teams' && mtMe?.readonly ? 'تیم من' : titleFor(location);
   
@@ -312,7 +317,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   }).map(item => (isAdminUser && item.adminLabel ? { ...item, label: item.adminLabel } : item));
   // Role layout (display only, AFTER the permission filter above): main items + collapsed «بیشتر». null = old grouped menu.
   const menuKind = menuKindFor(user as { role?: string | null; salespersonId?: number | null } | undefined);
-  const roleLayout0 = menuKind ? layoutFor(elLocked && elMe?.locked && menuKind === 'expert' ? 'expertLocked' : menuKind, navItems) : null;
+  const roleLayout0 = menuKind ? layoutFor(elLocked && elMe?.locked ? 'expertLocked' : menuKind, navItems) : null;
   // crm-daily-plan: once the real «کارهای امروز» page exists for this user, «/» goes back to its own name.
   const roleLayout = roleLayout0 && dpOnForMe ? { ...roleLayout0, main: roleLayout0.main.map((m) => (m.kind === 'link' && m.item.href === '/' && m.item.label === 'کارهای امروز من' ? { ...m, item: { ...m.item, label: 'نمای کلی' } } : m)) } : roleLayout0;
   // «چت دستیار»: only when the dock already lists an assistant for this user (reads the dock's cached query; never fetches itself).

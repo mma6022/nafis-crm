@@ -169,10 +169,14 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
   // VOIP-CALL t743u (flag.voip_call + own extension; OFF → vcOn false, the card below is unchanged): «تماس از تلفن ویپ» on every «مشتریان بالقوه» card.
   // A started VoIP call opens this item's call the same way «تماس گرفتم» does (dpApi.start → the plan's result lock), quietly: the first-call form
   // waits for its button so the live call panel stays in view. One call at a time + the 30 s ring timeout come from the server (vcLaunch).
-  const vme = useVcMe().data; const vcOn = Boolean(vme?.on);
+  const vme = useVcMe().data;
+  // t771u: Arash (6) and Khordkar (28) call from their mobiles, not VoIP. Do not assign extensions.
+  // They keep the existing «تماس گرفتم» / tel: / logged-call / first-call form path and must not wait on Simotel/VoIP.
+  const mobileCallUser = user?.id === 6 || user?.id === 28;
+  const vcOn = Boolean(vme?.on) && !mobileCallUser;
   // SIMOTEL-132 (flag.simotel132 only; vme.s132 absent → unchanged): Simotel saves this call by itself — no result form here; an answered
   // first call opens the first-call form by itself (step 1 from Simotel, required). A late CDR shows the four status buttons in VoipCallBox.
-  const s132 = Boolean(vme?.s132);
+  const s132 = Boolean(vme?.s132) && !mobileCallUser;
   const vcc = s132 && vme?.call && vme.call.customerId === cur.customerId ? vme.call : null;
   const s132Busy = s132 && ((vcc?.s132 != null && vcc.s132.phase !== 'manual') || vme?.s132?.last?.customerId === cur.customerId);
   const openVoipFirst = (callId: number) => { if (cust) onFirstCall(fcOf(cust), { callId }); };
