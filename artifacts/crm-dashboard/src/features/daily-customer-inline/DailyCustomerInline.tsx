@@ -92,68 +92,17 @@ function Phone({ raw, big, onCopy }: { raw: string; big?: boolean; onCopy: (v: s
   </span>;
 }
 
-function Timeline({ tasks, selected, ext, onPick, onCall }: {
-  tasks: QueueTask[]; selected: string | null; ext: boolean;
-  onPick: (t: QueueTask) => void; onCall: (t: QueueTask) => void;
-}) {
-  const wrap = useRef<HTMLDivElement | null>(null);
-  const rail = useRef<HTMLElement | null>(null);
-  const nodeRef = useRef<HTMLAnchorElement | null>(null);
-  const [fade, setFade] = useState<"none" | "start" | "end" | "both">("none");
-  const [can, setCan] = useState({ prev: false, next: false });
-  const sync = () => {
-    const el = rail.current;
-    if (!el) return;
-    const max = el.scrollWidth - el.clientWidth;
-    const sl = el.scrollLeft;
-    // RTL: scrollLeft may be 0, negative, or positive depending on the engine.
-    const atStart = Math.abs(sl) < 4 || (max > 0 && Math.abs(Math.abs(sl) - 0) < 4 && sl <= 0 && el.scrollWidth - el.clientWidth - Math.abs(sl) > 4 ? sl >= -4 : Math.abs(sl) < 4);
-    const remaining = Math.max(0, el.scrollWidth - el.clientWidth - Math.abs(sl));
-    const atEnd = remaining < 4;
-    const atBegin = Math.abs(sl) < 4 || (sl > -4 && sl < 4 && remaining >= 4 && el.scrollWidth > el.clientWidth + 4 ? false : Math.abs(sl) < 4 && remaining < 4);
-    const hasOverflow = el.scrollWidth > el.clientWidth + 4;
-    const begin = Math.abs(el.scrollLeft) < 8;
-    const end = remaining < 8;
-    setCan({ prev: hasOverflow && !begin, next: hasOverflow && !end });
-    setFade(!hasOverflow ? "none" : begin ? "end" : end ? "start" : "both");
-  };
-  useEffect(() => { nodeRef.current?.scrollIntoView({ inline: "center", block: "nearest" }); }, [selected]);
-  useEffect(() => {
-    const el = rail.current;
-    if (!el) return;
-    sync();
-    el.addEventListener("scroll", sync, { passive: true });
-    const ro = new ResizeObserver(sync);
-    ro.observe(el);
-    return () => { el.removeEventListener("scroll", sync); ro.disconnect(); };
-  }, [tasks]);
-  const go = (dir: 1 | -1) => {
-    const el = rail.current;
-    if (!el) return;
-    el.scrollBy({ left: dir * Math.max(160, el.clientWidth * 0.6), behavior: "smooth" });
-  };
-  return <div className="dci-tlw" ref={wrap} data-fade={fade === "none" ? undefined : fade} data-testid="dci-tlw">
-    <button className="dci-tl-btn" type="button" aria-label="قبلی" disabled={!can.prev} onClick={() => go(1)} data-testid="dci-tl-prev"><DciIcon id="i-chev-r" /></button>
-    <nav className="dci-tl" ref={rail as any} aria-label="کارهای امروز">{tasks.map((t) => (
-      <a key={t.id} ref={selected === t.id ? nodeRef : undefined} className="dci-node" href={`#${t.id}`}
-        aria-current={selected === t.id ? "true" : undefined}
-        data-overdue={t.overdue || undefined}
-        onClick={(e) => { e.preventDefault(); onPick(t); }}>
-        <span className="dci-nt">
-          <span className="dci-turn">{fd(t.turn)}</span>
-          <DciIcon id={t.ic} />
-          <span>{t.tm}</span>
-          <span className="dci-ntypes">{t.types.map((x) => <span key={x}>{x}</span>)}</span>
-          {t.overdue ? <span className="dci-od">عقب‌افتاده</span> : null}
-        </span>
-        <b>{t.name}{t.customerId ? <> {/* id shown as text to avoid nested buttons */}<span className="cid" aria-hidden="true">#{fd(t.customerId)}</span></> : null}</b>
-        {t.remText ? <p className="dci-remline">{t.remText}</p> : null}
-        {ext ? <button className="dci-ncall" type="button" aria-label="تماس از ویپ" data-testid={`dci-ncall-${t.id}`}
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onCall(t); }}><DciIcon id="i-phone" /></button> : null}
-      </a>
-    ))}</nav>
-    <button className="dci-tl-btn" type="button" aria-label="بعدی" disabled={!can.next} onClick={() => go(-1)} data-testid="dci-tl-next"><DciIcon id="i-chev-l" /></button>
-  </div>;
+function Timeline({ tasks, selected, onPick }: { tasks: QueueTask[]; selected: string | null; onPick: (t: QueueTask) => void }) {
+  const ref = useRef<HTMLAnchorElement | null>(null);
+  useEffect(() => { ref.current?.scrollIntoView({ inline: "center", block: "nearest" }); }, [selected]);
+  return <nav className="dci-tl" aria-label="کارهای امروز">{tasks.map((t) => (
+    <a key={t.id} ref={selected === t.id ? ref : undefined} className="dci-node" href={`#${t.id}`}
+      aria-current={selected === t.id ? "true" : undefined}
+      onClick={(e) => { e.preventDefault(); onPick(t); }}>
+      <span className="dci-nt"><DciIcon id={t.ic} /><span>{t.tm}؛ {t.typ}</span></span>
+      <b>{t.name}</b>
+    </a>
+  ))}</nav>;
 }
 
 function HistList({ rows }: { rows: DciHist[] }) {
@@ -786,7 +735,7 @@ export default function DailyCustomerInline() {
     <main className="pg dci-page">
       <p className="dci-date">{todayQ.data?.dateLabel ?? ""}</p>
       <h1>کارهای امروز من</h1>
-      <Timeline tasks={tasks} selected={selectedTask?.id ?? null} ext={ext} onPick={setSel} onCall={(t) => { setSel(t); startCall(t.customerId); }} />
+      <Timeline tasks={tasks} selected={selectedTask?.id ?? null} onPick={setSel} />
       {boardEl}
     </main>
     {fcOpen && board ? <SimpleCallForm

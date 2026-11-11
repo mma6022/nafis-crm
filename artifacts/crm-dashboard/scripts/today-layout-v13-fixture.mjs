@@ -218,9 +218,9 @@ try {
     JSON.stringify({ oneCol: at390.oneCol, midTop: at390.midTop, notesTop: at390.notesTop, fileTop: at390.fileTop }));
 
   const at1280 = await measure(1280, 800);
-  check("wizard input is 48px and timeline arrows are 44px; file card sits above loan actions; empty history to notes is 24px",
-    at1280.inpH >= 47 && at1280.btnW >= 44 && at1280.btnH >= 44 && at1280.filecardAboveCases && at1280.emptyToNotes >= 20 && at1280.emptyToNotes <= 32,
-    JSON.stringify({ inpH: at1280.inpH, btn: [at1280.btnW, at1280.btnH], filecardAboveCases: at1280.filecardAboveCases, emptyToNotes: at1280.emptyToNotes }));
+  check("wizard input is 48px; file card sits above loan actions; empty history to notes is 24px",
+    at1280.inpH >= 47 && at1280.filecardAboveCases && at1280.emptyToNotes >= 20 && at1280.emptyToNotes <= 32,
+    JSON.stringify({ inpH: at1280.inpH, filecardAboveCases: at1280.filecardAboveCases, emptyToNotes: at1280.emptyToNotes }));
 
   // dock pill position when collapsed
   const page = await browser.newPage();
