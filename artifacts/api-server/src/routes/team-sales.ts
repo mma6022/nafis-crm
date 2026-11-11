@@ -17,6 +17,7 @@ import { addWorkingHours, type QualifierAnswers } from "../lib/team-sales-rules"
 import { ConsultProfileError, canActOnCustomerProfile, consultProfile, editConsultProfile } from "../lib/consult-profile";
 import { isAdminRole } from "../lib/customer-integrity";
 import { HX_REASON_MAX, callHistory, fileCard, saveFileOnly, expertUpgrade, expertUpgradesReport, historySummary, hxCanSee, hxExpert, selfNextCloser, upgradeReasonOf } from "../lib/history-a";
+import { saveDossier } from "../lib/customer-dossier";
 import { siteAnswersForCustomer } from "../lib/site-apply";
 import { TransferCheckError, cqLogRefusedTransfer, cqTransferPreview, withTransferOverride } from "../lib/call-queue-r3";
 
@@ -136,7 +137,11 @@ router.get("/customers/:id/file-card", requirePermission("customers.view"), (req
 router.post("/customers/:id/file-card", requirePermission("customers.update"), (req, res): void => {
   const id = hxScope(req, res); if (id == null) return;
   try {
-    saveFileOnly(id, actorOf(res), req.body?.answers);
+    if (req.body?.formVersion === 20 || req.body?.dossier) {
+      saveDossier(id, actorOf(res), req.body?.dossier ?? req.body?.answers);
+    } else {
+      saveFileOnly(id, actorOf(res), req.body?.answers);
+    }
     res.json(fileCard(id, actorOf(res)));
   } catch (e) { fail(res, e); }
 });

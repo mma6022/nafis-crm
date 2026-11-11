@@ -11,6 +11,7 @@ import { noteText } from "./note-text";
  * No switches: scoped in code (EL_USERS ∩ team-sales roles). Nothing here sends anything.
  */
 import { execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
+import { enrichFileCard } from "./customer-dossier";
 import { EL_ADMIN_USER_IDS, elUsers } from "./expert-lockdown";
 import { TeamSalesError, firstCallEditAccess, teamConfigFor, latestFirstCall, logPriorityChange, ensureTeamSalesSchema, promoteToPriorityOne, shortName, type Actor } from "./team-sales";
 import { normalizeFirstCallAnswers, validateAnswers, type QualifierAnswers } from "./team-sales-rules";
@@ -251,7 +252,7 @@ export function fileCard(customerId: number, actor: Actor) {
   const missing = fileMissing(answers);
   const total = FILE_REQUIRED.length + (answers?.guarantorAvailable === "yes" ? FILE_GUARANTOR_REQUIRED.length : 0);
   const p1Src = c.priority === 1 ? lastP1Source(c.id) : null;
-  return {
+  return enrichFileCard({
     customerId: c.id, name: c.name, phoneMasked: maskPhone(c.phone), phone: c.phone ?? null /* UNMASK-EXPERT t674u: hxScope = own customer or admin */, priority: c.priority, status: c.status,
     source: fo ? "file" : fc ? "first_call" : null, baseId: fc?.id ?? null, updatedAt: fo?.at ?? fc?.createdAt ?? null,
     changedFields: fo ? lastChanged(c.id, fo.id) : [],
@@ -260,7 +261,7 @@ export function fileCard(customerId: number, actor: Actor) {
     missing, missingCount: missing.length, total, complete: answers != null && missing.length === 0,
     canEdit: firstCallEditAccess(actor, c).canEdit,
     isP1: c.priority === 1, revertAdminOnly: c.priority === 1 && p1Src != null && (HX_UPGRADE_SOURCES as readonly string[]).includes(p1Src), adminLine: HX_ADMIN_LINE,
-  };
+  }, c.id);
 }
 function lastChanged(customerId: number, id: number): string[] {
   const r = queryRow<{ changed_json: string }>(`SELECT changed_json FROM ${FILE_TABLE} WHERE id=? AND customer_id=?`, [id, customerId]);

@@ -1,22 +1,11 @@
-/** v1.7 history+result feed, call summary, and mid-card پرونده box. No new server routes. */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+/** v1.7 history+result feed and call summary. پرونده box is in file-wizard.tsx (v2.0). */
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { cqOutcomeFor, emptyCqResult, type CqResultValue, type ManualOutcome } from "@/features/call-queue/ResultFields";
 import { ctReq, durText, useCtConfig, useCustomerCtCalls, type CtCall, type CtSummary } from "@/features/call-transcripts/api";
-import { fileCardKey, saveFileCard, useFileCard, type FileCard } from "@/features/history/api";
-import { firstCallValueText } from "@/features/team-sales/first-call-edit-labels";
 import { useVcHistory, useVcMe, vcApi, type VcHistItem } from "@/features/voip-call/api";
 import { type DciHist, type DciNote } from "./api";
 import { DciIcon } from "./icons";
-
-const FD = "۰۱۲۳۴۵۶۷۸۹";
-const fd = (v: string | number) => String(v).replace(/[0-9]/g, (d) => FD[Number(d)]);
-/** Persian digits + U+066C thousands separator, e.g. ۳۵٬۰۰۰٬۰۰۰ تومان */
-function formatTomanFa(raw: string): string {
-  const digits = String(raw).replace(/\D/g, "");
-  if (!digits) return "—";
-  return `${fd(digits.replace(/\B(?=(\d{3})+(?!\d))/g, "٬"))} تومان`;
-}
 
 const RES_OPTS: { key: ManualOutcome | "note_only"; label: string }[] = [
   { key: "answered", label: "جواب داد" },
@@ -105,7 +94,7 @@ function CallSummary({ eventId, forceOpen }: { eventId: number; forceOpen?: bool
   if (q.isFetched && !has && !q.isError) return null;
   return <>
     <button className="dci-sum-btn" type="button" aria-expanded={open} data-testid="dci-sum-btn" onClick={() => setOpen((o) => !o)}>
-      <DciIcon id="i-chev-l" /> خلاصه‌ی تماس
+      <DciIcon id="i-chev-l" className="i" /> خلاصه‌ی تماس
     </button>
     <div className="dci-sum" hidden={!open} data-testid="dci-sum">
       <div className="dci-sum-box">
@@ -187,77 +176,7 @@ export function HistFeed({ hist, notes, customerId, result, sumOpen }: {
   </section>;
 }
 
-export type FileInitials = { nid: string; city: string; amount: string; need: string; g: "yes" | "no" | ""; gcond: string };
 
-function splitNeed(note: string): { need: string; gcond: string } {
-  const raw = String(note || "");
-  const m = raw.match(/^(.*?)(?:\n)?شرایط ضامن:\s*(.*)$/s);
-  if (m) return { need: m[1].trim(), gcond: m[2].trim() };
-  return { need: raw.trim(), gcond: "" };
-}
-
-function amountToman(a: Record<string, unknown>): string {
-  const n = Number(a.amountMillion ?? a.amount ?? "");
-  if (!Number.isFinite(n) || n <= 0) return "";
-  return String(n >= 10_000 ? Math.round(n) : Math.round(n * 1e6));
-}
-
-export function fileInitials(card: FileCard | undefined, nationalCode: string | null): FileInitials {
-  const a = card?.answers ?? {};
-  const g = a.guarantorAvailable === "yes" || a.guarantorAvailable === "no" ? a.guarantorAvailable : "";
-  const fromNote = splitNeed(String(a.note || ""));
-  const gcond = fromNote.gcond
-    || [a.guarantorCheque ? firstCallValueText("guarantorCheque", a.guarantorCheque) : "", a.gRank ? firstCallValueText("gRank", a.gRank) : ""].filter(Boolean).join("، ");
-  return { nid: nationalCode || "", city: String(card?.city || a.city || ""), amount: amountToman(a), need: fromNote.need, g, gcond };
-}
-
-export function FileBox({ customerId, nationalCode, onOpen, wizard }: {
-  customerId: number; nationalCode: string | null;
-  onOpen: (mode: "new" | "edit", initial: FileInitials) => void;
-  wizard?: ReactNode;
-}) {
-  const q = useFileCard(customerId);
-  const f = q.data;
-  const filled = Boolean(f?.answers);
-  const init = fileInitials(f, nationalCode);
-  const open = Boolean(wizard);
-  const gLabel = init.g === "no" ? "ضامن ندارد" : init.g === "yes" ? "ضامن دارد" : (f?.answers?.guarantorAvailable ? firstCallValueText("guarantorAvailable", f.answers.guarantorAvailable) : "—");
-  const rows: { label: string; value: string; ltr?: boolean }[] = [
-    { label: "شهر", value: init.city || "—" },
-    { label: "مبلغ درخواستی", value: init.amount ? formatTomanFa(init.amount) : "—" },
-    { label: "شرح نیاز", value: init.need || "—" },
-    { label: "ضامن", value: gLabel },
-  ];
-  if (init.g === "yes") rows.push({ label: "شرایط ضامن", value: init.gcond || "—" });
-  return <>
-    <div className="dci-filebox" id="dci-filebox" hidden={open} data-testid="dci-filebox">
-      {q.isLoading ? <p className="dci-empty">در حال بارگذاری…</p> : q.isError ? <p className="dci-empty" role="alert">پرونده بارگذاری نشد.</p> : !filled ? <>
-        <p className="dci-empty">پرونده تماس اول هنوز تکمیل نشده است.</p>
-        <button className="btn pri" type="button" id="dci-file-open" data-testid="dci-file-open" onClick={() => onOpen("new", init)}>تکمیل پرونده</button>
-      </> : <>
-        <dl className="dci-kv">
-          {rows.map((r) => <div key={r.label}><dt>{r.label}</dt><dd dir={r.ltr ? "ltr" : undefined}>{r.value}</dd></div>)}
-        </dl>
-        <button className="btn gh" type="button" id="dci-file-edit" data-testid="dci-file-edit" onClick={() => onOpen("edit", init)}>ویرایش</button>
-      </>}
-    </div>
-    <div className="dci-block" id="dci-filewiz" hidden={!open} data-testid="dci-filewiz">
-      <h3>تکمیل پرونده در تماس اول</h3>
-      {wizard}
-    </div>
-  </>;
-}
-
-export async function saveWizardFile(customerId: number, d: { city: string; amountToman: string; need: string; g: "yes" | "no" | ""; gcond: string }) {
-  const million = Number(String(d.amountToman).replace(/\D/g, ""));
-  const amountMillion = Number.isFinite(million) && million >= 10_000 ? Math.max(1, Math.round(million / 1e6)) : (Number.isFinite(million) && million > 0 ? million : undefined);
-  const answers: Record<string, unknown> = {
-    city: d.city.trim() || undefined,
-    amountMillion,
-    note: [d.need.trim(), d.g === "yes" && d.gcond.trim() ? `شرایط ضامن: ${d.gcond.trim()}` : ""].filter(Boolean).join("\n") || undefined,
-    guarantorAvailable: d.g || undefined,
-  };
-  return saveFileCard(customerId, answers);
-}
-
-export { emptyCqResult };
+export { FileBox, FileWizard } from "./file-wizard";
+export { fileComplete, filePartial, stateFromDossier as fileInitials, type FileState } from "./file-dossier";
+export { saveDossier as saveWizardFile } from "@/features/history/api";

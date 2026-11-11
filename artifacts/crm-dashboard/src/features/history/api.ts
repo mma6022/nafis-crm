@@ -35,11 +35,19 @@ export const promoteToP1 = (customerId: number, reason: string) =>
 
 /* HISTORY-A v1.2: Today card 3 columns. */
 export type CallHistory = { items: HxCall[]; nextBefore: number | null };
+export type FileDossier = {
+  city: string; amount: string; amount_range: string; loan_purpose: string; job_status: string; documents: string[];
+  has_military_card: string; can_refer_retiree: string; has_bounced_or_overdue: string; need_timing: string;
+  credit_rank: string; g_job_status: string; g_credit_rank: string; g_conditions: string;
+  customer_note: string; note: string; need: string; amountBand: string; contactTime: string;
+  planId: string; planName: string; term: string;
+};
 export type FileCard = {
   customerId: number; name: string; phoneMasked: string; phone?: string | null; priority: number | null; status: string;
   source: 'first_call' | 'file' | null; baseId: number | null; updatedAt: string | null; changedFields: string[];
   answers: Record<string, any> | null; city: string | null; missing: string[]; missingCount: number; total: number; complete: boolean;
   canEdit: boolean; isP1: boolean; revertAdminOnly: boolean; adminLine: string;
+  dossier?: FileDossier; dossierComplete?: boolean; dossierPartial?: boolean; sitePrefill?: boolean;
 };
 export const callHistoryKey = (id: number) => ['call-history', id] as const;
 export const fileCardKey = (id: number) => ['file-card', id] as const;
@@ -53,3 +61,6 @@ export function useFileCard(customerId: number, enabled = true) {
 }
 export const saveFileCard = (customerId: number, answers: unknown) =>
   req<FileCard>(`/customers/${customerId}/file-card`, { method: 'POST', body: JSON.stringify({ answers }) });
+/** v2.0 dossier (partial or final). Does not go through the first-call required-field validator. */
+export const saveDossier = (customerId: number, dossier: unknown) =>
+  req<FileCard>(`/customers/${customerId}/file-card`, { method: 'POST', body: JSON.stringify({ formVersion: 20, dossier }) });

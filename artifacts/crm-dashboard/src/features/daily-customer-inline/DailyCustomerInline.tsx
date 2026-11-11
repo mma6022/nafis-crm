@@ -8,13 +8,14 @@ import { STATUS_LABEL } from "@/pages/customers-ui";
 import { announceCallSaved, useCqConfig } from "@/features/call-queue/api";
 import { emptyCqResult, type CqResultValue } from "@/features/call-queue/ResultFields";
 import { dpApi } from "@/features/daily-plan/api";
-import { fileCardKey, promoteToP1, useFileCard } from "@/features/history/api";
+import { promoteToP1 } from "@/features/history/api";
 import { InstantCreditCheck } from "@/features/team-sales/InstantCreditCheck";
-import { saveQuickCreditNationalCode, useIccEnabled } from "@/features/team-sales/api";
+import { useIccEnabled } from "@/features/team-sales/api";
 import { CustomerNameEdit } from "@/features/customer-name-edit/CustomerNameEdit";
 import { useVcMe, vcApi } from "@/features/voip-call/api";
 import { DciError, dciApi, useDciBoard, useDciToday, type DciBoard, type DciCase, type DciDenied, type DciInbound, type DciTask } from "./api";
-import { FileBox, HistFeed, fileInitials, saveWizardFile } from "./today-feed";
+import { HistFeed } from "./today-feed";
+import { FileBox, FileWizard } from "./file-wizard";
 import { DciIcon, DciSprites } from "./icons";
 import "./dci.css";
 import "./today-layout.css";
@@ -47,28 +48,6 @@ function psErrMsg(error: unknown, kind: "status" | "priority" = "status"): strin
   if (kind === "priority") return fallback;
   return typeof msg === "string" && /[\u0600-\u06FF]/.test(msg) && msg !== prioFb ? msg : fallback;
 }
-const toLatin = (v: string) => v.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
-/** Compact form asks for تومان; the existing first-call draft stores میلیون تومان. */
-function tomanToMillion(raw: string): string {
-  const n = Number(toLatin(raw).replace(/\D/g, ""));
-  if (!Number.isFinite(n) || n <= 0) return "";
-  if (n >= 10_000) return String(Math.max(1, Math.round(n / 1e6)));
-  return String(n);
-}
-function prefillFirstCallDraft(userId: number | undefined, customerId: number, patch: { city?: string; amountToman?: string; note?: string; gAvail?: "yes" | "no" | "" }) {
-  const key = `nafis-ts-firstcall-draft:${userId ?? 0}:${customerId}`;
-  try {
-    const cur = JSON.parse(localStorage.getItem(key) || "{}") as Record<string, unknown>;
-    const next = { ...cur };
-    if (patch.city?.trim()) { next.city = patch.city.trim(); next.cityTouched = true; }
-    const million = patch.amountToman ? tomanToMillion(patch.amountToman) : "";
-    if (million) next.amount = million;
-    if (patch.note?.trim()) next.note = patch.note.trim();
-    if (patch.gAvail === "yes" || patch.gAvail === "no") next.gAvail = patch.gAvail;
-    localStorage.setItem(key, JSON.stringify(next));
-  } catch { /* quota / private mode */ }
-}
-
 function useNarrow(q = "(max-width:1023.98px)") {
   const [n, setN] = useState(() => typeof window !== "undefined" && window.matchMedia(q).matches);
   useEffect(() => { const m = window.matchMedia(q); const f = () => setN(m.matches); m.addEventListener("change", f); return () => m.removeEventListener("change", f); }, [q]);
@@ -152,6 +131,17 @@ function Timeline({ tasks, selected, onPick }: { tasks: QueueTask[]; selected: s
   </div>;
 }
 
+export function creditAtLabel(at: string): string {
+  const raw = at.trim();
+  if (!raw) return "";
+  const fd = (v: string) => v.replace(/[0-9]/g, (d) => FD[Number(d)]);
+  const dateOnly = (v: string) => v.replace(/، ساعت.*/, "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(raw) && /[\u0600-\u06FF]/.test(raw)) return fd(dateOnly(raw));
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return fd(dateOnly(raw));
+  return fd(new Intl.DateTimeFormat("fa-IR-u-ca-persian", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Tehran" }).format(d));
+}
+
 function CreditBlock({ customerId, state, grade, at }: { customerId: number; state: DciBoard["credit"]["state"]; grade: string | null; at: string | null }) {
   const iccOn = useIccEnabled();
   if (state === "err") return <div className="dci-consent"><p className="dci-empty">استعلام الآن انجام نشد.</p></div>;
@@ -161,77 +151,6 @@ function CreditBlock({ customerId, state, grade, at }: { customerId: number; sta
   return <div className="dci-consent">
     <p className="dci-empty">رتبه هنوز استعلام نشده است.</p>
     {state === "start" && iccOn ? <div data-testid="dci-credit-start"><InstantCreditCheck customerId={customerId} embedded /></div> : null}
-  </div>;
-}
-
-function FirstCall({ customerId, userId, initial, onDone }: {
-  customerId: number; userId: number | undefined;
-  initial?: { nid: string; city: string; amount: string; need: string; g: "yes" | "no" | ""; gcond: string };
-  onDone: () => void;
-}) {
-  const qc = useQueryClient();
-  const [step, setStep] = useState(1);
-  const [g, setG] = useState<"yes" | "no" | "">(initial?.g ?? "");
-  const [nid, setNid] = useState(initial?.nid ?? "");
-  const [city, setCity] = useState(initial?.city ?? "");
-  const [amount, setAmount] = useState(initial?.amount ?? "");
-  const [need, setNeed] = useState(initial?.need ?? "");
-  const [gcond, setGcond] = useState(initial?.gcond ?? "");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  const [needConfirm, setNeedConfirm] = useState(false);
-  const finish = async (confirmReplace = false) => {
-    setBusy(true); setErr("");
-    try {
-      if (nid.trim()) {
-        const r = await saveQuickCreditNationalCode(customerId, toLatin(nid).replace(/\D/g, ""), confirmReplace);
-        if (r.needsConfirm) { setNeedConfirm(true); return; }
-      }
-      prefillFirstCallDraft(userId, customerId, { city, amountToman: amount, note: [need.trim(), g === "yes" && gcond.trim() ? `شرایط ضامن: ${gcond.trim()}` : ""].filter(Boolean).join("\n"), gAvail: g });
-      try {
-        const card = await saveWizardFile(customerId, { city, amountToman: amount, need, g, gcond });
-        qc.setQueryData(fileCardKey(customerId), card);
-        void qc.invalidateQueries({ queryKey: fileCardKey(customerId) });
-        void qc.invalidateQueries({ queryKey: ["dci-board", customerId] });
-      } catch (fe) {
-        // Compact wizard persists via file-card; if that path 404s, draft is still saved locally.
-        if (!(fe instanceof Error && /404/.test(fe.message))) throw fe;
-      }
-      setNeedConfirm(false);
-      onDone();
-    } catch (e) {
-      setErr(e instanceof Error && /[\u0600-\u06FF]/.test(e.message) ? e.message : "ذخیره انجام نشد. دوباره تلاش کنید.");
-    } finally { setBusy(false); }
-  };
-  const goNext = () => {
-    if (step < 3) { setStep((s) => s + 1); return; }
-    void finish(needConfirm);
-  };
-  return <div className="dci-fc" id="dci-fc" data-step={step} data-testid="dci-fc">
-    <p className="dci-step">مرحله‌ی <span id="dci-sn">{fd(step)}</span> از {fd(3)}</p>
-    <div className="dci-prog" aria-hidden="true"><span style={{ width: `${(step / 3) * 100}%` }} /></div>
-    <div className="dci-fstep" data-n="1" hidden={step !== 1}>
-      <label className="dci-flab">کد ملی <input className="dci-inp" dir="ltr" inputMode="numeric" autoComplete="off" placeholder="—" value={nid} onChange={(e) => { setNid(e.target.value); setNeedConfirm(false); }} /></label>
-      <label className="dci-flab">شهر <input className="dci-inp" autoComplete="off" placeholder="—" value={city} onChange={(e) => setCity(e.target.value)} /></label>
-    </div>
-    <div className="dci-fstep" data-n="2" hidden={step !== 2}>
-      <label className="dci-flab">مبلغ درخواستی، تومان <input className="dci-inp" dir="ltr" inputMode="numeric" autoComplete="off" placeholder="—" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
-      <label className="dci-flab">شرح نیاز <input className="dci-inp" autoComplete="off" placeholder="—" value={need} onChange={(e) => setNeed(e.target.value)} /></label>
-    </div>
-    <div className="dci-fstep" data-n="3" hidden={step !== 3}>
-      <p className="dci-empty" style={{ margin: 0 }}>ضامن</p>
-      <div className="dci-choice" role="radiogroup" aria-label="ضامن">
-        <button type="button" role="radio" aria-checked={g === "yes"} data-g="yes" onClick={() => setG("yes")}>ضامن دارد</button>
-        <button type="button" role="radio" aria-checked={g === "no"} data-g="no" onClick={() => setG("no")}>ضامن ندارد</button>
-      </div>
-      <label className="dci-flab" id="dci-gcond" hidden={g !== "yes"}>شرایط ضامن <input className="dci-inp" autoComplete="off" placeholder="مثلاً چک ضامن" value={gcond} onChange={(e) => setGcond(e.target.value)} /></label>
-    </div>
-    {err ? <p className="dci-empty" role="alert" data-testid="dci-fc-err">{err}</p> : null}
-    {needConfirm ? <p className="dci-empty" role="status">کد ملی با مقدار قبلی فرق دارد؛ برای جایگزینی دوباره «پایان» را بزنید.</p> : null}
-    <div className="dci-acts">
-      <button className="btn gh" type="button" id="dci-prev" hidden={step === 1} onClick={() => setStep((s) => Math.max(1, s - 1))}>قبلی</button>
-      <button className="btn pri" type="button" id="dci-next" data-testid="dci-fc-next" disabled={busy} onClick={goNext}>{step === 3 ? (needConfirm ? "تأیید و پایان" : "پایان") : "بعدی"}</button>
-    </div>
   </div>;
 }
 
@@ -332,7 +251,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
   promo?: { open: boolean; reason: string; setReason: (v: string) => void; onSave: () => void; onClose: () => void };
   remBar?: { text: string } | null;
   userId: number | undefined;
-  wizard: { open: boolean; initial?: { nid: string; city: string; amount: string; need: string; g: "yes" | "no" | ""; gcond: string }; onOpen: (mode: "new" | "edit", initial: { nid: string; city: string; amount: string; need: string; g: "yes" | "no" | ""; gcond: string }) => void; onClose: () => void };
+  wizard: { open: boolean; onOpen: (mode: "new" | "edit") => void; onClose: () => void };
 }) {
   const tagCatalog = useListCustomerTags({ query: { queryKey: getListCustomerTagsQueryKey() } });
   const tags = (m.customer.tags || []).map((x) => <span key={x}>{dciTagLabel(x, tagCatalog.data)}</span>);
@@ -511,9 +430,8 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     {remBar ? <div className="dci-rembar" data-testid="dci-rembar" role="status"><p>{remBar.text}</p><span className="dci-hint">با ثبت نتیجه، این یادآور تمام می‌شود.</span></div> : null}
     {tags.length ? <div className="dci-tags" data-testid="dci-tags">{tags}</div> : null}
     <section className="dci-filecard" id="dci-filecard" aria-label="پرونده‌ی مشتری" data-testid="dci-filecard">
-      <h2>پرونده‌ی مشتری</h2>
-      <FileBox customerId={m.customer.id} nationalCode={m.customer.nationalCode} onOpen={wizard.onOpen}
-        wizard={wizard.open ? <FirstCall key={`${m.customer.id}-wiz`} customerId={m.customer.id} userId={userId} initial={wizard.initial} onDone={wizard.onClose} /> : null} />
+      <FileBox customerId={m.customer.id} onOpen={wizard.onOpen}
+        wizard={wizard.open ? <FileWizard key={`${m.customer.id}-wiz`} customerId={m.customer.id} userId={userId} onDone={wizard.onClose} /> : null} />
     </section>
     <CasesBlock rows={m.cases} href={m.newCaseHref} canEdit={canEditPs} locked={!!m.priorityStatusLocked} busy={cancelCase.isPending} onCancel={openCancel} />
     {pendingPriority !== undefined ? createPortal(<div className="dci-dlgw" data-testid="dci-xfer-wrap" data-nodnd="true">
@@ -604,7 +522,6 @@ export default function DailyCustomerInline() {
   const [reasonOpen, setReasonOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [fcOpen, setFcOpen] = useState(false);
-  const [fcInitial, setFcInitial] = useState<ReturnType<typeof fileInitials> | undefined>(undefined);
   const [resultOpen, setResultOpen] = useState(false);
   const [resultVal, setResultVal] = useState<CqResultValue>(emptyCqResult());
   const [resultShow, setResultShow] = useState(false);
@@ -634,7 +551,6 @@ export default function DailyCustomerInline() {
     if (id) setDroppedIds((ids) => ids.includes(id) ? ids : [...ids, id]);
   }, [denied]);
   const board = boardQ.data && boardQ.data.access !== undefined ? boardQ.data : null;
-  const fileQ = useFileCard(customerId ?? 0, customerId != null);
   const ext = Boolean((board?.hasExtension ?? todayQ.data?.hasExtension) || vme?.on);
   useEffect(() => {
     document.body.classList.toggle("dci-noext", !ext);
@@ -703,10 +619,8 @@ export default function DailyCustomerInline() {
       setResultErr(e instanceof Error && /[\u0600-\u06FF]/.test(e.message) ? e.message : "ثبت نشد. دوباره تلاش کنید.");
     } finally { setResultBusy(false); }
   };
-  const openWizard = (mode: "new" | "edit", initial: ReturnType<typeof fileInitials>) => {
-    setFcInitial(initial ?? fileInitials(fileQ.data, board?.customer.nationalCode ?? null));
+  const openWizard = (_mode: "new" | "edit") => {
     setFcOpen(true);
-    void mode;
   };
   const doPromote = async () => {
     if (!customerId || !reason.trim()) return;
@@ -774,7 +688,7 @@ export default function DailyCustomerInline() {
       </div>
       <MidCol m={board} ext={ext} narrow={narrow} onCopy={copy} onCall={startCall} onResult={() => void startResult()} onPromote={() => setReasonOpen(true)} promoting={promoting}
         promo={{ open: reasonOpen, reason, setReason, onSave: () => void doPromote(), onClose: () => setReasonOpen(false) }}
-        remBar={remBar} userId={userId} wizard={{ open: fcOpen, initial: fcInitial, onOpen: openWizard, onClose: () => setFcOpen(false) }} />
+        remBar={remBar} userId={userId} wizard={{ open: fcOpen, onOpen: openWizard, onClose: () => setFcOpen(false) }} />
       <div className="dci-tabs" role="tablist" aria-label="بخش‌های دیگر">
         <button type="button" role="tab" id="tab-talk" aria-selected={tab === "talk" ? "true" : "false"} data-pane="talk"
           onClick={() => setTab((t) => t === "talk" ? "" : "talk")}>گفت‌وگو</button>
