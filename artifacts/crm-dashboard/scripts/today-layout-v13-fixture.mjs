@@ -13,6 +13,8 @@ const dockCss = fs.readFileSync(path.join(root, "features/bottom-nav-v2/dock-col
 const shellCss = fs.readFileSync(path.join(root, "features/sales-shell/sales-shell.css"), "utf8");
 const dciTsx = fs.readFileSync(path.join(root, "features/daily-customer-inline/DailyCustomerInline.tsx"), "utf8");
 const feedTsx = fs.readFileSync(path.join(root, "features/daily-customer-inline/today-feed.tsx"), "utf8");
+const wizTsx = fs.readFileSync(path.join(root, "features/daily-customer-inline/file-wizard.tsx"), "utf8");
+const dosTs = fs.readFileSync(path.join(root, "features/daily-customer-inline/file-dossier.ts"), "utf8");
 const shellTsx = fs.readFileSync(path.join(root, "components/CrmShell.tsx"), "utf8");
 const navTsx = fs.readFileSync(path.join(root, "features/sales-shell/SalesShellNav.tsx"), "utf8");
 const hookTs = fs.readFileSync(path.join(root, "features/sales-shell/dock-collapse.ts"), "utf8");
@@ -54,11 +56,11 @@ check("پرونده box lives in the mid-column file card; credit is in the side
     const card = mid;
     return dciTsx.includes('data-testid="dci-filecard"')
       && dciTsx.includes("پرونده‌ی مشتری")
-      && feedTsx.includes("تکمیل پرونده")
-      && feedTsx.includes("id=\"dci-filebox\"")
-      && feedTsx.includes("id=\"dci-filewiz\"")
+      && wizTsx.includes("تکمیل پرونده")
+      && wizTsx.includes("id=\"dci-filebox\"")
+      && wizTsx.includes("id=\"dci-filewiz\"")
       && card.includes("<FileBox")
-      && card.includes("<FirstCall")
+      && !card.includes("<FirstCall")
       && !card.includes("CreditBlock")
       && left.includes("CreditBlock")
       && left.includes("اعتبارسنجی فوری")
@@ -69,12 +71,11 @@ check("پرونده box lives in the mid-column file card; credit is in the side
       && dciTsx.includes("تاریخچه و یادداشت‌ها");
   })());
 
-check("v1.8.1 filled مبلغ درخواستی uses Persian digits and U+066C thousands separator",
-  feedTsx.includes('label: "مبلغ درخواستی"')
-  && feedTsx.includes("function formatTomanFa")
-  && feedTsx.includes("۳۵٬۰۰۰٬۰۰۰ تومان")
-  && feedTsx.includes("٬")
-  && !feedTsx.includes('label: "مبلغ درخواستی، تومان"'));
+check("v2.0 amount tag uses Persian digits and U+066C thousands separator",
+  dosTs.includes("export function formatTomanFa")
+  && dosTs.includes("٬")
+  && dosTs.includes("formatTomanFa(st.amount)")
+  && !dosTs.includes('label: "مبلغ درخواستی، تومان"'));
 
 check("v1.8.1 InstantCreditCheck is embedded in the side column with one title",
   dciTsx.includes("<InstantCreditCheck customerId={customerId} embedded")
@@ -107,13 +108,17 @@ check("v1.9 mid-card name row has a 44px ویرایش نام pencil (flag-gated 
   && cneTsx.includes('aria-label="ویرایش نام"')
   && cneCss.includes("width:44px")
   && cneCss.includes("height:44px"));
-check("v1.9 national ID is removed from mid/left identity and file lines; wizard step 1 is unchanged",
+check("v2.0 national ID stays out of the mid card and wizard; city is step 1; 9 or 10 steps",
   !dciTsx.includes("اطلاعات هویتی")
   && !dciTsx.includes("dci-id-mid")
   && !dciTsx.includes("dci-id-left")
   && !feedTsx.includes('label: "کد ملی"')
-  && /function FirstCall[\s\S]*?کد ملی[\s\S]*?function /.test(dciTsx)
-  && dciTsx.includes('مرحله‌ی <span id="dci-sn">{fd(step)}</span> از {fd(3)}'));
+  && !wizTsx.includes("کد ملی")
+  && !dosTs.includes('label: "کد ملی"')
+  && !dciTsx.includes("function FirstCall")
+  && wizTsx.includes("مرحله‌ی")
+  && dosTs.includes("city")
+  && dosTs.includes("visSteps"));
 check("v1.9 instant credit shows a masked national ID with a 44px تغییر button and saves on the existing path",
   iccTsx.includes("function maskNationalCode")
   && iccTsx.includes("••••")
@@ -147,7 +152,7 @@ check("lockdown 403 still offers a path back to /today and tabs stay in the mark
 
 check("inventory fields are still present",
   ["کد ملی", "تکمیل پرونده در تماس اول", "ضامن", "درخواست تسهیلات جدید", "تاریخچه و یادداشت‌ها", "اعتبارسنجی فوری", "خلاصه‌ی تماس", "ثبت نتیجه‌ی تماس"]
-    .every((txt) => dciTsx.includes(txt) || feedTsx.includes(txt) || dciCss.includes(txt) || layCss.includes(txt)));
+    .every((txt) => dciTsx.includes(txt) || feedTsx.includes(txt) || wizTsx.includes(txt) || dosTs.includes(txt) || iccTsx.includes(txt) || dciCss.includes(txt) || layCss.includes(txt)));
 
 check("queue is a compact timeline (dot, turn, name, type tag) with no id, time, note or VoIP on the strip",
   (() => {
@@ -190,13 +195,13 @@ check("after a priority transfer the today plan and reminders refetch, and 403 n
   && dciTsx.includes("droppedIds")
   && dciTsx.includes("not_owner"));
 
-check("wizard replaces the mid پرونده box in place and ویرایش starts at step 1 with saved values",
-  feedTsx.includes('id="dci-filebox"')
-  && feedTsx.includes('id="dci-filewiz"')
-  && feedTsx.includes("hidden={open}")
-  && feedTsx.includes("hidden={!open}")
-  && feedTsx.includes("fileInitials")
-  && dciTsx.includes("useState(1)")
+check("wizard replaces the mid پرونده box in place; ویرایش opens the v2.0 steps with saved values",
+  wizTsx.includes('id="dci-filebox"')
+  && wizTsx.includes('id="dci-filewiz"')
+  && wizTsx.includes("hidden={open}")
+  && wizTsx.includes("hidden={!open}")
+  && wizTsx.includes("id=\"dci-file-edit\"")
+  && dciTsx.includes("setFcOpen(true)")
   && layCss.includes("#dci-filebox[hidden]")
   && layCss.includes("#dci-filewiz[hidden]"));
 
