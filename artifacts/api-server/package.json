@@ -16,6 +16,8 @@
     "test:voip-after-call": "node scripts/voip-after-call-fixture.mjs",
     "test:after-call-fix": "node scripts/after-call-fix-fixture.mjs",
     "test:voip-task-hold": "NODE_ENV=production node scripts/run-bundled-fixture.mjs scripts/voip-task-hold-fixture.mjs",
+    "test:assistant-thread-poll": "bash scripts/run-assistant-thread-poll-fixture.sh",
+    "test:signature-refresh-backoff": "NODE_ENV=production node scripts/run-bundled-fixture.mjs scripts/signature-refresh-backoff-fixture.mjs",
     "test:ct-chat": "node scripts/ct-chat-fixture.mjs",
     "test:cs-fields": "node scripts/run-bundled-fixture.mjs scripts/cs-fields-fixture.mjs",
     "test:daily-customer-inline": "node scripts/run-bundled-fixture.mjs scripts/daily-customer-inline-fixture.mjs && node scripts/run-bundled-fixture.mjs scripts/daily-customer-inline-wiring-fixture.mjs",

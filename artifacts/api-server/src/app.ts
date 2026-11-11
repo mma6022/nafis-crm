@@ -132,7 +132,7 @@ const requireApiAuth: RequestHandler = (req, res, next): void => {
   // Public calculator quote (payout + installment only; validated + per-IP rate limit in the route).
   const isPublicLoanPlanQuote = req.method === "POST" && /^\/public\/loan-plans\/[^/]+\/quote\/?$/.test(req.path);
   const isPublicWalletShare = isPublicWalletRequest(req.method, req.path);
-  if (req.path === "/healthz" || isPublicLoanPlanRequest || isPublicLoanPlanQuote || isPublicWalletShare) {
+  if (req.path === "/healthz" || req.path === "/event-loop-lag" || isPublicLoanPlanRequest || isPublicLoanPlanQuote || isPublicWalletShare) {
     next();
     return;
   }

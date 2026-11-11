@@ -320,20 +320,20 @@ function DndCard({ head, side, gutter, children }: { head: DOMRect; side: Side; 
 
 const sleep = (ms: number, signal: AbortSignal) => new Promise<void>(r => { const t = setTimeout(r, ms); signal.addEventListener('abort', () => { clearTimeout(t); r(); }, { once: true }); });
 
-/** Long-polls one thread (wait=20) and reports merged state up. Backs off when the server answers instantly with nothing new. */
+/** Lightweight poll of one thread (wait=0 + since-cursor). Backs off when the server answers instantly with nothing new. */
 function ThreadPoller({ threadId, onData }: { threadId: number; onData: (id: number, d: Partial<AsThread>, fresh: AsMessage[], first: boolean) => void }) {
   const cb = useRef(onData); cb.current = onData;
   useEffect(() => {
     const ac = new AbortController(); let last = 0; let first = true; let fails = 0;
     (async () => {
       while (!ac.signal.aborted) {
-        // perf 2026-10-26: hidden tabs hold no long-poll. Only the hidden leader tab checks once a minute (wait=0) so a new
-        // message still chimes once; the others sleep until shown. A shown tab wakes at once and long-polls (wait=20).
+        // Hidden tabs: only the leader tab checks once a minute (wait=0) so a new message still chimes once.
+        // Shown tabs use wait=0 + after-cursor and back off ~4s when nothing is new (no 20s long-poll).
         if (!tabMayPoll()) { await tabSleep(3_600_000, ac.signal, tabMayPoll); continue; }
         const hidden = !tabVisible();
         const t0 = Date.now();
         try {
-          const d = await asFetch<AsThread>(`/assistant/threads/${threadId}/messages?after=${last}&wait=${first || hidden ? 0 : 20}`, { signal: ac.signal });
+          const d = await asFetch<AsThread>(`/assistant/threads/${threadId}/messages?after=${last}&wait=0`, { signal: ac.signal });
           fails = 0;
           const fresh = d.messages.filter(m => m.id > last);
           if (fresh.length) last = Math.max(last, ...fresh.map(m => m.id));

@@ -53,6 +53,7 @@ const stages = ["funder_initial_approval", "draft", "primary_contract_pending_si
 type Stage = typeof stages[number];
 import { closeDraftsForCase, draftForFeeCharge, draftForSubmit, linkDraftFee } from "../lib/loan-request-drafts";
 import { fcCatOn, fcMarkOpened } from "../lib/files-carousel";
+import { isProtectedSignatureTarget, runSignatureRefreshQueue, type SignatureRefreshTarget } from "../lib/signature-refresh-queue";
 
 function isFromBaleApp(id: number): boolean {
   try {
@@ -3179,15 +3180,17 @@ router.post("/loan-applications/:id/generated-documents/:documentId/verify-signa
 });
 
 let signatureSyncRunning = false;
-async function syncPendingCustomerSignatures() {
+export async function syncPendingCustomerSignatures() {
   if (signatureSyncRunning) return;
   signatureSyncRunning = true;
   try {
-    const pending = queryRows<any>(`SELECT a.id application_id,d.id document_id
+    const pending = queryRows<any>(`SELECT a.id application_id,d.id document_id,d.contract_generation_id generation_id
       FROM loan_applications a
       JOIN loan_application_generated_documents d ON d.application_id=a.id AND d.kind='primary'
        JOIN contract_generations g ON g.id=d.contract_generation_id AND g.deleted_at IS NULL AND g.superseded_at IS NULL
-        WHERE a.deleted_at IS NULL AND a.stage IN ('primary_contract_pending_signature','approved_contract_pending_signature')
+        WHERE a.deleted_at IS NULL AND a.status IS NOT 'rejected'
+         AND a.id <> 98 AND d.contract_generation_id <> 263
+         AND a.stage IN ('primary_contract_pending_signature','approved_contract_pending_signature')
          AND (d.contract_generation_id=a.current_primary_generation_id OR
            (a.current_primary_generation_id IS NULL AND a.initial_approval_at IS NULL
              AND a.legacy_reopen_prior_stage IS NULL AND g.loan_application_id IS NULL
@@ -3200,22 +3203,33 @@ async function syncPendingCustomerSignatures() {
              AND CAST(json_extract(consent.reason,'$.sourceGenerationId') AS INTEGER)=d.contract_generation_id)
         AND (d.link IS NULL OR d.link NOT LIKE 'signed:%') AND g.provider_contract_id IS NOT NULL
        ORDER BY a.id LIMIT 50`, [TOMAN_REPLACEMENT_ACTION]);
-    for (const item of pending) {
-      try { await refreshGeneratedDocumentSignature(Number(item.application_id), Number(item.document_id)); }
-      catch (err) { logger.warn({ err, applicationId: Number(item.application_id) }, "background signature refresh failed"); }
-    }
-    const amendments = queryRows<any>(`SELECT a.id application_id,d.id document_id
+    const amendments = queryRows<any>(`SELECT a.id application_id,d.id document_id,d.contract_generation_id generation_id
       FROM loan_applications a
       JOIN loan_application_generated_documents d ON d.application_id=a.id AND d.kind='amendment'
       JOIN contract_generations g ON g.id=d.contract_generation_id AND g.loan_application_id=a.id AND g.superseded_at IS NULL
-      WHERE a.deleted_at IS NULL AND a.stage='funder_amendment_pending_signature'
+      WHERE a.deleted_at IS NULL AND a.status IS NOT 'rejected'
+        AND a.id <> 98 AND d.contract_generation_id <> 263
+        AND a.stage='funder_amendment_pending_signature'
         AND (d.link IS NULL OR d.link NOT LIKE 'signed:%') AND g.provider_contract_id IS NOT NULL
         AND d.id=(SELECT MAX(latest.id) FROM loan_application_generated_documents latest WHERE latest.application_id=a.id AND latest.kind='amendment')
       ORDER BY a.id LIMIT 50`);
-    for (const item of amendments) {
-      try { await refreshGeneratedDocumentSignature(Number(item.application_id), Number(item.document_id)); }
-      catch (err) { logger.warn({ err, applicationId: Number(item.application_id) }, "background amendment signature refresh failed"); }
-    }
+    const targets: SignatureRefreshTarget[] = [...pending, ...amendments].map((item) => ({
+      applicationId: Number(item.application_id),
+      documentId: Number(item.document_id),
+      generationId: item.generation_id == null ? null : Number(item.generation_id),
+    }));
+    await runSignatureRefreshQueue(targets, async (item) => {
+      if (isProtectedSignatureTarget(item)) return;
+      await refreshGeneratedDocumentSignature(item.applicationId, item.documentId);
+    }, {
+      onMiss: (item, reason) => {
+        logger.info({ applicationId: item.applicationId, documentId: item.documentId, reason },
+          "background signature refresh skipped after generated_document_not_found");
+      },
+      onOtherError: (item, err) => {
+        logger.warn({ err, applicationId: item.applicationId }, "background signature refresh failed");
+      },
+    });
   } finally {
     signatureSyncRunning = false;
   }

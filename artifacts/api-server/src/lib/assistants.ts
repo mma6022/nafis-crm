@@ -84,7 +84,8 @@ export const ASSISTANT_BELL_GUARD_TRIGGER = `CREATE TRIGGER IF NOT EXISTS trg_as
     OR EXISTS(SELECT 1 FROM users WHERE id=NEW.recipient_user_id AND (role='trainee' OR salesperson_id IN (${TRAINEE_SALESPERSON_IDS.join(",")}))))
   BEGIN SELECT RAISE(IGNORE); END`;
 export const MAX_WAIT_S = 25;
-export const STAFF_MAX_WAIT_S = 20;
+/** Staff thread message polls no longer hold the request for 20s (that was the live ~20s /messages time). */
+export const STAFF_MAX_WAIT_S = 0;
 export const LONG_POLL_TICK_MS = 1000;
 export const MAX_WAITERS_PER_TOKEN = 6;
 export const ONLINE_MS = 90_000;
@@ -154,6 +155,9 @@ export function ensureAssistantSchema(db: Db, nowIso = new Date().toISOString())
     decided_by_user_id INTEGER, decided_at TEXT, reminder_id INTEGER, created_at TEXT NOT NULL);
   `);
   ensureSchemaObject(db, "index", "idx_assistant_messages_thread", "CREATE INDEX idx_assistant_messages_thread ON assistant_messages(thread_id, id)");
+  // Additive, guarded: speeds the unseen-user-message check used on every poll tick.
+  ensureSchemaObject(db, "index", "idx_assistant_messages_thread_author_picked",
+    "CREATE INDEX idx_assistant_messages_thread_author_picked ON assistant_messages(thread_id, author, picked_at)");
   ensureSchemaObject(db, "index", "idx_assistant_events_assistant", "CREATE INDEX idx_assistant_events_assistant ON assistant_events(assistant_id, id)");
   ensureSchemaObject(db, "index", "idx_assistant_audit_assistant", "CREATE INDEX idx_assistant_audit_assistant ON assistant_audit(assistant_id, id)");
   ensureSchemaObject(db, "index", "idx_assistant_tokens_assistant", "CREATE INDEX idx_assistant_tokens_assistant ON assistant_tokens(assistant_id)");
@@ -1660,8 +1664,15 @@ export function createAssistants(deps: Deps) {
     return rows<any>("SELECT * FROM assistants WHERE enabled=1 ORDER BY id").map(normAssistant).filter(a => userEligible(a, u));
   }
   function visibleMessages(a: any, u: any, t: any, after: number, limit = 80) {
-    return rows<any>("SELECT * FROM assistant_messages WHERE thread_id=? AND id>? ORDER BY id DESC LIMIT ?", t.id, after, limit).reverse()
+    const cap = Math.max(1, Math.min(80, Number(limit) || 80));
+    return rows<any>("SELECT * FROM assistant_messages WHERE thread_id=? AND id>? ORDER BY id DESC LIMIT ?", t.id, after, cap).reverse()
       .filter(m => m.author === "user" || userSeesCase(a, u, m.customer_id ?? null));
+  }
+  /** Cheap poll cursor: max id + unseen user-message count. Avoids SELECT * when nothing is new. */
+  function threadPollCursor(t: { id: number }) {
+    const latest = Number(row<any>("SELECT MAX(id) id FROM assistant_messages WHERE thread_id=?", t.id)?.id || 0);
+    const pending = Number(row<any>("SELECT COUNT(*) n FROM assistant_messages WHERE thread_id=? AND author='user' AND picked_at IS NULL", t.id)?.n || 0);
+    return { latest, pending };
   }
   function threadAccess(req: Request, res: Response) {
     const u = me(res); if (!u) { fail(res, 401, "unauthorized"); return null; }
@@ -1688,12 +1699,15 @@ export function createAssistants(deps: Deps) {
   });
   staff.get("/assistant/threads/:id/messages", async (req, res) => {
     const x = threadAccess(req, res); if (!x) return;
-    const after = Math.max(0, Number(req.query.after ?? 0) || 0);
-    const seenState = () => rows<any>("SELECT id,picked_at FROM assistant_messages WHERE thread_id=? AND author='user' AND picked_at IS NULL", x.t.id).length;
-    const before = { pending: seenState(), ...threadState(x.a, x.t) };
+    const after = Math.max(0, Number(req.query.after ?? req.query.since ?? 0) || 0);
+    const limit = Math.max(1, Math.min(80, Number(req.query.limit ?? 80) || 80));
+    const seenState = () => Number(row<any>("SELECT COUNT(*) n FROM assistant_messages WHERE thread_id=? AND author='user' AND picked_at IS NULL", x.t.id)?.n || 0);
+    const before = { cursor: threadPollCursor(x.t), ...threadState(x.a, x.t) };
     const got = await longPoll(req, res, `u${x.u.id}`, STAFF_MAX_WAIT_S, () => {
-      const l = visibleMessages(x.a, x.u, x.t, after); const st = threadState(x.a, x.t);
-      return l.length || seenState() !== before.pending || st.typing !== before.typing || st.online !== before.online ? l : null;
+      const cur = threadPollCursor(x.t); const st = threadState(x.a, x.t);
+      const changed = cur.latest > after || cur.pending !== before.cursor.pending || st.typing !== before.typing || st.online !== before.online;
+      if (!changed) return null;
+      return visibleMessages(x.a, x.u, x.t, after, limit);
     });
     if (got === undefined) return;
     const list = got || [];
