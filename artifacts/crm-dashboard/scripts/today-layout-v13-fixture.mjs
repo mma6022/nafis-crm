@@ -3,7 +3,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { mergeQueue, isDueReminder, remClock } from "../src/features/daily-customer-inline/queue.ts";
+import { mergeQueue, isDueReminder, remClock, queueKindClass, queueKindLabel } from "../src/features/daily-customer-inline/queue.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../src");
@@ -67,6 +67,31 @@ check("inventory fields are still present",
   ["کد ملی", "تکمیل پرونده در تماس اول", "ضامن", "کیف پول", "درخواست تسهیلات جدید", "یادداشت‌ها", "تاریخچه‌ی تماس‌ها"]
     .every((s) => dciTsx.includes(s) || dciCss.includes(s) || layCss.includes(s)));
 
+check("queue is a compact timeline (dot, turn, name, type tag) with no id, time, note or VoIP on the strip",
+  (() => {
+    const body = dciTsx.slice(dciTsx.indexOf("function Timeline"), dciTsx.indexOf("function HistList"));
+    return dciTsx.includes("dci-tlw")
+      && body.includes("dci-dot")
+      && body.includes("dci-nord")
+      && body.includes("dci-kind")
+      && body.includes("dci-late-t")
+      && body.includes("عقب‌افتاده")
+      && body.includes("صف تماس‌های امروز")
+      && body.includes("title={tip}")
+      && !body.includes("CallActs")
+      && !body.includes("{t.tm}")
+      && !body.includes("cidBtn");
+  })());
+
+check("ارتقا به اولویت ۱ button is gone; وضعیت مشتری saves via existing useUpdateCustomer",
+  !dciTsx.includes("dci-upgrade-p1")
+  && dciTsx.includes('data-testid="dci-st"')
+  && dciTsx.includes("dci-st-sel")
+  && dciTsx.includes("وضعیت مشتری ذخیره شد.")
+  && dciTsx.includes("data: { status: value }")
+  && dciTsx.includes("useUpdateCustomer")
+  && layCss.includes(".dci-st-sel"));
+
 
 check("phone number is shown in full with dir=ltr (shots may mask it)",
   /<a className="phn phm" dir="ltr" href=\{\`tel:\$\{raw\}\`\}>\{f\}<\/a>/.test(dciTsx)
@@ -106,6 +131,16 @@ check("a due reminder for a customer already in the queue merges onto that card"
   })());
 check("a reminder that is not yet due stays off the queue",
   mergeQueue([lead], [remFuture], now).length === 1 && !isDueReminder(remFuture, now));
+check("queue kind labels cover new lead, reminder, merged, and today task",
+  (() => {
+    const merged = mergeQueue([lead], [remMerge], now).find((x) => x.customerId === 10);
+    const remOnly = mergeQueue([], [remDue], now)[0];
+    const today = mergeQueue([other], [], now)[0];
+    return queueKindClass(merged) === "is-both" && queueKindLabel(merged) === "لید تازه و یادآور"
+      && queueKindClass(remOnly) === "is-rem" && queueKindLabel(remOnly) === "یادآور"
+      && queueKindClass(today) === "is-today" && queueKindLabel(today) === "کار امروز"
+      && queueKindClass({ typ: "لید تازه", types: ["لید تازه"] }) === "is-lead";
+  })());
 
 const html = `<!DOCTYPE html>
 <html lang="fa" dir="rtl">
@@ -130,9 +165,16 @@ ${dockCss}
           <p class="dci-date">سه‌شنبه ۱۹ آبان</p>
           <h1>کارهای امروز من</h1>
           <div class="dci-tlw" data-testid="dci-tlw">
-            <button class="dci-tl-btn" type="button" aria-label="قبلی"></button>
-            <nav class="dci-tl" aria-label="کارهای امروز"></nav>
-            <button class="dci-tl-btn" type="button" aria-label="بعدی"></button>
+            <button class="dci-tl-btn" type="button" aria-label="مشتری‌های راست"></button>
+            <nav class="dci-tl" aria-label="صف تماس‌های امروز">
+              <a class="dci-node is-lead" aria-current="true" href="#p-1" title="۱۰:۰۰">
+                <span class="dci-nord">۱</span><span class="dci-dot"></span><b>لیلا ژی</b><span class="dci-kind">لید تازه</span>
+              </a>
+              <a class="dci-node is-rem is-late" href="#rem-5" title="۱۱:۳۰ — عقب‌افتاده">
+                <span class="dci-nord">۲</span><span class="dci-dot"></span><b>طالب طیبی</b><span class="dci-kind">یادآور</span><span class="dci-late-t">عقب‌افتاده</span>
+              </a>
+            </nav>
+            <button class="dci-tl-btn" type="button" aria-label="مشتری‌های چپ"></button>
           </div>
           <div class="dci-board" id="dci-board">
             <div class="dci-side">
@@ -157,12 +199,21 @@ ${dockCss}
                   </div>
                   <div class="dci-idrow dci-idrow-phone"><span class="ph"><span class="phn phd" dir="ltr">۰۹۱۲۰۰۰۰۰۰۰</span></span></div>
                 </div>
-                <div class="csx dci-ps"><div class="csx-chips">
-                  <button class="csx-chip" type="button" data-p="1">اولویت ۱</button>
-                  <button class="csx-chip" type="button" data-p="3" aria-checked="true">اولویت ۳</button>
-                  <button class="csx-chip" type="button">بدون اولویت</button>
-                </div></div>
-                <div class="dci-prio"><button class="btn gh" type="button">ارتقا به اولویت ۱</button></div>
+                <div class="dci-prio">
+                  <div class="csx dci-ps"><div class="csx-chips">
+                    <button class="csx-chip" type="button" data-p="1">اولویت ۱</button>
+                    <button class="csx-chip" type="button" data-p="3" aria-checked="true">اولویت ۳</button>
+                    <button class="csx-chip" type="button">بدون اولویت</button>
+                  </div></div>
+                  <div class="dci-st">
+                    <label class="dci-ps-lbl" for="dci-st">وضعیت مشتری</label>
+                    <select id="dci-st" class="dci-st-sel" aria-label="وضعیت مشتری">
+                      <option value="in_progress" selected>در حال انجام</option>
+                      <option value="completed">اتمام</option>
+                      <option value="cancelled">لغو شده</option>
+                    </select>
+                  </div>
+                </div>
               </div>
               <div class="dci-rembar" data-testid="dci-rembar"><p>یادآور</p></div>
               <section class="dci-filecard" data-testid="dci-filecard"><h2>پرونده‌ی مشتری</h2>
@@ -252,6 +303,24 @@ const measure = async (width, height = 800) => {
           fileOverflow: col ? getComputedStyle(col).overflow : null,
           fileMaxH: col ? getComputedStyle(col).maxHeight : null,
           midOverflow: midCol ? getComputedStyle(midCol).overflow : null,
+          tlwH: (() => { const el = document.querySelector(".dci-tlw"); return el ? Math.round(el.getBoundingClientRect().height) : 0; })(),
+          nodeH: (() => { const el = document.querySelector(".dci-node"); return el ? Math.round(el.getBoundingClientRect().height) : 0; })(),
+          nodeMinH: (() => { const el = document.querySelector(".dci-node"); return el ? parseFloat(getComputedStyle(el).minHeight) : 0; })(),
+          stH: (() => { const el = document.querySelector(".dci-st-sel"); return el ? Math.round(el.getBoundingClientRect().height) : 0; })(),
+          stW: (() => { const el = document.querySelector(".dci-st-sel"); return el ? Math.round(el.getBoundingClientRect().width) : 0; })(),
+          stTop: (() => { const el = document.querySelector(".dci-st"); return el ? Math.round(el.getBoundingClientRect().top) : 0; })(),
+          psBottom: ps ? Math.round(ps.bottom) : 0,
+          leadH: (() => {
+            const n = document.querySelector(".dci-node.is-lead") || document.querySelector(".dci-node");
+            if (!n) return 0;
+            const cs = getComputedStyle(n);
+            const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+            const kids = [...n.children].reduce((s, c) => {
+              const m = getComputedStyle(c);
+              return s + c.getBoundingClientRect().height + parseFloat(m.marginTop) + parseFloat(m.marginBottom);
+            }, 0);
+            return Math.round(kids + pad);
+          })(),
         };
       })(),
     };
@@ -293,6 +362,15 @@ try {
   check("priority chips are at least 44px with 15px type",
     c1280.chipH >= 44 && c1280.chipFont === "15px",
     JSON.stringify({ chipH: c1280.chipH, chipFont: c1280.chipFont }));
+  check("queue strip is 64–72px tall with 44px arrows and 44px touch targets",
+    c1280.leadH >= 58 && c1280.leadH <= 72
+    && (c1280.leadH + 6) >= 64 && (c1280.leadH + 6) <= 78
+    && at1280.btnW >= 43 && at1280.btnH >= 43 && at1280.btnW <= 46 && at1280.btnH <= 46
+    && c1280.nodeMinH >= 44,
+    JSON.stringify({ leadH: c1280.leadH, tlwH: c1280.tlwH, nodeH: c1280.nodeH, nodeMinH: c1280.nodeMinH, btnW: at1280.btnW, btnH: at1280.btnH }));
+  check("وضعیت مشتری select is 48px on the opposite side of the priority row",
+    c1280.stH >= 47 && c1280.stH <= 52 && c1280.stW >= 160 && c1280.stW < c1280.midW * 0.7,
+    JSON.stringify({ stH: c1280.stH, stW: c1280.stW, midW: c1280.midW }));
   check("amber rembar scroll-margin-bottom is dock height plus 16px; columns are not height-locked",
     (c1280.remMargin === "106px" || /^\d+(\.\d+)?px$/.test(c1280.remMargin) && parseFloat(c1280.remMargin) >= 80)
     && (c1280.fileOverflow === "visible" || c1280.fileOverflow === "visible visible")
@@ -304,6 +382,9 @@ try {
   check("at 390 «تماس» is 48px and full width under the number",
     c390.callH >= 47 && c390.callUnderPhone && c390.callAbovePs && c390.callW >= (c390.midW * 0.9),
     JSON.stringify(c390));
+  check("at 390 the status select is 48px and full width under the priorities",
+    c390.stH >= 47 && c390.stH <= 52 && c390.stW >= (c390.midW * 0.85) && c390.stTop >= c390.psBottom - 2,
+    JSON.stringify({ stH: c390.stH, stW: c390.stW, midW: c390.midW, stTop: c390.stTop, psBottom: c390.psBottom, tlwH: c390.tlwH }));
 
   const c1356 = at1356.call;
   check("at 1356 «تماس» stays on or under the name, never under the priorities, and is 48px",
