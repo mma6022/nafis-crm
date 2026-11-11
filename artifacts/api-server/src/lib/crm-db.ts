@@ -1,5 +1,13 @@
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
+
+/** Runtime DB switch. PostgreSQL is prepared off-tree in /root/pg-migration; this build still speaks SQLite. */
+export const dbDriver = (process.env.DB_DRIVER || "sqlite").toLowerCase();
+if (dbDriver !== "sqlite") {
+  throw new Error(
+    `DB_DRIVER=${dbDriver} is not enabled in this build; keep SQLite until the PG driver and fixtures are green`,
+  );
+}
 import fs from "node:fs";
 import { deriveCreditRank, invalidCreditScoreMessage } from "./credit-rank";
 import { reconcileSalespersonUserIdentities } from "./salesperson-identity";
