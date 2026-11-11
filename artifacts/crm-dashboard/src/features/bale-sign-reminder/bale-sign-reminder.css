@@ -9,6 +9,9 @@
 .sr-nc-text{margin:0;flex:1 1 auto;min-width:0;font-size:14px;font-weight:600;line-height:1.7;color:var(--nf-ink,#0B1450)}
 .sr-nc-link{flex:none;display:inline-flex;align-items:center;justify-content:flex-start;width:max-content;max-width:100%;min-height:44px;min-width:44px;padding:8px 0;font-size:14px;font-weight:700;line-height:1.4;color:var(--nf-brand-600,#29369B);text-decoration:underline;text-underline-offset:3px;text-decoration-color:currentColor;white-space:nowrap}
 .sr-nc-link:hover,.sr-nc-link:focus-visible{color:var(--nf-brand-700,#2A37A8);text-decoration:underline}
+/* .cp a sets color:inherit and text-decoration:none; keep the brand link visible in the left column. */
+.cp a.sr-nc-link,.bc-meta a.sr-nc-link,a.sr-nc-link{color:var(--nf-brand-600,#29369B);text-decoration:underline;text-underline-offset:3px;text-decoration-color:currentColor}
+.cp a.sr-nc-link:hover,.cp a.sr-nc-link:focus-visible,.bc-meta a.sr-nc-link:hover,.bc-meta a.sr-nc-link:focus-visible{color:var(--nf-brand-700,#2A37A8);text-decoration:underline}
 .cp .sr-nc,.bc-meta .sr-nc{margin-top:8px}
 
 /* r4b (Armita): left info column at 1280 — vertical row. Full-width text; remaining link under the text, RTL-start (راست‌چین). */
