@@ -93,11 +93,15 @@ check("v1.8.1 summary box shows full text (no max-height) and wraps long strings
   })());
 
 check("v1.8.1 clips horizontal overflow and lets the queue rail shrink at 1024+",
-  /html,body\{overflow-x:clip/.test(layCss)
+  /html:has\(\[data-testid="dci-page"\]\)[\s\S]{0,400}overflow-x:clip/.test(layCss)
   && layCss.includes("overflow-x:clip !important")
   && /flex:\s*1 1 0%/.test(layCss)
   && !/body:has\(\[data-testid="dci-page"\]\) \.dci-tl \{\s*flex: 0 0 auto/.test(dciCss)
-  && /body:has\(\[data-testid="dci-page"\]\) \.dci-tlw \{\s*flex: 0 0 auto/.test(dciCss));
+  && /body:has\(\[data-testid="dci-page"\]\) \.dci-tlw \{\s*flex: 0 0 auto/.test(dciCss)
+  /* Unlock rules must not apply outside /today (t790u scroll lock). */
+  && !/^html, body, \.app-shell\.ssv2, \.app-main/m.test(layCss)
+  && !/^html,body\{overflow-x:clip/m.test(layCss)
+  && !/^\.app-shell\.ssv2, \.app-main, \.dci, \.dci-page/m.test(layCss));
 
 const iccTsx = fs.readFileSync(path.join(root, "features/team-sales/InstantCreditCheck.tsx"), "utf8");
 const cneTsx = fs.readFileSync(path.join(root, "features/customer-name-edit/CustomerNameEdit.tsx"), "utf8");

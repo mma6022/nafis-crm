@@ -1,7 +1,13 @@
 /* today-layout-fix v1.1: اسکرول طبیعی صفحه، ستون‌های خودارتفاع، جمع‌شدن داک. پوسته و bn.css را عوض نکنید. */
 
 /* ——— قاعدهٔ ارتفاع: قفل ۱۰۰dvh و overflow:hidden ممنوع ——— */
-html, body{
+/* Height/overflow unlocks are scoped to /today only. These used to apply
+   globally (the CSS is eagerly imported via TodayPage) and broke scrolling
+   on other pages: .app-main lost overflow-y:auto while .app-shell stayed
+   height:100dvh; overflow:hidden, so long pages such as گزارش عملکرد فروش
+   could not be scrolled. */
+html:has([data-testid="dci-page"]),
+html:has([data-testid="dci-page"]) body{
   height:auto;
   max-height:none;
   overflow-x:clip;
@@ -312,19 +318,36 @@ body[data-page=today] .diag{display:none}
 body.dci-stick .dci-page{padding-bottom:calc(var(--dock-h, var(--ss-dock-h,84px)) + var(--dock-gap, var(--ss-gap,16px)) + 24px)}
 
 
-/* Defeat leftover height-lock rules if any remain later in the cascade. */
-html, body, .app-shell.ssv2, .app-main, .dci, .dci-page, .dci-board, .dci-col{
+/* Defeat leftover height-lock rules if any remain later in the cascade.
+   Scoped to /today so other routes keep .app-main as the scroll container. */
+html:has([data-testid="dci-page"]),
+html:has([data-testid="dci-page"]) body,
+html:has([data-testid="dci-page"]) .app-shell,
+html:has([data-testid="dci-page"]) .app-shell.ssv2,
+html:has([data-testid="dci-page"]) .app-main,
+html:has([data-testid="dci-page"]) .dci,
+html:has([data-testid="dci-page"]) .dci-page,
+html:has([data-testid="dci-page"]) .dci-board,
+html:has([data-testid="dci-page"]) .dci-col{
   height:auto !important;
   max-height:none !important;
 }
 /* v1.8.1: clip X only — do not reintroduce the vertical 100dvh lock (overflow:hidden). */
-.app-shell.ssv2, .app-main, .dci, .dci-page, .dci-board, .dci-col, #root{
+html:has([data-testid="dci-page"]) .app-shell,
+html:has([data-testid="dci-page"]) .app-shell.ssv2,
+html:has([data-testid="dci-page"]) .app-main,
+html:has([data-testid="dci-page"]) .dci,
+html:has([data-testid="dci-page"]) .dci-page,
+html:has([data-testid="dci-page"]) .dci-board,
+html:has([data-testid="dci-page"]) .dci-col,
+html:has([data-testid="dci-page"]) #root{
   overflow-x:clip !important;
   overflow-y:visible !important;
   min-width:0;
   max-width:100%;
 }
-html,body{overflow-x:clip;overflow-y:auto}
+html:has([data-testid="dci-page"]),
+html:has([data-testid="dci-page"]) body{overflow-x:clip;overflow-y:auto}
 
 
 /* ——— today-layout v1.4: compact queue timeline + customer status (t310u, t311u) ——— */
