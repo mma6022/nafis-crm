@@ -24,6 +24,9 @@ import { faAmount, fd, leftText, longDate, resendSignatureLink, shortDay, sizeFa
 import './fdv1.css';
 import { VoipCallBox } from '@/features/voip-call/VoipCall';
 import { VthStatus, VthTaskCard, VthSupportCard, VthResultForm, useVth, useVthContext, vthApi, vthRefresh, vthHeadCallLabel, vthSavedWhen } from '@/features/voip-task-hold/VoipTaskHold';
+import { CustomerNameEdit } from '@/features/customer-name-edit/CustomerNameEdit';
+import { cneHistorySentence, cneWhen } from '@/features/customer-name-edit/api';
+import { cneParseHistoryReason } from '@/features/customer-name-edit/CustomerNameEdit';
 
 type Step = { id: string; label: string; stages: string[] };
 type Tab = 'ov' | 'docs' | 'contract' | 'hist' | 'chat';
@@ -264,7 +267,9 @@ export function FileDetailV1(p: Props) {
   // ---------- pieces ----------
   const go = (t: Tab) => { setTab(t); setMore(false); };
   const openUpload = (doc: any) => { setUpFile(null); setUpErr(null); setModal({ k: 'up', doc }); };
-  const custName = fd(app.customerName || 'مشتری');
+  const [nameOv, setNameOv] = useState<string | null>(null);
+  useEffect(() => { setNameOv(null); }, [app.id, app.customerName]);
+  const custName = fd(nameOv || app.customerName || 'مشتری');
   const isMine = user?.role === 'salesperson' && user?.salespersonId != null && app.customerSalespersonId === user.salespersonId;
 
   const turnChip = turn === 'me' ? <span className="chip g"><Zap {...I} />اقدام با شماست</span>
@@ -294,7 +299,7 @@ export function FileDetailV1(p: Props) {
     <div className="crow"><nav className="crumb" aria-label="مسیر"><Link href="/loan-applications"><ChevronRight {...I} />پرونده‌های من</Link></nav>
 </div>
     <div className="fhd-r1"><div className="who"><span className="eyb" data-testid="mc-case-header-plan">پرونده‌ی تسهیلات {fd(app.id)}، {planHead}</span>
-      <div className="nmr"><h2>{custName}</h2>{app.customerId ? <button className="cid" type="button" aria-label={`شناسه‌ی ${fd(app.customerId)}، کپی`} onClick={() => { void copyText(`#${app.customerId}`).then(ok => ok && show('کپی شد')); }}>#{fd(app.customerId)}<Copy className="i cpi" aria-hidden /></button> : null}</div>
+      <CustomerNameEdit customerId={app.customerId} name={custName} firstName={(cust.data as any)?.firstName} lastName={(cust.data as any)?.lastName} toast={show} onSaved={(n) => { setNameOv(n); void qc.invalidateQueries({ queryKey: getGetCustomerQueryKey(Number(app.customerId)) }); void loadHist(null); }}><h2>{custName}</h2>{app.customerId ? <button className="cid" type="button" aria-label={`شناسه‌ی ${fd(app.customerId)}، کپی`} onClick={() => { void copyText(`#${app.customerId}`).then(ok => ok && show('کپی شد')); }}>#{fd(app.customerId)}<Copy className="i cpi" aria-hidden /></button> : null}</CustomerNameEdit>
       {showPhone && phone ? <span className="ph big"><a className="phn" href={`tel:${phone}`} dir="ltr" aria-label={`تماس با ${fd(phone)}`}>{fd(phone)}</a>
         <button className={`phc${copied ? ' done' : ''}`} type="button" aria-label={`کپی شماره‌ی ${fd(phone)}`} onClick={() => { void copyText(phone).then(ok => { if (ok) { setCopied(true); show('کپی شد'); } }); }}>{copied ? <Check {...I} /> : <Copy {...I} />}<span>کپی</span></button></span>
         : vthOn && !showPhone ? <p className="vh-hidden" data-testid="vth-hidden-phone">شماره نشان داده نمی‌شود</p> : null}</div>
@@ -403,7 +408,15 @@ export function FileDetailV1(p: Props) {
       ? <><span className="chip s">امضا شده</span>{currentCt.doc.status === 'approved' ? <span className="chip s">تأیید شده</span> : currentCt.doc.status === 'incomplete' || currentCt.doc.status === 'rejected' ? <span className="chip r">{currentCt.doc.status === 'rejected' ? 'رد شده' : 'نقص'}</span> : <span className="chip b">در انتظار بررسی</span>}</>
       : <span className="chip g">منتظر امضای مشتری</span>}</> : 'هنوز قراردادی ساخته نشده است.'}</p></section>;
 
-  const hItem = (e: HistoryEvent) => { const Ic = histIcon(e.action);
+  const hItem = (e: HistoryEvent) => {
+    if (e.action.split(':')[0] === 'customer-name-changed') {
+      const parsed = cneParseHistoryReason(e.reason);
+      const sentence = parsed ? cneHistorySentence(parsed.oldName, parsed.newName) : histLabel(e.action);
+      const when = cneWhen(e.createdAt);
+      const by = [e.author?.name || 'سامانه', when].filter(Boolean).join('، ');
+      return <li key={e.id} className="new"><span className="ic"><PenLine {...I} /></span><span className="tx">{sentence}<small>{by}</small></span></li>;
+    }
+    const Ic = histIcon(e.action);
     const by = e.action.split(':')[0] === 'bale-sign-reminder-sent' && e.reason && e.author?.name ? `${e.author.name}، ${e.reason}` : (e.author?.name || 'سامانه');
     return <li key={e.id}><span className={`ic${e.action.split(':')[0] === 'bale-sign-reminder-sent' ? ' on' : ''}`}><Ic {...I} /></span><b className="tl">{histLabel(e.action)}</b><span className="by">{by}</span><span className="tm">{hm(e.createdAt)}</span></li>; };
   const shown = hist.filter(e => hCat === 'all' || histCat(e.action) === hCat);

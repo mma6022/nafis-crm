@@ -1,0 +1,80 @@
+/* customer-name-edit v1.0 — Armita handoff. Append after shell / file-detail / bale CSS. Do not change the shell. */
+
+.ed-pen{
+  width:44px;height:44px;min-width:44px;min-height:44px;margin-inline-start:4px;
+  border-radius:12px;display:grid;place-items:center;color:var(--nf-ink-muted);position:relative;
+  background:transparent;border:0;padding:0;cursor:pointer;flex:none
+}
+.ed-pen .i{width:20px;height:20px}
+.ed-pen:hover{background:var(--nf-surface-2);color:var(--nf-brand-600)}
+.ed-pen:focus-visible{color:var(--nf-brand-600);outline:2px solid var(--nf-brand-600);outline-offset:2px}
+.ed-tip{
+  position:absolute;bottom:calc(100% + 6px);right:0;
+  background:var(--nf-ink);color:#fff;font-size:14px;font-weight:600;
+  padding:6px 10px;border-radius:10px;white-space:nowrap;opacity:0;pointer-events:none;
+  box-shadow:var(--nf-shadow-pop)
+}
+.ed-pen:hover .ed-tip,.ed-pen:focus-visible .ed-tip{opacity:1}
+
+.chip.lock{gap:5px}
+.chip.lock .i{width:14px;height:14px}
+.ed-hint{display:block;margin-top:4px;font-size:14px;font-weight:600;color:var(--nf-ink-muted);line-height:1.7}
+
+.ed-form{margin-top:10px;display:flex;flex-direction:column;gap:10px;max-width:560px}
+.ed-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.ed-f{display:flex;flex-direction:column;gap:6px;min-width:0}
+.ed-f label{font-size:15px;font-weight:600;color:var(--nf-ink)}
+.ed-f input{
+  width:100%;min-height:52px;padding:0 14px;border-radius:var(--nf-radius-control,14px);
+  border:1.5px solid var(--nf-line-strong);background:#fff;color:var(--nf-ink);font-size:16px;font-family:inherit
+}
+.ed-f input:focus{border-color:var(--nf-brand-600);box-shadow:var(--nf-ring);outline:none}
+.ed-f input[aria-invalid=true]{border-color:var(--nf-danger)}
+.ed-err{display:flex;align-items:flex-start;gap:6px;font-size:14px;font-weight:600;color:var(--nf-danger);line-height:1.6}
+.ed-err .i{width:16px;height:16px;margin-top:2px;flex:none}
+.ed-acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.ed-acts .btn{min-height:48px}
+.ed-note{font-size:14px;font-weight:600;color:var(--nf-ink-muted)}
+.ed-serv{display:flex;align-items:flex-start;gap:6px;padding:10px 12px;border-radius:14px;background:var(--nf-danger-50);border:1px solid var(--nf-danger);color:var(--nf-danger);font-size:14px;font-weight:600;line-height:1.7}
+.ed-serv .i{width:18px;height:18px;margin-top:2px;flex:none}
+
+.ed-scrim{display:none;position:fixed;inset:0;z-index:55;background:rgba(11,20,80,.42);border:0;padding:0;margin:0}
+.ed-sheet{
+  display:none;position:fixed;z-index:60;left:0;right:0;bottom:0;
+  background:#fff;border-radius:var(--nf-radius-sheet,28px) var(--nf-radius-sheet,28px) 0 0;
+  box-shadow:var(--nf-shadow-pop);padding:10px 16px calc(16px + env(safe-area-inset-bottom,0px));
+  max-height:min(92vh, 560px);overflow:auto
+}
+.ed-sheet .grab{width:40px;height:4px;border-radius:4px;background:var(--nf-line-strong);margin:0 auto 8px}
+.ed-sheet h3{font-size:18px;font-weight:800;color:var(--nf-ink);text-align:center;margin:0 0 12px}
+.ed-sheet .ed-row{grid-template-columns:1fr}
+.ed-sheet .ed-acts{flex-direction:column;align-items:stretch;margin-top:8px}
+.ed-sheet .ed-acts .btn{width:100%;min-height:52px}
+body.ed-open .ed-scrim,body.ed-open .ed-sheet{display:block}
+@media (min-width:1024px){
+  body.ed-open .ed-scrim,body.ed-open .ed-sheet{display:none}
+  .ed-desk{display:block}
+}
+@media (max-width:1023.98px){
+  .ed-desk{display:none}
+}
+
+@media (min-width:1024px){
+  /* Win over later .fdv1 .fhd .nmr{display:flex} so the name row yields to the inline form. */
+  body.is-editing .ed-view,
+  body.is-editing .fdv1 .fhd .nmr.ed-view,
+  body.is-editing .fhd .nmr.ed-view{display:none !important}
+  body.is-editing .ed-desk{display:block}
+}
+@media (max-width:1023.98px){
+  body.is-editing .ed-view{display:flex}
+}
+
+.ed-serv[hidden], .ed-note[hidden], .ed-sheet[hidden], .ed-scrim[hidden]{display:none !important}
+
+.fdv1 .ftl li.new .ic{background:var(--nf-success-50);color:var(--nf-success)}
+.fdv1 .ftl li.new{align-items:flex-start}
+.fdv1 .ftl li.new .tx{flex:1;min-width:0;font-weight:600}
+.fdv1 .ftl li.new .tx small{font-weight:600}
+
+.bale-side .ed-pen,.nmr .ed-pen{flex:none}
