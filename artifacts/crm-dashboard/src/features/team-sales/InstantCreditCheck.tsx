@@ -24,7 +24,7 @@ const POLL_MS = 3000, POLL_MAX = 20;
 const RESEND_AFTER_S = 120, OTP_TRIES = 5; // server caps: 5 code tries and 3 resends per inquiry
 type St = 'init' | 'idle' | 'starting' | 'otp' | 'verifying' | 'processing' | 'result' | 'error' | 'blocked';
 
-export function InstantCreditCheck({ customerId, onRank }: { customerId: number; onRank?: (rank: string) => void }) {
+export function InstantCreditCheck({ customerId, onRank, embedded }: { customerId: number; onRank?: (rank: string) => void; embedded?: boolean }) {
   const [st, setSt] = useState<St>('init');
   const [fileNid, setFileNid] = useState<string | null>(null);
   const [nid, setNid] = useState('');
@@ -200,8 +200,8 @@ export function InstantCreditCheck({ customerId, onRank }: { customerId: number;
   else if (st === 'blocked') body = <>{nidRO}
     <div className="cverr" role="alert" data-testid="cv-blocked"><AlertTriangle className="i" aria-hidden="true" /><div><b>استعلام الان انجام نمی‌شود</b><span>{err}</span></div></div></>;
 
-  return <section className="cv" aria-labelledby="cvT" data-testid="cv" data-state={st}>
-    <div className="cvh"><h4 id="cvT">اعتبارسنجی فوری</h4><span className="ts-pill">اختیاری</span></div>
+  return <section className={embedded ? "cv cv-embed" : "cv"} aria-labelledby={embedded ? undefined : "cvT"} aria-label={embedded ? "اعتبارسنجی فوری" : undefined} data-testid="cv" data-state={st}>
+    {embedded ? null : <div className="cvh"><h4 id="cvT">اعتبارسنجی فوری</h4><span className="ts-pill">اختیاری</span></div>}
     {body}
     {note ? <p className="ts-muted small cvn" role="status">{note}</p> : null}
   </section>;

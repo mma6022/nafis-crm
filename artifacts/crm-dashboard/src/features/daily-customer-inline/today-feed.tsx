@@ -11,6 +11,12 @@ import { DciIcon } from "./icons";
 
 const FD = "۰۱۲۳۴۵۶۷۸۹";
 const fd = (v: string | number) => String(v).replace(/[0-9]/g, (d) => FD[Number(d)]);
+/** Persian digits + U+066C thousands separator, e.g. ۳۵٬۰۰۰٬۰۰۰ تومان */
+function formatTomanFa(raw: string): string {
+  const digits = String(raw).replace(/\D/g, "");
+  if (!digits) return "—";
+  return `${fd(digits.replace(/\B(?=(\d{3})+(?!\d))/g, "٬"))} تومان`;
+}
 
 const RES_OPTS: { key: ManualOutcome | "note_only"; label: string }[] = [
   { key: "answered", label: "جواب داد" },
@@ -219,7 +225,7 @@ export function FileBox({ customerId, nationalCode, onOpen, wizard }: {
   const rows: { label: string; value: string; ltr?: boolean }[] = [
     { label: "کد ملی", value: nationalCode ? fd(nationalCode) : "هنوز ثبت نشده است", ltr: Boolean(nationalCode) },
     { label: "شهر", value: init.city || "—" },
-    { label: "مبلغ درخواستی، تومان", value: init.amount ? fd(init.amount) : "—", ltr: Boolean(init.amount) },
+    { label: "مبلغ درخواستی", value: init.amount ? formatTomanFa(init.amount) : "—" },
     { label: "شرح نیاز", value: init.need || "—" },
     { label: "ضامن", value: gLabel },
   ];

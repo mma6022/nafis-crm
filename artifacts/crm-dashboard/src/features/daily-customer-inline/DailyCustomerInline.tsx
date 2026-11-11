@@ -159,7 +159,7 @@ function CreditBlock({ customerId, state, grade, at }: { customerId: number; sta
   </div>;
   return <div className="dci-consent">
     <p className="dci-empty">رتبه هنوز استعلام نشده است.</p>
-    {state === "start" && iccOn ? <div data-testid="dci-credit-start"><InstantCreditCheck customerId={customerId} /></div> : null}
+    {state === "start" && iccOn ? <div data-testid="dci-credit-start"><InstantCreditCheck customerId={customerId} embedded /></div> : null}
   </div>;
 }
 

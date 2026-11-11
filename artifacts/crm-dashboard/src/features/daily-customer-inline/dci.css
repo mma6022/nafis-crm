@@ -460,7 +460,7 @@ body:has([data-testid="dci-page"]) .ts-wz{
   }
   body:has([data-testid="dci-page"]) .dci-date,
   body:has([data-testid="dci-page"]) .dci-page > h1,
-  body:has([data-testid="dci-page"]) .dci-tl {
+  body:has([data-testid="dci-page"]) .dci-tlw {
     flex: 0 0 auto;
   }
   body:has([data-testid="dci-page"]) .dci-board {

@@ -69,6 +69,35 @@ check("پرونده box lives in the mid-column file card; credit is in the side
       && dciTsx.includes("تاریخچه و یادداشت‌ها");
   })());
 
+check("v1.8.1 filled مبلغ درخواستی uses Persian digits and U+066C thousands separator",
+  feedTsx.includes('label: "مبلغ درخواستی"')
+  && feedTsx.includes("function formatTomanFa")
+  && feedTsx.includes("۳۵٬۰۰۰٬۰۰۰ تومان")
+  && feedTsx.includes("٬")
+  && !feedTsx.includes('label: "مبلغ درخواستی، تومان"'));
+
+check("v1.8.1 InstantCreditCheck is embedded in the side column with one title",
+  dciTsx.includes("<InstantCreditCheck customerId={customerId} embedded")
+  && dciTsx.includes('className="dci-cvh"')
+  && dciTsx.includes("اعتبارسنجی فوری"));
+
+check("v1.8.1 summary box shows full text (no max-height) and wraps long strings",
+  (() => {
+    const i = layCss.indexOf(".dci-sum-box{");
+    const box = i >= 0 ? layCss.slice(i, layCss.indexOf("}", i) + 1) : "";
+    return box.length > 0
+      && !/max-height/.test(box)
+      && /max-width:\s*100%/.test(box)
+      && /overflow-wrap:\s*anywhere/.test(box);
+  })());
+
+check("v1.8.1 clips horizontal overflow and lets the queue rail shrink at 1024+",
+  /html,body\{overflow-x:clip/.test(layCss)
+  && layCss.includes("overflow-x:clip !important")
+  && /flex:\s*1 1 0%/.test(layCss)
+  && !/body:has\(\[data-testid="dci-page"\]\) \.dci-tl \{\s*flex: 0 0 auto/.test(dciCss)
+  && /body:has\(\[data-testid="dci-page"\]\) \.dci-tlw \{\s*flex: 0 0 auto/.test(dciCss));
+
 check("side column wraps notes then guarantor/wallet with 16px and no shared grid row",
   layCss.includes("grid-template-areas:\"mid side\"")
   && layCss.includes("align-content:start")

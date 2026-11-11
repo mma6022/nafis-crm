@@ -4,7 +4,7 @@
 html, body{
   height:auto;
   max-height:none;
-  overflow-x:hidden;
+  overflow-x:clip;
   overflow-y:auto;
   scroll-padding-bottom:calc(var(--dock-h, var(--ss-dock-h, 90px)) + 16px);
 }
@@ -16,11 +16,13 @@ main.pg.dci-page, .dci-page{
   box-sizing:border-box;
 }
 .top-in{max-width:none;width:100%}
-.dci-page, .dci-board, .dci-col, .dci-side, .dci-mid, .dci-right, .dci-left{
+.dci-page, .dci-board, .dci-col, .dci-side, .dci-mid, .dci-right, .dci-left, .dci-tlw{
   height:auto;
   max-height:none;
-  overflow:visible;
+  overflow-x:clip;
+  overflow-y:visible;
   min-width:0;
+  max-width:100%;
 }
 body[data-page=today] .diag{display:none}
 
@@ -314,8 +316,14 @@ html, body, .app-shell.ssv2, .app-main, .dci, .dci-page, .dci-board, .dci-col{
   height:auto !important;
   max-height:none !important;
 }
-.app-shell.ssv2, .app-main, .dci-board, .dci-col{overflow:visible !important}
-html,body{overflow-x:hidden;overflow-y:auto}
+/* v1.8.1: clip X only — do not reintroduce the vertical 100dvh lock (overflow:hidden). */
+.app-shell.ssv2, .app-main, .dci, .dci-page, .dci-board, .dci-col, #root{
+  overflow-x:clip !important;
+  overflow-y:visible !important;
+  min-width:0;
+  max-width:100%;
+}
+html,body{overflow-x:clip;overflow-y:auto}
 
 
 /* ——— today-layout v1.4: compact queue timeline + customer status (t310u, t311u) ——— */
@@ -335,6 +343,14 @@ html,body{overflow-x:hidden;overflow-y:auto}
   padding:2px 8px 4px;scrollbar-width:thin;
   scroll-behavior:smooth;scroll-padding-inline:12px;
   min-height:64px;
+}
+/* v1.8.1: dci.css @min-width 1024 used to set flex:0 0 auto on .dci-tl (meant for
+   the column wrapper). A long queue (~43 nodes) then blew body scrollWidth to
+   ~3969px and shifted the RTL board (main column missing, history overflowing). */
+body:has([data-testid="dci-page"]) .dci-page .dci-tlw{flex:0 0 auto;min-width:0;max-width:100%;overflow-x:clip}
+body:has([data-testid="dci-page"]) .dci-page .dci-tl{
+  flex:1 1 0%;min-width:0;max-width:100%;width:auto;
+  overflow-x:auto;overflow-y:hidden;
 }
 .dci-page .dci-tlw[data-fade=start] .dci-tl,
 .dci-page .dci-tlw[data-fade=both] .dci-tl{
@@ -548,7 +564,7 @@ body:has([data-testid="dci-page"]) .app-shell.ssv2 .topbar.ss-top{margin-bottom:
   border-radius:0 12px 12px 12px;
   padding:12px 12px 10px;
   font-size:14px;font-weight:600;line-height:1.7;
-  max-height:8.5em;overflow-x:hidden;overflow-y:auto;
+  overflow-x:clip;overflow-y:visible;
   overflow-wrap:anywhere;word-break:break-word;
 }
 .dci-sum-box::before{
@@ -574,3 +590,7 @@ body:has([data-testid="dci-page"]) .app-shell.ssv2 .topbar.ss-top{margin-bottom:
 .dci-kv dd{margin:0;font-size:14px;font-weight:700;color:var(--nf-ink);text-align:start;overflow-wrap:anywhere}
 #dci-file-edit, #dci-file-open{min-height:44px;min-width:44px}
 #dci-filecard[hidden]{display:none !important}
+
+/* v1.8.1: InstantCreditCheck is embedded under the side-column title — no nested card. */
+.dci-credit .cv, .dci-credit .cv-embed{border:0;background:transparent;padding:0;margin:0}
+.dci-credit .cv .cvh{display:none}
