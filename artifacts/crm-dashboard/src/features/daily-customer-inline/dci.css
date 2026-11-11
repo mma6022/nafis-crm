@@ -532,4 +532,20 @@ body:has([data-testid="dci-page"]) .ts-wz{
     overflow: visible;
     padding-bottom: 24px;
   }
+  /* Armita r2 polish: 16px between the topbar and the date (was ~60px =
+     topbar margin-bottom 20 + leaked .pg padding-top 24 + .dci-date margin-top 16). */
+  body:has([data-testid="dci-page"]) .app-shell.ssv2 .topbar.ss-top {
+    margin-bottom: 0;
+  }
+  body:has([data-testid="dci-page"]) .dci-page,
+  body:has([data-testid="dci-page"]) main.pg.dci-page {
+    padding-top: 16px;
+  }
+  body:has([data-testid="dci-page"]) .dci-date {
+    margin-top: 0;
+  }
+}
+/* Armita r2 polish: 24px between the empty call-history line and «یادداشت‌ها». */
+body:has([data-testid="dci-page"]) .dci-right > .dci-empty + h2 {
+  margin-top: 24px;
 }
