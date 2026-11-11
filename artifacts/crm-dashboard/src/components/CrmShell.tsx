@@ -134,6 +134,8 @@ const readOpenGroups = (): string[] | null => {
 
 /** Page title = label of the longest nav route matching the current path (fixes e.g. /mobile-calls showing «نمای کلی»). */
 const titleFor = (location: string) => {
+  const path = location.split("?")[0];
+  if (path === "/today" || path.startsWith("/today/")) return "کارهای امروز من";
   const match = allNavItems
     .filter(item => item.href !== '/' && (location === item.href || location.startsWith(`${item.href}/`)))
     .sort((a, b) => b.href.length - a.href.length)[0];
@@ -338,6 +340,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
     window.addEventListener('nafis:page-title', on); return () => window.removeEventListener('nafis:page-title', on); }, []);
   const pageTitle = mcSurface && /^\/customers\/\d+/.test(location) ? 'پرونده‌ی مشتری'
     : mcSurface && location === '/loan-applications' ? 'ثبت درخواست تسهیلات'
+    : (location === '/today' || location.startsWith('/today/')) ? 'کارهای امروز من'
     : (ssV2 && ssMobile && pageTitleOv) || (roleTitle ?? basePageTitle);
   // «بیشتر» starts collapsed on every load (not persisted); it opens by itself only when the current page lives inside it.
   const moreActive = Boolean(roleLayout?.more.some(g => g.items.some(item => isNavItemActive(item.href))));

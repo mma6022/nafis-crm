@@ -6,14 +6,14 @@ import { getGetAuthSessionQueryKey, getListCustomerTagsQueryKey, useCancelLoanAp
 import { useQueryClient } from "@tanstack/react-query";
 import { STATUS_LABEL } from "@/pages/customers-ui";
 import { announceCallSaved, useCqConfig } from "@/features/call-queue/api";
-import { CqResultFields, cqFollowUpAt, cqResultError, emptyCqResult, type CqResultValue } from "@/features/call-queue/ResultFields";
+import { emptyCqResult, type CqResultValue } from "@/features/call-queue/ResultFields";
 import { dpApi } from "@/features/daily-plan/api";
-import { promoteToP1 } from "@/features/history/api";
+import { fileCardKey, promoteToP1, useFileCard } from "@/features/history/api";
 import { InstantCreditCheck } from "@/features/team-sales/InstantCreditCheck";
-import { SimpleCallForm } from "@/features/team-sales/SimpleCallForm";
 import { saveQuickCreditNationalCode, useIccEnabled } from "@/features/team-sales/api";
 import { useVcMe, vcApi } from "@/features/voip-call/api";
-import { DciError, dciApi, useDciAddNote, useDciBoard, useDciToday, type DciBoard, type DciCase, type DciDenied, type DciHist, type DciInbound, type DciNote, type DciTask } from "./api";
+import { DciError, dciApi, useDciBoard, useDciToday, type DciBoard, type DciCase, type DciDenied, type DciInbound, type DciTask } from "./api";
+import { FileBox, HistFeed, fileInitials, saveWizardFile } from "./today-feed";
 import { DciIcon, DciSprites } from "./icons";
 import "./dci.css";
 import "./today-layout.css";
@@ -151,41 +151,6 @@ function Timeline({ tasks, selected, onPick }: { tasks: QueueTask[]; selected: s
   </div>;
 }
 
-function HistList({ rows }: { rows: DciHist[] }) {
-  if (!rows.length) return <p className="dci-empty dci-hist-empty">سابقه‌ی تماسی ثبت نشده است.</p>;
-  return <ul className="dci-calls">{rows.map((h) => (
-    <li key={h.id}>
-      <div className="dci-cmeta"><span>{h.t}</span><span>{h.k}؛ <span className={`dci-res ${h.rc}`}>{h.r}</span></span></div>
-      <div className={`dci-cnote${h.note ? "" : " empty"}`}>{h.note || "یادداشتی ثبت نشده است."}</div>
-    </li>
-  ))}</ul>;
-}
-
-function NotesBlock({ rows, customerId }: { rows: DciNote[]; customerId: number }) {
-  const add = useDciAddNote(customerId);
-  const [text, setText] = useState("");
-  return <div className="dci-notes">
-    {rows.length ? <ul>{rows.map((n) => <li key={n.id}><b>{n.t}</b>؛ {n.body}</li>)}</ul> : <p className="dci-empty">یادداشت کارشناسی ثبت نشده است.</p>}
-    <form className="dci-add" onSubmit={(e) => { e.preventDefault(); const b = text.trim(); if (!b || add.isPending) return; add.mutate(b, { onSuccess: () => setText("") }); }}>
-      <label htmlFor="dci-note">یادداشت تازه</label>
-      <textarea id="dci-note" rows={3} placeholder="یادداشت را بنویسید" value={text} onChange={(e) => setText(e.target.value)} />
-      <button className="btn pri" type="submit" disabled={add.isPending || !text.trim()}>افزودن یادداشت</button>
-    </form>
-  </div>;
-}
-
-/** Jalali inquiry date with weekday and Persian digits. Formats a leftover ISO string; already-Persian values keep their weekday/date (time is dropped, as before). */
-export function creditAtLabel(at: string): string {
-  const raw = at.trim();
-  if (!raw) return "";
-  const fd = (v: string) => v.replace(/[0-9]/g, (d) => FD[Number(d)]);
-  const dateOnly = (v: string) => v.replace(/، ساعت.*/, "").trim();
-  if (!/^\d{4}-\d{2}-\d{2}T/.test(raw) && /[\u0600-\u06FF]/.test(raw)) return fd(dateOnly(raw));
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return fd(dateOnly(raw));
-  return fd(new Intl.DateTimeFormat("fa-IR-u-ca-persian", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Tehran" }).format(d));
-}
-
 function CreditBlock({ customerId, state, grade, at }: { customerId: number; state: DciBoard["credit"]["state"]; grade: string | null; at: string | null }) {
   const iccOn = useIccEnabled();
   if (state === "err") return <div className="dci-consent"><p className="dci-empty">استعلام الآن انجام نشد.</p></div>;
@@ -198,33 +163,19 @@ function CreditBlock({ customerId, state, grade, at }: { customerId: number; sta
   </div>;
 }
 
-function GuarBlock({ v, cond }: { v: "yes" | "no" | "unknown"; cond: string | null }) {
-  if (v === "yes") return <><p className="dci-gstat">ضامن دارد</p>{cond ? <p className="dci-cond">{cond}</p> : null}</>;
-  if (v === "no") return <p className="dci-gstat">ضامن ندارد</p>;
-  return <p className="dci-empty">هنوز مشخص نشده است.</p>;
-}
-
-function WalletBlock({ wallet }: { wallet: DciBoard["wallet"] }) {
-  if (!wallet) return null;
-  if (!wallet.tx.length && (wallet.balance == null || wallet.balance === "0")) {
-    return <p className="dci-empty">کیف پولی ساخته نشده یا تراکنشی ندارد.</p>;
-  }
-  return <>
-    <p className="dci-wal-bal">{fa(wallet.balance ?? "0")} تومان</p>
-    <ul className="dci-tx">{wallet.tx.map((x, i) => (
-      <li key={i}><span>{x.t}؛ {x.ti}</span><span className={x.in ? "in" : "out"}>{x.in ? "واریز" : "برداشت"} {fa(x.a)} تومان</span></li>
-    ))}</ul>
-  </>;
-}
-
-function FirstCall({ customerId, userId, onOpenForm }: { customerId: number; userId: number | undefined; onOpenForm: () => void }) {
+function FirstCall({ customerId, userId, initial, onDone }: {
+  customerId: number; userId: number | undefined;
+  initial?: { nid: string; city: string; amount: string; need: string; g: "yes" | "no" | ""; gcond: string };
+  onDone: () => void;
+}) {
+  const qc = useQueryClient();
   const [step, setStep] = useState(1);
-  const [g, setG] = useState<"yes" | "no" | "">("");
-  const [nid, setNid] = useState("");
-  const [city, setCity] = useState("");
-  const [amount, setAmount] = useState("");
-  const [need, setNeed] = useState("");
-  const [gcond, setGcond] = useState("");
+  const [g, setG] = useState<"yes" | "no" | "">(initial?.g ?? "");
+  const [nid, setNid] = useState(initial?.nid ?? "");
+  const [city, setCity] = useState(initial?.city ?? "");
+  const [amount, setAmount] = useState(initial?.amount ?? "");
+  const [need, setNeed] = useState(initial?.need ?? "");
+  const [gcond, setGcond] = useState(initial?.gcond ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [needConfirm, setNeedConfirm] = useState(false);
@@ -236,8 +187,17 @@ function FirstCall({ customerId, userId, onOpenForm }: { customerId: number; use
         if (r.needsConfirm) { setNeedConfirm(true); return; }
       }
       prefillFirstCallDraft(userId, customerId, { city, amountToman: amount, note: [need.trim(), g === "yes" && gcond.trim() ? `شرایط ضامن: ${gcond.trim()}` : ""].filter(Boolean).join("\n"), gAvail: g });
+      try {
+        const card = await saveWizardFile(customerId, { city, amountToman: amount, need, g, gcond });
+        qc.setQueryData(fileCardKey(customerId), card);
+        void qc.invalidateQueries({ queryKey: fileCardKey(customerId) });
+        void qc.invalidateQueries({ queryKey: ["dci-board", customerId] });
+      } catch (fe) {
+        // Compact wizard persists via file-card; if that path 404s, draft is still saved locally.
+        if (!(fe instanceof Error && /404/.test(fe.message))) throw fe;
+      }
       setNeedConfirm(false);
-      onOpenForm();
+      onDone();
     } catch (e) {
       setErr(e instanceof Error && /[\u0600-\u06FF]/.test(e.message) ? e.message : "ذخیره انجام نشد. دوباره تلاش کنید.");
     } finally { setBusy(false); }
@@ -334,7 +294,7 @@ function CallActs({ ext, place, narrow, onCall, onResult }: { ext: boolean; plac
     if (place === "sticky") return pri;
     return <div className="dci-acts">{pri}</div>;
   }
-  const pri = <button className="btn pri" type="button" data-result data-testid="dci-logged-call" onClick={onResult}>تماس گرفتم، ثبت نتیجه</button>;
+  const pri = <button className="btn pri" type="button" data-result data-testid="dci-logged-call" onClick={onResult}>ثبت نتیجه‌ی تماس</button>;
   if (place === "sticky") return pri;
   return <div className="dci-acts">{pri}</div>;
 }
@@ -365,17 +325,13 @@ function InBoundBlock({ rows, ext, onCall }: { rows: DciInbound[]; ext: boolean;
   </>;
 }
 
-function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting, result, promo, remBar, userId, onOpenFirstCall }: {
+function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting, promo, remBar, userId, wizard }: {
   m: DciBoard; ext: boolean; narrow: boolean; onCopy: (v: string) => void; onCall: () => void; onResult: () => void;
   onPromote: () => void; promoting: boolean;
   promo?: { open: boolean; reason: string; setReason: (v: string) => void; onSave: () => void; onClose: () => void };
-  result?: {
-    open: boolean; val: CqResultValue; show: boolean; busy: boolean; err: string;
-    onChange: (v: CqResultValue) => void; onSave: () => void; onClose: () => void;
-  };
   remBar?: { text: string } | null;
   userId: number | undefined;
-  onOpenFirstCall: () => void;
+  wizard: { open: boolean; initial?: { nid: string; city: string; amount: string; need: string; g: "yes" | "no" | ""; gcond: string }; onOpen: (mode: "new" | "edit", initial: { nid: string; city: string; amount: string; need: string; g: "yes" | "no" | ""; gcond: string }) => void; onClose: () => void };
 }) {
   const tagCatalog = useListCustomerTags({ query: { queryKey: getListCustomerTagsQueryKey() } });
   const tags = (m.customer.tags || []).map((x) => <span key={x}>{dciTagLabel(x, tagCatalog.data)}</span>);
@@ -391,7 +347,11 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
   const [cxErr, setCxErr] = useState("");
   const curPriority = m.customer.priority ?? null;
   const transferName = m.priorityDemoteTransfer?.expertName ?? "";
-  const refresh = () => { void qc.invalidateQueries({ queryKey: ["dci-board", m.customer.id] }); };
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ["dci-board", m.customer.id] });
+    void qc.invalidateQueries({ queryKey: ["dci-today"] });
+    void qc.invalidateQueries({ queryKey: getListRemindersQueryKey({ done: false }) });
+  };
   const savePriority = (value: number | null) => {
     setPsError(""); setPsOk("");
     update.mutate({ id: m.customer.id, data: { priority: value } }, {
@@ -541,23 +501,15 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     </div>, document.body) : null}
     </div>
     {remBar ? <div className="dci-rembar" data-testid="dci-rembar" role="status"><p>{remBar.text}</p><span className="dci-hint">با ثبت نتیجه، این یادآور تمام می‌شود.</span></div> : null}
-    {result?.open ? <div className="dci-result dp-result" data-testid="dci-result">
-      <p className="dci-empty">نتیجه‌ی تماس را ثبت کنید.</p>
-      <CqResultFields value={result.val} onChange={result.onChange} showErrors={result.show} idPrefix="dci" submitLabel="ثبت نتیجه" creditCustomerId={m.customer.id} />
-      <div className="dci-acts">
-        <button className="btn pri" type="button" disabled={result.busy} onClick={result.onSave} data-testid="dci-result-save">ثبت نتیجه</button>
-        <button className="btn gh" type="button" disabled={result.busy} onClick={result.onClose}>انصراف</button>
-      </div>
-      {result.err ? <p className="dci-empty" role="alert" data-testid="dci-result-err">{result.err}</p> : null}
-    </div> : null}
     <div className="dci-id-mid">
+      <h2 className="dci-id-h">اطلاعات هویتی</h2>
       <div className="dci-idrow">{nid}</div>
       <div className="dci-tags">{tags}</div>
     </div>
-    <section className="dci-filecard" aria-label="پرونده‌ی مشتری" data-testid="dci-filecard">
+    <section className="dci-filecard" id="dci-filecard" aria-label="پرونده‌ی مشتری" data-testid="dci-filecard">
       <h2>پرونده‌ی مشتری</h2>
-      <div className="dci-block"><h3>رتبه‌ی اعتباری</h3><CreditBlock customerId={m.customer.id} state={m.credit.state} grade={m.credit.grade} at={m.credit.at} /></div>
-      {m.first ? <div className="dci-block"><h3>تکمیل پرونده در تماس اول</h3><FirstCall customerId={m.customer.id} userId={userId} onOpenForm={onOpenFirstCall} /></div> : null}
+      <FileBox customerId={m.customer.id} nationalCode={m.customer.nationalCode} onOpen={wizard.onOpen}
+        wizard={wizard.open ? <FirstCall key={`${m.customer.id}-wiz`} customerId={m.customer.id} userId={userId} initial={wizard.initial} onDone={wizard.onClose} /> : null} />
     </section>
     <CasesBlock rows={m.cases} href={m.newCaseHref} canEdit={canEditPs} locked={!!m.priorityStatusLocked} busy={cancelCase.isPending} onCancel={openCancel} />
     {pendingPriority !== undefined ? createPortal(<div className="dci-dlgw" data-testid="dci-xfer-wrap" data-nodnd="true">
@@ -591,13 +543,14 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
   </section>;
 }
 
-function RightCol({ m, ext, onCall }: { m: DciBoard; ext: boolean; onCall: () => void }) {
-  return <section className="dci-col dci-right" aria-label="تماس‌های ورودی، تاریخچه و یادداشت‌ها">
+function RightCol({ m, ext, onCall, result, sumOpen }: {
+  m: DciBoard; ext: boolean; onCall: () => void;
+  result: { val: CqResultValue; onChange: (v: CqResultValue) => void; onSave: () => void; busy: boolean; err: string; show: boolean; voipNote?: boolean };
+  sumOpen?: boolean;
+}) {
+  return <section className="dci-col dci-right" aria-label="تاریخچه و یادداشت‌ها">
     <InBoundBlock rows={m.inbounds} ext={ext} onCall={onCall} />
-    <h2>تاریخچه‌ی تماس‌ها</h2>
-    <HistList rows={m.hist} />
-    <h2 className="dci-notes-h">یادداشت‌ها</h2>
-    <NotesBlock rows={m.notes} customerId={m.customer.id} />
+    <HistFeed hist={m.hist} notes={m.notes} customerId={m.customer.id} result={result} sumOpen={sumOpen} />
   </section>;
 }
 
@@ -607,13 +560,15 @@ function LeftCol({ m }: { m: DciBoard }) {
   const nid = m.customer.nationalCode
     ? <span><span className="lbl">کد ملی</span> <b dir="ltr">{fd(m.customer.nationalCode)}</b></span>
     : <span><span className="lbl">کد ملی</span> هنوز ثبت نشده است</span>;
-  return <section className="dci-col dci-left" aria-label="ضامن و کیف پول" data-testid="dci-left">
+  return <section className="dci-col dci-left" aria-label="اطلاعات هویتی و اعتبارسنجی" data-testid="dci-left">
     <div className="dci-id-left">
+      <h2 className="dci-id-h">اطلاعات هویتی</h2>
       <div className="dci-idrow">{nid}</div>
       <div className="dci-tags">{tags}</div>
     </div>
-    <div className="dci-block"><h3>ضامن</h3><GuarBlock v={m.guar.v} cond={m.guar.cond} /></div>
-    {m.wallet ? <div className="dci-wal"><h3>کیف پول</h3><WalletBlock wallet={m.wallet} /></div> : null}
+    <div className="dci-block" data-testid="dci-credit">
+      <div className="dci-cvh"><h3>اعتبارسنجی فوری</h3><span className="dci-opt">اختیاری</span></div>
+      <CreditBlock customerId={m.customer.id} state={m.credit.state} grade={m.credit.grade} at={m.credit.at} /></div>
   </section>;
 }
 
@@ -636,7 +591,11 @@ export default function DailyCustomerInline() {
   const remQ = useListReminders({ done: false }, {
     query: { queryKey: getListRemindersQueryKey({ done: false }), enabled: remUserId != null, retry: false, staleTime: 15_000, refetchInterval: 15_000 },
   });
-  const tasks = useMemo(() => mergeQueue(todayQ.data?.tasks ?? [], remQ.data), [todayQ.data?.tasks, remQ.data]);
+  const [droppedIds, setDroppedIds] = useState<number[]>([]);
+  const tasks = useMemo(
+    () => mergeQueue(todayQ.data?.tasks ?? [], remQ.data).filter((t) => !droppedIds.includes(t.customerId)),
+    [todayQ.data?.tasks, remQ.data, droppedIds],
+  );
   const qCust = Number(queryParam(search, "customer") || "");
   const selectedTask = useMemo(() => {
     const id = queryParam(search, "task");
@@ -651,6 +610,7 @@ export default function DailyCustomerInline() {
   const [reasonOpen, setReasonOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [fcOpen, setFcOpen] = useState(false);
+  const [fcInitial, setFcInitial] = useState<ReturnType<typeof fileInitials> | undefined>(undefined);
   const [resultOpen, setResultOpen] = useState(false);
   const [resultVal, setResultVal] = useState<CqResultValue>(emptyCqResult());
   const [resultShow, setResultShow] = useState(false);
@@ -675,7 +635,12 @@ export default function DailyCustomerInline() {
   }, [customerId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const denied = boardQ.error instanceof DciError && boardQ.error.status === 403 ? (boardQ.error.body as DciDenied) : null;
+  useEffect(() => {
+    const id = denied?.error === "not_owner" ? denied.customerId : 0;
+    if (id) setDroppedIds((ids) => ids.includes(id) ? ids : [...ids, id]);
+  }, [denied]);
   const board = boardQ.data && boardQ.data.access !== undefined ? boardQ.data : null;
+  const fileQ = useFileCard(customerId ?? 0, customerId != null);
   const ext = Boolean((board?.hasExtension ?? todayQ.data?.hasExtension) || vme?.on);
   useEffect(() => {
     document.body.classList.toggle("dci-noext", !ext);
@@ -696,30 +661,44 @@ export default function DailyCustomerInline() {
       try { await dpApi.start(selectedTask.itemId); }
       catch (e) { setResultErr(e instanceof Error && /[\u0600-\u06FF]/.test(e.message) ? e.message : "شروع ثبت نتیجه انجام نشد."); }
     }
-    if (board.first) { setFcOpen(true); setResultOpen(false); return; }
     setResultOpen(true);
+    window.setTimeout(() => {
+      document.getElementById("dci-result")?.scrollIntoView({ block: "start", inline: "nearest" });
+      (document.getElementById("dci-res-note") as HTMLElement | null)?.focus();
+    }, 50);
   };
+  const lastVoip = vme?.s132?.last;
+  const voipPendingNote = Boolean(lastVoip && lastVoip.customerId === customerId && lastVoip.noteState === "pending" && lastVoip.status === "answered");
   const saveResult = async () => {
     if (!customerId) return;
     setResultShow(true);
-    if (cqResultError(resultVal)) { setResultErr(""); return; }
+    const one = resultVal.oneLine.trim();
+    if (voipPendingNote) {
+      if (!one) { setResultErr("یادداشت تماس را بنویسید."); return; }
+    } else if (!resultVal.manual) {
+      setResultErr("نتیجه‌ی تماس را انتخاب کنید."); return;
+    } else if (resultVal.manual === "answered" && !one) {
+      setResultErr("یادداشت تماس را بنویسید."); return;
+    }
     setResultBusy(true); setResultErr("");
     try {
-      const one = resultVal.oneLine.trim();
-      const isPlan = selectedTask?.kind === "plan" && selectedTask.itemId;
-      const r = await dpApi.saveCall({
-        customerId,
-        salespersonId: cq?.salespersonId ?? undefined,
-        subject: isPlan ? "کارهای امروز" : "تماس ورودی",
-        customerRequest: "",
-        expertNotes: one,
-        outcome: resultVal.outcome,
-        call_result: resultVal.manual,
-        oneLineNote: one,
-        followUpAt: cqFollowUpAt(resultVal),
-        ...(isPlan ? { planItemId: selectedTask.itemId } : { outOfList: true, context: "out_of_list" }),
-      });
-      announceCallSaved(r.id, customerId);
+      if (voipPendingNote && lastVoip) {
+        await vcApi.note(lastVoip.callId, one);
+      } else {
+        const isPlan = selectedTask?.kind === "plan" && selectedTask.itemId;
+        const r = await dpApi.saveCall({
+          customerId,
+          salespersonId: cq?.salespersonId ?? undefined,
+          subject: isPlan ? "کارهای امروز" : "تماس ورودی",
+          customerRequest: "",
+          expertNotes: one,
+          outcome: resultVal.outcome,
+          call_result: resultVal.manual,
+          oneLineNote: one,
+          ...(isPlan ? { planItemId: selectedTask.itemId } : { outOfList: true, context: "out_of_list" }),
+        });
+        announceCallSaved(r.id, customerId);
+      }
       if (selectedTask?.reminderId) {
         try { await new Promise<void>((resolve, reject) => updateRem.mutate({ data: { id: selectedTask.reminderId!, done: true } }, { onSuccess: () => resolve(), onError: (e) => reject(e) })); }
         catch { /* result already saved; reminder list will refresh */ }
@@ -729,6 +708,11 @@ export default function DailyCustomerInline() {
     } catch (e) {
       setResultErr(e instanceof Error && /[\u0600-\u06FF]/.test(e.message) ? e.message : "ثبت نشد. دوباره تلاش کنید.");
     } finally { setResultBusy(false); }
+  };
+  const openWizard = (mode: "new" | "edit", initial: ReturnType<typeof fileInitials>) => {
+    setFcInitial(initial ?? fileInitials(fileQ.data, board?.customer.nationalCode ?? null));
+    setFcOpen(true);
+    void mode;
   };
   const doPromote = async () => {
     if (!customerId || !reason.trim()) return;
@@ -771,7 +755,7 @@ export default function DailyCustomerInline() {
 
   let boardEl: ReactNode;
   if (todayQ.isLoading && !todayQ.data) {
-    boardEl = <div className="dci-board"><div className="dci-side"><SkCol cls="dci-right" title="تاریخچه‌ی تماس‌ها" /><SkCol cls="dci-left" title="ضامن و کیف پول" /></div><SkCol cls="dci-mid" title="اطلاعات مشتری" /></div>;
+    boardEl = <div className="dci-board"><div className="dci-side"><SkCol cls="dci-right" title="تاریخچه‌ی تماس‌ها" /><SkCol cls="dci-left" title="اعتبارسنجی فوری" /></div><SkCol cls="dci-mid" title="اطلاعات مشتری" /></div>;
   } else if (errorBoard) {
     boardEl = <div className="dci-board"><section className="dci-col dci-mid" style={{ gridColumn: "1 / -1" }}><div className="dci-err"><p>اطلاعات مشتری الآن در دسترس نیست.</p>
       <button className="btn pri" type="button" onClick={() => { void todayQ.refetch(); void boardQ.refetch(); }}>تلاش دوباره</button></div></section></div>;
@@ -783,20 +767,20 @@ export default function DailyCustomerInline() {
       <Link className="btn pri" href="/today">رفتن به کارهای امروز</Link>
     </div></section></div>;
   } else if (loadingBoard || !board) {
-    boardEl = <div className="dci-board"><div className="dci-side"><SkCol cls="dci-right" title="تاریخچه‌ی تماس‌ها" /><SkCol cls="dci-left" title="ضامن و کیف پول" /></div><SkCol cls="dci-mid" title="اطلاعات مشتری" /></div>;
+    boardEl = <div className="dci-board"><div className="dci-side"><SkCol cls="dci-right" title="تاریخچه‌ی تماس‌ها" /><SkCol cls="dci-left" title="اعتبارسنجی فوری" /></div><SkCol cls="dci-mid" title="اطلاعات مشتری" /></div>;
   } else {
     const show = tab === "talk" ? " show-talk" : tab === "file" ? " show-file" : (openFile ? " show-file" : openTalk ? " show-talk" : "");
     const remBar = selectedTask && (selectedTask.reminderId || selectedTask.types.includes("یادآور"))
       ? { text: selectedTask.remText || "یادآور سررسید" } : null;
     boardEl = <div className={`dci-board${show}`} id="dci-board">
       <div className="dci-side">
-        <RightCol m={board} ext={ext} onCall={startCall} />
+        <RightCol m={board} ext={ext} onCall={startCall} sumOpen={queryParam(search, "shot") === "sum"}
+          result={{ val: resultVal, onChange: setResultVal, onSave: () => void saveResult(), busy: resultBusy, err: resultErr, show: resultShow, voipNote: voipPendingNote }} />
         <LeftCol m={board} />
       </div>
       <MidCol m={board} ext={ext} narrow={narrow} onCopy={copy} onCall={startCall} onResult={() => void startResult()} onPromote={() => setReasonOpen(true)} promoting={promoting}
         promo={{ open: reasonOpen, reason, setReason, onSave: () => void doPromote(), onClose: () => setReasonOpen(false) }}
-        result={{ open: resultOpen, val: resultVal, show: resultShow, busy: resultBusy, err: resultErr, onChange: setResultVal, onSave: () => void saveResult(), onClose: () => { setResultOpen(false); setResultErr(""); } }}
-        remBar={remBar} userId={userId} onOpenFirstCall={() => setFcOpen(true)} />
+        remBar={remBar} userId={userId} wizard={{ open: fcOpen, initial: fcInitial, onOpen: openWizard, onClose: () => setFcOpen(false) }} />
       <div className="dci-tabs" role="tablist" aria-label="بخش‌های دیگر">
         <button type="button" role="tab" id="tab-talk" aria-selected={tab === "talk" ? "true" : "false"} data-pane="talk"
           onClick={() => setTab((t) => t === "talk" ? "" : "talk")}>گفت‌وگو</button>
@@ -812,13 +796,6 @@ export default function DailyCustomerInline() {
       <Timeline tasks={tasks} selected={selectedTask?.id ?? null} onPick={setSel} />
       {boardEl}
     </main>
-    {fcOpen && board ? <SimpleCallForm
-      customer={{ id: board.customer.id, name: fd(board.customer.name), phone: board.customer.phone ?? "", priority: board.customer.priority }}
-      userId={userId}
-      onClose={() => setFcOpen(false)}
-      onDone={() => { setFcOpen(false); void boardQ.refetch(); void todayQ.refetch(); }}
-      onNext={() => setFcOpen(false)}
-    /> : null}
     <div className={`toast dci-toast${toast ? " on" : ""}`} id="ph-toast" role="status" aria-live="polite">{toast}</div>
   </div>;
 }

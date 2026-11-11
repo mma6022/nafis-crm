@@ -32,47 +32,60 @@ export function isOverdueReminder(r: Reminder, now = Date.now()): boolean {
   return Number.isFinite(at) && at < now;
 }
 
+function absorb(existing: QueueTask, typ: string, extra?: Partial<QueueTask>): void {
+  if (typ && !existing.types.includes(typ)) existing.types.push(typ);
+  if (extra?.remText && !existing.remText) existing.remText = extra.remText;
+  if (extra?.reminderId != null && existing.reminderId == null) existing.reminderId = extra.reminderId;
+  if (extra?.overdue) existing.overdue = true;
+  if (extra?.at && (!existing.at || extra.at < existing.at)) {
+    existing.at = extra.at;
+    if (extra.tm) existing.tm = extra.tm;
+  }
+  if (extra?.name && !existing.name) existing.name = extra.name;
+}
+
 export function mergeQueue(tasks: DciTask[], reminders: Reminder[] | undefined, now = Date.now()): QueueTask[] {
-  const out: QueueTask[] = tasks.map((t) => ({
-    ...t,
-    turn: 0,
-    types: [t.typ],
-    remText: t.typ === "یادآور" ? undefined : undefined,
-  }));
+  const byCust = new Map<number, QueueTask>();
+  const out: QueueTask[] = [];
+  const add = (t: QueueTask) => {
+    const existing = byCust.get(t.customerId);
+    if (existing) {
+      for (const typ of t.types) absorb(existing, typ, t);
+      return;
+    }
+    byCust.set(t.customerId, t);
+    out.push(t);
+  };
+  for (const t of tasks) {
+    add({
+      ...t,
+      turn: 0,
+      types: [t.typ],
+      remText: undefined,
+    });
+  }
   const due = (reminders ?? []).filter((r) => isDueReminder(r, now));
   for (const r of due) {
     const cid = Number(r.customerId);
     const text = String(r.message || r.subject || "").trim();
     const overdue = isOverdueReminder(r, now);
-    const existing = out.find((t) => t.customerId === cid);
-    if (existing) {
-      if (!existing.types.includes("یادآور")) existing.types.push("یادآور");
-      existing.remText = existing.remText || text;
-      existing.reminderId = existing.reminderId ?? r.id;
-      existing.overdue = existing.overdue || overdue;
-      if (!existing.at || r.remindAt < existing.at) {
-        existing.at = r.remindAt;
-        existing.tm = remClock(r.remindAt);
-      }
-    } else {
-      out.push({
-        id: `rem-${r.id}`,
-        kind: "plan",
-        itemId: null,
-        customerId: cid,
-        name: String(r.customerName ?? ""),
-        typ: "یادآور",
-        ic: "i-bell",
-        tm: remClock(r.remindAt),
-        at: r.remindAt,
-        status: overdue ? "overdue" : "due",
-        turn: 0,
-        overdue,
-        remText: text,
-        reminderId: r.id,
-        types: ["یادآور"],
-      });
-    }
+    add({
+      id: `rem-${r.id}`,
+      kind: "plan",
+      itemId: null,
+      customerId: cid,
+      name: String(r.customerName ?? ""),
+      typ: "یادآور",
+      ic: "i-bell",
+      tm: remClock(r.remindAt),
+      at: r.remindAt,
+      status: overdue ? "overdue" : "due",
+      turn: 0,
+      overdue,
+      remText: text,
+      reminderId: r.id,
+      types: ["یادآور"],
+    });
   }
   out.sort((a, b) => String(a.at ?? "").localeCompare(String(b.at ?? "")));
   return out.map((t, i) => ({ ...t, turn: i + 1 }));
@@ -89,9 +102,14 @@ export function queueKindClass(t: Pick<QueueTask, "typ" | "types">): "is-lead" |
 }
 
 export function queueKindLabel(t: Pick<QueueTask, "typ" | "types">): string {
-  const k = queueKindClass(t);
-  if (k === "is-both") return "لید تازه و یادآور";
-  if (k === "is-rem") return "یادآور";
-  if (k === "is-today") return "کار امروز";
-  return t.typ;
+  const types = t.types?.length ? t.types : [t.typ];
+  const uniq: string[] = [];
+  for (const x of types) if (x && !uniq.includes(x)) uniq.push(x);
+  const hasRem = uniq.includes("یادآور");
+  const others = uniq.filter((x) => x !== "یادآور");
+  if (hasRem && others.length) return `${others.join(" و ")} و یادآور`;
+  if (hasRem) return "یادآور";
+  if (uniq.length > 1) return uniq.join(" و ");
+  if (uniq[0] === "کار امروز") return "کار امروز";
+  return uniq[0] || t.typ;
 }
