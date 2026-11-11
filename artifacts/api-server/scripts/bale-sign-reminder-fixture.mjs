@@ -476,6 +476,12 @@ await checkAsync("owner who is an admin: first sentence only, connect link to /b
     assert.equal(send.status, 409);
     assert.equal(send.error, "bot_not_connected");
     assert.equal(send.message, SR_TEXTS.notConnectedOwner);
+    const ownerAdminBySp = { id: 900001, role: "admin", salesperson_id: kazemiSp };
+    const bySp = await srChatView(tokenChat.id, ownerAdminBySp, NOW);
+    assert.equal(bySp.state, "bot_not_connected");
+    assert.equal(bySp.showConnectLink, true);
+    assert.equal(bySp.connectHref, "/bale-bot/admin");
+    assert.equal(bySp.reason, SR_TEXTS.notConnectedOwner);
     assert.equal(deliveries.length, start);
     assert.equal(sendContractCalls.length, 0);
     assert.equal(smsCalls.length, 0);

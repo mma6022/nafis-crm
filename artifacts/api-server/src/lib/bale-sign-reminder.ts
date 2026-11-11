@@ -237,9 +237,15 @@ export function srOwnerBotConnected(customerId: number | null | undefined): bool
   if (!customerId) return false;
   return srBotConnected(srOwnerBot(customerId));
 }
-export function srIsOwningExpert(viewer: { id: number }, customerId: number | null | undefined): boolean {
+export function srIsOwningExpert(viewer: { id: number; salesperson_id?: number | null }, customerId: number | null | undefined): boolean {
   if (customerId == null) return false;
-  return srOwnerUserIds(customerId).includes(viewer.id);
+  if (srOwnerUserIds(customerId).includes(viewer.id)) return true;
+  /* An admin (or any viewer) with the case's salesperson_id is also the owner for the not-connected copy.
+     Send still uses srOwnerUserIds / the expert's bot only. */
+  const sp = viewer.salesperson_id ?? bbUser(viewer.id)?.salesperson_id ?? null;
+  if (sp == null) return false;
+  const owner = queryRow<{ sp: number | null }>("SELECT salesperson_id AS sp FROM customers WHERE id=?", [customerId]);
+  return owner?.sp != null && Number(sp) === Number(owner.sp);
 }
 
 /** Copy + link for the not-connected row. Regular expert: help sentence, no link.
