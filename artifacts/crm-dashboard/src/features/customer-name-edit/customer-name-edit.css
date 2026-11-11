@@ -1,9 +1,10 @@
 /* customer-name-edit v1.0 — Armita handoff. Append after shell / file-detail / bale CSS. Do not change the shell. */
 
 .ed-pen{
+  box-sizing:border-box;
   width:44px;height:44px;min-width:44px;min-height:44px;margin-inline-start:4px;
   border-radius:12px;display:grid;place-items:center;color:var(--nf-ink-muted);position:relative;
-  background:transparent;border:0;padding:0;cursor:pointer;flex:none
+  background:transparent;border:0;padding:0;cursor:pointer;flex:none;flex-shrink:0;overflow:visible
 }
 .ed-pen .i{width:20px;height:20px}
 .ed-pen:hover{background:var(--nf-surface-2);color:var(--nf-brand-600)}
@@ -22,10 +23,22 @@
 
 .ed-form{margin-top:10px;display:flex;flex-direction:column;gap:10px;max-width:560px}
 .ed-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (min-width:1024px){
+  .ed-form.ed-desk{max-width:none}
+  .ed-form.ed-desk .ed-row{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;
+    align-items:end;
+    gap:12px
+  }
+  .ed-form.ed-desk .ed-acts{
+    flex-wrap:nowrap;margin:0;padding:0;align-self:end;white-space:nowrap
+  }
+}
 .ed-f{display:flex;flex-direction:column;gap:6px;min-width:0}
 .ed-f label{font-size:15px;font-weight:600;color:var(--nf-ink)}
 .ed-f input{
-  width:100%;min-height:52px;padding:0 14px;border-radius:var(--nf-radius-control,14px);
+  box-sizing:border-box;width:100%;min-height:52px;padding:0 14px;border-radius:var(--nf-radius-control,14px);
   border:1.5px solid var(--nf-line-strong);background:#fff;color:var(--nf-ink);font-size:16px;font-family:inherit
 }
 .ed-f input:focus{border-color:var(--nf-brand-600);box-shadow:var(--nf-ring);outline:none}
@@ -42,7 +55,7 @@
 .ed-sheet{
   display:none;position:fixed;z-index:60;left:0;right:0;bottom:0;
   background:#fff;border-radius:var(--nf-radius-sheet,28px) var(--nf-radius-sheet,28px) 0 0;
-  box-shadow:var(--nf-shadow-pop);padding:10px 16px calc(16px + env(safe-area-inset-bottom,0px));
+  box-shadow:var(--nf-shadow-pop);padding:10px 16px calc(24px + env(safe-area-inset-bottom, 0px));
   max-height:min(92vh, 560px);overflow:auto
 }
 .ed-sheet .grab{width:40px;height:4px;border-radius:4px;background:var(--nf-line-strong);margin:0 auto 8px}

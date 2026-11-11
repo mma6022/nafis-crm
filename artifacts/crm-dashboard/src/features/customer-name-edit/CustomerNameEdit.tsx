@@ -151,12 +151,17 @@ export function CustomerNameEdit({ customerId, name, firstName, lastName, onSave
             aria-invalid={err.last ? true : undefined} aria-describedby={err.last ? `${lastId}-err${mobile ? '-m' : ''}` : undefined} autoComplete="family-name" />
           {err.last ? <div className="ed-err" id={`${lastId}-err${mobile ? '-m' : ''}`} role="alert"><CircleAlert {...I} />{err.last}</div> : null}
         </div>
+        {!mobile ? <div className="ed-acts">
+          <button className="btn pri" type="button" onClick={() => void save()} disabled={busy}>ذخیره</button>
+          <button className="btn gh" type="button" onClick={cancel} disabled={busy}>انصراف</button>
+          {note ? <span className="ed-note" role="status">{note}</span> : null}
+        </div> : null}
       </div>
-      <div className="ed-acts">
+      {mobile ? <div className="ed-acts">
         <button className="btn pri" type="button" onClick={() => void save()} disabled={busy}>ذخیره</button>
         <button className="btn gh" type="button" onClick={cancel} disabled={busy}>انصراف</button>
         {note ? <span className="ed-note" role="status">{note}</span> : null}
-      </div>
+      </div> : null}
     </div>
   );
 
