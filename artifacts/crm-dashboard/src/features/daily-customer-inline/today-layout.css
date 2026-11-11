@@ -27,49 +27,7 @@ body[data-page=today] .diag{display:none}
 .dci-date{display:flex;gap:8px;align-items:center;font-size:16px;color:var(--nf-ink-muted);margin:0 0 8px}
 .dci-page>h1{font-size:28px;font-weight:800;color:var(--nf-ink);margin:0 0 12px}
 
-/* ——— خط زمان: اسکرول افقی، فلش، محو لبه، کارت تمام‌قد ——— */
-.dci-tlw{position:relative;display:flex;align-items:center;gap:8px;margin:0 0 16px;min-width:0}
-.dci-tl-btn{
-  flex:none;width:44px;height:44px;border-radius:12px;
-  display:grid;place-items:center;background:#fff;
-  border:1px solid var(--nf-line-strong);color:var(--nf-ink);
-  box-shadow:var(--nf-shadow-card, none);z-index:2;
-}
-.dci-tl-btn .i{width:20px;height:20px}
-.dci-tl-btn:disabled{opacity:.35;cursor:default}
-.dci-tl-btn:focus-visible{box-shadow:0 0 0 3px #fff,0 0 0 6px var(--nf-brand-600)}
-.dci-tl{
-  flex:1 1 auto;min-width:0;display:flex;gap:8px;
-  overflow-x:auto;overflow-y:visible;
-  padding:6px 2px 10px;scrollbar-width:thin;
-  scroll-behavior:smooth;scroll-padding-inline:12px;
-}
-.dci-tlw[data-fade=start] .dci-tl,
-.dci-tlw[data-fade=both] .dci-tl{
-  -webkit-mask-image:linear-gradient(to left, transparent 0, #000 28px, #000 100%);
-  mask-image:linear-gradient(to left, transparent 0, #000 28px, #000 100%);
-}
-.dci-tlw[data-fade=end] .dci-tl,
-.dci-tlw[data-fade=both] .dci-tl{
-  -webkit-mask-image:linear-gradient(to right, transparent 0, #000 28px, #000 100%);
-  mask-image:linear-gradient(to right, transparent 0, #000 28px, #000 100%);
-}
-.dci-tlw[data-fade=both] .dci-tl{
-  -webkit-mask-image:linear-gradient(to left, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
-  mask-image:linear-gradient(to left, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
-}
-.dci-node{
-  flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;
-  gap:2px;min-height:56px;height:auto;min-width:148px;max-width:176px;
-  padding:8px 10px;border-radius:12px;border:1px solid var(--nf-line);
-  background:#fff;color:var(--nf-ink);font:inherit;text-align:right;text-decoration:none;
-  box-sizing:border-box;
-}
-.dci-node:hover{background:var(--nf-surface-2)}
-.dci-node[aria-current=true]{background:var(--nf-brand-50);border-color:var(--nf-brand-200);box-shadow:0 0 0 1px var(--nf-brand-200)}
-.dci-node .dci-nt{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--nf-ink-muted);white-space:nowrap}
-.dci-node .dci-nt .i{width:16px;height:16px;flex:none;color:var(--nf-brand-600)}
-.dci-node b{font-size:15px;font-weight:800;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* صف v1.3 paused: leave the 2694553 strip (dci.css) until v1.4 slim timeline. */
 
 /* ——— تخته: ارتفاع خودکار، اسکرول صفحه، بدون جعبهٔ ارتفاع‌ثابت ——— */
 .dci-board{
@@ -134,11 +92,9 @@ body[data-page=today] .diag{display:none}
   .dci-mid{order:1}
   .dci-right{order:2;display:block}
   .dci-left{order:3;display:block}
-  .dci-node{min-width:124px;max-width:148px}
   .dci-tabs{display:none}
 }
 @media (max-width:430px){
-  .dci-node{min-width:112px;max-width:140px}
   .dci-page>h1{font-size:22px}
   .dci-who h2{font-size:22px}
 }
@@ -319,33 +275,6 @@ body[data-page=today] .diag{display:none}
 .dci-sticky{display:none !important}
 body.dci-stick .dci-page{padding-bottom:calc(var(--dock-h, var(--ss-dock-h,84px)) + var(--dock-gap, var(--ss-gap,16px)) + 24px)}
 
-.dci-node{position:relative;padding-top:10px}
-.dci-turn{
-  display:inline-flex;align-items:center;justify-content:center;
-  min-width:22px;height:22px;padding:0 6px;border-radius:99px;
-  background:var(--nf-surface-2,#eef0f6);color:var(--nf-ink-muted);
-  font-size:12px;font-weight:800;margin-inline-end:4px
-}
-.dci-od{
-  display:inline-flex;align-items:center;min-height:22px;padding:0 8px;border-radius:99px;
-  background:#FFF8E8;border:1px solid #E8D7A8;color:#8A6A10;
-  font-size:11px;font-weight:800;white-space:nowrap
-}
-.dci-node .dci-ntypes{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
-.dci-remline{
-  font-size:13px;font-weight:600;color:var(--nf-ink-muted);
-  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0
-}
-.dci-ncall{
-  position:absolute;top:6px;inset-inline-end:6px;
-  width:44px;height:44px;min-width:44px;min-height:44px;padding:0;
-  border-radius:12px;border:1px solid var(--nf-line-strong);background:#fff;
-  display:grid;place-items:center;color:var(--nf-brand-600);cursor:pointer
-}
-.dci-ncall .i{width:20px;height:20px}
-.dci-node{padding-inline-end:52px}
-body.dci-noext .dci-ncall, .dci-ncall[hidden]{display:none}
-body.dci-noext .dci-node{padding-inline-end:10px}
 
 /* Defeat leftover height-lock rules if any remain later in the cascade. */
 html, body, .app-shell.ssv2, .app-main, .dci, .dci-page, .dci-board, .dci-col{
