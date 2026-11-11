@@ -75,6 +75,16 @@ body{margin:0;font-family:sans-serif}
         </div>
       </div>
     </div>
+    <div class="ed-form ed-desk" id="invalid-form">
+      <div class="ed-row">
+        <div class="ed-f"><label>نام</label><input autocomplete="given-name" value="سمیره"/></div>
+        <div class="ed-f"><label>نام خانوادگی</label><input autocomplete="family-name" value="Naderi" aria-invalid="true"/><div class="ed-err">فقط حروف فارسی وارد کنید.</div></div>
+        <div class="ed-acts">
+          <button class="btn pri" type="button">ذخیره</button>
+          <button class="btn gh" type="button">انصراف</button>
+        </div>
+      </div>
+    </div>
   </div>
   <button type="button" class="ed-scrim" aria-label="بستن"></button>
   <div class="ed-sheet" role="dialog">
@@ -131,6 +141,29 @@ try {
     desk.sameRowLastSave && desk.sameRowLastCancel && desk.buttonsAfterLast
     && desk.firstRight >= desk.lastRight,
     JSON.stringify(desk));
+
+  const inv = await page.evaluate(() => {
+    const root = document.getElementById("invalid-form");
+    const firstLab = root.querySelector(".ed-f:first-child label").getBoundingClientRect();
+    const lastLab = root.querySelector(".ed-f:last-of-type label")
+      ? null : null;
+    const labels = [...root.querySelectorAll(".ed-f label")].map((el) => el.getBoundingClientRect());
+    const first = root.querySelector('input[autocomplete="given-name"]').getBoundingClientRect();
+    const last = root.querySelector('input[autocomplete="family-name"]').getBoundingClientRect();
+    const err = root.querySelector(".ed-err").getBoundingClientRect();
+    const save = [...root.querySelectorAll(".ed-acts .btn")].find((b) => b.textContent.trim() === "ذخیره").getBoundingClientRect();
+    const sameRow = (a, b) => Math.max(a.top, b.top) < Math.min(a.bottom, b.bottom);
+    return {
+      labelsAligned: Math.abs(labels[0].top - labels[1].top) <= 2,
+      inputsAligned: Math.abs(first.top - last.top) <= 2,
+      buttonsWithInputs: sameRow(last, save) && sameRow(first, save),
+      buttonsAfterLast: save.right <= last.left + 1,
+      errorBelowLast: err.top >= last.bottom - 1,
+    };
+  });
+  check("desktop invalid: labels and inputs stay aligned; error sits under نام خانوادگی; buttons stay on the input row",
+    inv.labelsAligned && inv.inputsAligned && inv.buttonsWithInputs && inv.buttonsAfterLast && inv.errorBelowLast,
+    JSON.stringify(inv));
 
   await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2 });
   await page.evaluate(() => document.body.classList.add("ed-open"));

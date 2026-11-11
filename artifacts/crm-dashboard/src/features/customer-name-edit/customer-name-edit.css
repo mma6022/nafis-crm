@@ -28,11 +28,19 @@
   .ed-form.ed-desk .ed-row{
     display:grid;
     grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;
-    align-items:end;
-    gap:12px
+    grid-template-rows:auto auto auto;
+    align-items:start;
+    column-gap:12px;
+    row-gap:6px
+  }
+  .ed-form.ed-desk .ed-f{
+    display:grid;
+    grid-template-rows:subgrid;
+    grid-row:1 / span 3
   }
   .ed-form.ed-desk .ed-acts{
-    flex-wrap:nowrap;margin:0;padding:0;align-self:end;white-space:nowrap
+    grid-row:2;
+    flex-wrap:nowrap;margin:0;padding:0;white-space:nowrap;align-self:center
   }
 }
 .ed-f{display:flex;flex-direction:column;gap:6px;min-width:0}
