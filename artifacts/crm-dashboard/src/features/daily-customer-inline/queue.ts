@@ -77,3 +77,21 @@ export function mergeQueue(tasks: DciTask[], reminders: Reminder[] | undefined, 
   out.sort((a, b) => String(a.at ?? "").localeCompare(String(b.at ?? "")));
   return out.map((t, i) => ({ ...t, turn: i + 1 }));
 }
+
+export function queueKindClass(t: Pick<QueueTask, "typ" | "types">): "is-lead" | "is-rem" | "is-both" | "is-today" {
+  const types = t.types?.length ? t.types : [t.typ];
+  const hasLead = types.includes("لید تازه");
+  const hasRem = types.includes("یادآور");
+  if (hasLead && hasRem) return "is-both";
+  if (hasRem && !hasLead) return "is-rem";
+  if (types.includes("کار امروز") || t.typ === "کار امروز") return "is-today";
+  return "is-lead";
+}
+
+export function queueKindLabel(t: Pick<QueueTask, "typ" | "types">): string {
+  const k = queueKindClass(t);
+  if (k === "is-both") return "لید تازه و یادآور";
+  if (k === "is-rem") return "یادآور";
+  if (k === "is-today") return "کار امروز";
+  return t.typ;
+}

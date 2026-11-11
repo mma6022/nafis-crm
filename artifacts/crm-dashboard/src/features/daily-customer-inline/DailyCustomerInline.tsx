@@ -18,7 +18,7 @@ import { DciIcon, DciSprites } from "./icons";
 import "./dci.css";
 import "./today-layout.css";
 import { getListRemindersQueryKey, useListReminders, useUpdateReminder } from "@workspace/api-client-react";
-import { mergeQueue, type QueueTask } from "./queue";
+import { mergeQueue, queueKindClass, queueKindLabel, type QueueTask } from "./queue";
 
 const FD = "۰۱۲۳۴۵۶۷۸۹";
 /** Existing catalog labels (customer_tag_catalog). Fallback if the catalog has not loaded yet. */
@@ -93,16 +93,63 @@ function Phone({ raw, big, onCopy }: { raw: string; big?: boolean; onCopy: (v: s
 }
 
 function Timeline({ tasks, selected, onPick }: { tasks: QueueTask[]; selected: string | null; onPick: (t: QueueTask) => void }) {
-  const ref = useRef<HTMLAnchorElement | null>(null);
-  useEffect(() => { ref.current?.scrollIntoView({ inline: "center", block: "nearest" }); }, [selected]);
-  return <nav className="dci-tl" aria-label="کارهای امروز">{tasks.map((t) => (
-    <a key={t.id} ref={selected === t.id ? ref : undefined} className="dci-node" href={`#${t.id}`}
-      aria-current={selected === t.id ? "true" : undefined}
-      onClick={(e) => { e.preventDefault(); onPick(t); }}>
-      <span className="dci-nt"><DciIcon id={t.ic} /><span>{t.tm}؛ {t.typ}</span></span>
-      <b>{t.name}</b>
-    </a>
-  ))}</nav>;
+  const rail = useRef<HTMLElement | null>(null);
+  const nodeRef = useRef<HTMLAnchorElement | null>(null);
+  const [fade, setFade] = useState<"none" | "start" | "end" | "both">("none");
+  const [can, setCan] = useState({ start: false, end: false });
+  const sync = () => {
+    const el = rail.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    const abs = Math.abs(el.scrollLeft);
+    const has = max > 4;
+    const atStart = abs < 8;
+    const atEnd = Math.max(0, max - abs) < 8;
+    setCan({ start: has && !atStart, end: has && !atEnd });
+    setFade(!has ? "none" : atStart ? "end" : atEnd ? "start" : "both");
+  };
+  useEffect(() => {
+    const el = rail.current;
+    if (!el) return;
+    sync();
+    el.addEventListener("scroll", sync, { passive: true });
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(sync) : null;
+    ro?.observe(el);
+    window.addEventListener("resize", sync);
+    return () => { el.removeEventListener("scroll", sync); ro?.disconnect(); window.removeEventListener("resize", sync); };
+  }, [tasks.length]);
+  useEffect(() => { nodeRef.current?.scrollIntoView({ inline: "center", block: "nearest" }); }, [selected]);
+  const go = (dir: "start" | "end") => {
+    const el = rail.current;
+    if (!el) return;
+    const step = Math.max(160, el.clientWidth * 0.6);
+    // RTL: start (right) is toward scrollLeft ≈ 0; end (left) is away from 0.
+    const sign = el.scrollLeft <= 0 ? (dir === "start" ? 1 : -1) : (dir === "start" ? -1 : 1);
+    el.scrollBy({ left: sign * step, behavior: "smooth" });
+  };
+  return <div className="dci-tlw" data-fade={fade === "none" ? undefined : fade} data-testid="dci-tlw">
+    <button className="dci-tl-btn" type="button" aria-label="مشتری‌های راست" disabled={!can.start} onClick={() => go("start")}><DciIcon id="i-chev-r" /></button>
+    <nav className="dci-tl" ref={rail} aria-label="صف تماس‌های امروز">
+      {tasks.map((t) => {
+        const kind = queueKindClass(t);
+        const typ = queueKindLabel(t);
+        const tip = [t.tm, t.overdue ? "عقب‌افتاده" : ""].filter(Boolean).join(" — ");
+        const al = ["نوبت " + fd(t.turn), t.name, typ, t.tm, t.overdue ? "عقب‌افتاده" : ""].filter(Boolean).join("، ");
+        return <a key={t.id} ref={selected === t.id ? nodeRef : undefined}
+          className={`dci-node ${kind}${t.overdue ? " is-late" : ""}`}
+          href={`#${t.id}`} aria-current={selected === t.id ? "true" : undefined}
+          title={tip} aria-label={al}
+          onClick={(e) => { e.preventDefault(); onPick(t); }}>
+          <span className="dci-nord" aria-hidden="true">{fd(t.turn)}</span>
+          <span className="dci-dot" aria-hidden="true" />
+          <b>{t.name}</b>
+          <span className="dci-kind">{typ}</span>
+          {t.overdue ? <span className="dci-late-t">عقب‌افتاده</span> : null}
+        </a>;
+      })}
+    </nav>
+    <button className="dci-tl-btn" type="button" aria-label="مشتری‌های چپ" disabled={!can.end} onClick={() => go("end")}><DciIcon id="i-chev-l" /></button>
+  </div>;
 }
 
 function HistList({ rows }: { rows: DciHist[] }) {
@@ -364,6 +411,23 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
   const canEditPs = !!m.canEditPriorityStatus && !m.priorityStatusLocked;
   const showPs = canEditPs || !!m.priorityStatusLocked;
   const noPermHint = "اجازهٔ تغییر اولویت در این حساب نیست.";
+  const [stToast, setStToast] = useState(false);
+  const stToastT = useRef(0);
+  const curStatus: CustomerUpdateStatus = (PS_STATUSES.includes((m.customer.status || "") as CustomerUpdateStatus) ? m.customer.status : "in_progress") as CustomerUpdateStatus;
+  const saveStatus = (value: CustomerUpdateStatus) => {
+    if (!canEditPs || value === curStatus || update.isPending) return;
+    setPsError(""); setPsOk("");
+    update.mutate({ id: m.customer.id, data: { status: value } }, {
+      onSuccess: () => {
+        setStToast(true);
+        window.clearTimeout(stToastT.current);
+        stToastT.current = window.setTimeout(() => setStToast(false), 3200);
+        refresh();
+      },
+      onError: (error) => { setPsError(psErrMsg(error, "status")); setStToast(false); },
+    });
+  };
+  useEffect(() => () => window.clearTimeout(stToastT.current), []);
   const openPromo = (from: "chip" | "button") => {
     if (!canEditPs || curPriority === 1) return;
     promoFrom.current = from;
@@ -438,9 +502,15 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
       <button type="button" className="btn gh" data-testid="dci-ps-retry" disabled={update.isPending || failedPriority === undefined} onClick={() => { if (failedPriority !== undefined) savePriority(failedPriority); }}>تلاش دوباره</button>
     </div> : null}
   </div> : null;
-  const prio = m.prio
-    ? <div className="dci-prio"><span className="dci-prio-on ps-p1on">اولویت ۱</span></div>
-    : (m.canPromote && canEditPs ? <div className="dci-prio"><button ref={p1BtnRef} className="btn gh" type="button" disabled={promoting} onClick={() => openPromo("button")} data-testid="dci-upgrade-p1">ارتقا به اولویت ۱</button></div> : null);
+  const st = <div className="dci-st">
+    <label className="dci-ps-lbl" htmlFor="dci-st">وضعیت مشتری</label>
+    <select id="dci-st" className="dci-st-sel" aria-label="وضعیت مشتری" data-testid="dci-st"
+      value={curStatus} disabled={!canEditPs || update.isPending}
+      title={!canEditPs ? noPermHint : undefined}
+      onChange={(e) => saveStatus(e.target.value as CustomerUpdateStatus)}>
+      {PS_STATUSES.map((key) => <option key={key} value={key}>{STATUS_LABEL[key]}</option>)}
+    </select>
+  </div>;
   const nid = m.customer.nationalCode
     ? <span><span className="lbl">کد ملی</span> <b dir="ltr">{fd(m.customer.nationalCode)}</b></span>
     : <span><span className="lbl">کد ملی</span> هنوز ثبت نشده است</span>;
@@ -454,8 +524,11 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
       </div>
       <div className="dci-idrow dci-idrow-phone">{m.customer.phone ? <Phone raw={m.customer.phone} big={!ext} onCopy={onCopy} /> : null}</div>
     </div>
-    {ps}
-    {prio}
+    <div className="dci-prio">
+      {ps}
+      {st}
+    </div>
+    {stToast ? <div className="toast on" role="status" data-testid="dci-st-toast">وضعیت مشتری ذخیره شد.</div> : null}
     {promo?.open ? createPortal(<div className="dci-dlgw" data-testid="dci-promote-wrap" data-nodnd="true">
       <div className="dci-dlg dci-dlg-promo" role="dialog" aria-modal="true" aria-labelledby="dci-p1-t" data-testid="dci-promote">
         <h2 id="dci-p1-t">ارتقا به اولویت ۱</h2>
