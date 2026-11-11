@@ -421,8 +421,8 @@ function AiFeaturesCard({ features, toast, reload }: { features?: AiFeaturesStat
   };
 
   return <section className={`ft-card${!masterOn ? ' is-dim' : ''}`} aria-label={FT_TITLE} data-testid="ai-features-card">
-    {!masterOn ? <p className="ft-note">{FT_DIM_NOTE}</p> : null}
     <h3>{FT_TITLE}</h3>
+    {!masterOn ? <p className="ft-note" data-testid="ai-feat-master-off-note"><I n="info" />{FT_DIM_NOTE}</p> : null}
     <div className="ft-rows">{FEATURES.map(row)}</div>
     {err ? <div className="bk-ai-err" role="alert" data-testid="ai-feat-error"><I n="alert" /><div>
       <b>تغییر انجام نشد</b>پیام سرور: {err.message}

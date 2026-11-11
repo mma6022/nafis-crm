@@ -34,7 +34,9 @@ html{font-family:var(--nf-font-sans)}
    the bottom bar: bar height + 16px (Armita bottom-bar note). */
 .bbt.bk-admin .pg{padding-bottom:calc(var(--dock-h, 84px) + var(--dock-gap, 16px) + 16px)}
 @media (max-width:1023px){
-  .bbt.bk-admin .pg{padding-bottom:calc(var(--nf-bottom-bar-h, var(--dock-h, 72px)) + 16px + env(safe-area-inset-bottom, 0px))}
+  /* Classic admin bottom bar is 64px (index.css / --nf-bottom-bar-h on :root).
+     .bbt sets --nf-bottom-bar-h:72px for its own dock vars; do not use that here. */
+  .bbt.bk-admin .pg{padding-bottom:calc(64px + 16px + env(safe-area-inset-bottom, 0px))}
 }
 .bk-wrap{max-width:1080px;margin:0 auto;padding:16px 20px 24px}
 .bk-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
@@ -134,12 +136,14 @@ html{font-family:var(--nf-font-sans)}
 /* staff-wallet.css defines a page-level .sw { display:grid; width:100% }. That must not stretch this toggle. */
 button.sw{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 4px;border:0;background:transparent;font:700 13px var(--nf-font-sans);color:var(--nf-ink);cursor:pointer;width:auto;max-width:none;margin:0}
 
-/* ai-feature-toggles v1.0: کارت قابلیت‌های هوش مصنوعی زیر کلید اصلی. ماکاپ طراحی. پوسته و کارت کلید از ai-master-switch / bale-bot-kb بدون تغییر است. */
+/* ai-feature-toggles v1.0 + Armita r2: کارت قابلیت‌های هوش مصنوعی زیر کلید اصلی. */
 .ft-card{background:#fff;border:1px solid var(--nf-line);border-radius:16px;padding:16px;display:grid;gap:4px;margin-bottom:12px}
 .ft-card h3{margin:0 0 8px;font-size:16px;font-weight:800;color:var(--nf-ink);line-height:1.7}
-.ft-note{margin:0 0 8px;padding:10px 12px;border-radius:12px;background:var(--nf-surface-2);color:var(--nf-ink-soft);font-size:14px;font-weight:600;line-height:1.7}
+.ft-note{display:flex;align-items:flex-start;gap:8px;margin:0 0 8px;padding:0;background:transparent;color:#475569;font-size:14px;font-weight:600;line-height:1.7}
+.ft-note .i{width:20px;height:20px;flex:none;margin-top:3px;color:#475569}
 .ft-card.is-dim{background:var(--nf-surface)}
-.ft-card.is-dim h3,.ft-card.is-dim .ft-rows{opacity:.45}
+/* Only the toggle rows dim; title and master-off note stay at full contrast. */
+.ft-card.is-dim .ft-rows{opacity:.45}
 .ft-rows{display:flex;flex-direction:column;margin:0}
 .ft-row{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"title sw" "desc sw" "meta sw";column-gap:12px;row-gap:4px;align-items:center;min-height:56px;padding:10px 0;border-top:1px solid var(--nf-line)}
 .ft-row:first-child{border-top:0;padding-top:4px}
@@ -151,8 +155,9 @@ button.sw{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding
 .ft-meta{grid-area:meta;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-width:0}
 .ft-since{margin:0;grid-area:meta;font-size:14px;font-weight:600;color:#146C3A;line-height:1.7}
 .ft-chip{display:inline-flex;align-items:center;min-height:28px;padding:0 10px;border-radius:10px;background:var(--nf-gold-50);color:var(--nf-gold-700);font-size:14px;font-weight:600;border:1px solid var(--nf-gold-300);line-height:1.4}
-.ft-keylink{display:inline-flex;align-items:center;min-height:44px;padding:0 2px;font:800 14px var(--nf-font-sans);color:rgb(41, 54, 155);text-decoration:underline;text-underline-offset:6px;text-decoration-color:var(--nf-brand-200)}
-.ft-keylink:hover{color:var(--nf-brand-700)}
+/* Beat .bbt a { color:inherit; text-decoration:none } so the link is brand blue + underline. */
+.bbt a.ft-keylink,.ft-card a.ft-keylink{display:inline-flex;align-items:center;min-height:44px;padding:0 2px;font:800 14px var(--nf-font-sans);color:rgb(41, 54, 155);text-decoration:underline;text-underline-offset:4px;text-decoration-color:rgb(41, 54, 155);text-decoration-thickness:1px}
+.bbt a.ft-keylink:hover,.ft-card a.ft-keylink:hover{color:var(--nf-brand-700);text-decoration-color:var(--nf-brand-700)}
 .ft-card .sw[aria-disabled=true],.ft-card .sw[disabled]{opacity:.55;cursor:not-allowed}
 .ft-card.is-dim .sw.on i{background:var(--nf-ink-faint)}
 .ft-card .sw:focus-visible{outline:2px solid rgb(41, 54, 155);outline-offset:3px;border-radius:8px}
@@ -163,6 +168,7 @@ button.sw{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding
 }
 @media(max-width:720px){
   .ft-card{padding:14px}
-  .ft-row{padding:12px 0}
-  .ft-meta{padding-top:2px}
+  .ft-row{column-gap:12px;padding:12px 0}
+  .ft-card .sw{padding-inline:0}
+  .ft-meta{flex-direction:column;align-items:flex-start;gap:8px;padding-top:2px}
 }
