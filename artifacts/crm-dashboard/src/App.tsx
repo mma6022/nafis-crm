@@ -75,6 +75,8 @@ import StaffChatPage from '@/chat/StaffChatPage';
 import InternalChatPage from '@/internal-chat/InternalChatPage';
 import CustomerPortal from '@/customer-portal/Portal';
 import { PageLoaderBridge, PageLoaderSuspense } from '@/lib/page-loader/PageLoaderBridge';
+import { LockdownRedirect } from '@/features/expert-lockdown/LockdownRedirect';
+import { shouldRetryQuery } from '@/features/expert-lockdown/guard';
 import {
   Route,
   Switch,
@@ -84,7 +86,12 @@ import {
 } from 'wouter';
 import { useGetAuthSession, getGetAuthSessionQueryKey } from '@workspace/api-client-react';
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { retry: shouldRetryQuery },
+    mutations: { retry: false },
+  },
+});
 // Retain list preferences until logout/auth change clears this client.
 queryClient.setQueryDefaults(['table-view-state'], { gcTime: Infinity });
 
@@ -348,6 +355,7 @@ function App() {
       <WouterRouter base={basePath}>
         {/* Full-screen loader on route changes that wait on data / lazy chunks (portal + staff); see PageLoaderBridge */}
         <PageLoaderBridge />
+        <LockdownRedirect />
         <Suspense fallback={<PageLoaderSuspense />}>
           <AppEntry />
         </Suspense>

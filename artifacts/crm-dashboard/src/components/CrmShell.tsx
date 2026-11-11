@@ -31,6 +31,7 @@ import { sfScope } from '@/features/smart-filing/access';
 import { baleNavVisible } from '@/features/bale/api';
 import { layoutFor, menuKindFor, TRAINEE_SALESPERSON_IDS } from './nav-layout';
 import { EL_UIDS, elPageAllowed, useLockdownMe } from '@/features/expert-lockdown/api';
+import { navHrefAllowedWhenLocked } from '@/features/expert-lockdown/guard';
 import { LockdownNotice } from '@/features/expert-lockdown/LockdownNotice';
 import { asFetch, asVisibleTo } from '@/features/assistant/api';
 import { cqOn, faNum, useCqConfig } from '@/features/call-queue/api';
@@ -169,9 +170,11 @@ export function CrmShell({ children }: { children: ReactNode }) {
   });
   const user = session?.user;
   // expert_lockdown (assistants54): users 2 / 3 / 8 only, while flag.expert_lockdown is ON (server decides; everyone else → locked:false, never fetched).
-  const elMe = useLockdownMe(Boolean(user && EL_UIDS.includes(Number(user.id)))).data;
+  // Ask /expert-lockdown/me for every signed-in user; the server decides who is locked
+  // (EL_USERS + team members via flag.multi_team_v1). Trainee exclusion is unchanged on the server.
+  const elMe = useLockdownMe(Boolean(user)).data;
   const elLocked = elMe?.locked === true;
-  const elPending = Boolean(user && EL_UIDS.includes(Number(user.id))) && elMe === undefined; // hold customer-list polls until we know
+  const elPending = Boolean(user && EL_UIDS.includes(Number(user.id))) && elMe === undefined; // hold customer-list polls until we know (original three; team members rely on 403→/today)
   useEffect(() => { if (elLocked && location === '/') setLocation('/today'); }, [elLocked, location, setLocation]);
   usePageUsage(user?.id, location); // v10: page-usage tracker (route patterns + visible dwell only; silent on any failure)
   const cqCfg = useCqConfig(Boolean(user)).data;
@@ -267,8 +270,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
     return () => document.documentElement.removeAttribute('data-mc-on');
   }, [mcOn]);
   const navItems = allNavItems.filter(item => {
-    // v2 (PM): «مشتریان» and «یادآورها» stay in the dock while locked — they render cust_locked / view-only reminders, never the list.
-    if (elLocked && elMe?.locked && !elMe.allowedPages.includes(item.href) && !(ssV2 && (item.href === '/customers' || item.href === '/reminders'))) return false; // lockdown only removes items; the normal checks below still apply
+    // Locked dock / «بیشتر»: hide any tab that is not in EL_ALLOWED_PAGES (no exception for /customers or /reminders, no «نمای کلی»).
+    if (elLocked && elMe?.locked && !navHrefAllowedWhenLocked(item.href, elMe.allowedPages)) return false; // lockdown only removes items; the normal checks below still apply
     // crm-call-queue: hidden while its flags are OFF (and for user 29 / trainees, enforced by the server config).
     if (item.dp === 'today') return dpOnForMe;
     if (item.dp === 'admin') return dpManager(dpCfg);

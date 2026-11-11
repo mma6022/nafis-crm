@@ -458,3 +458,78 @@ body:has([data-testid="dci-page"]) .ts-wz{
   .dci-dlgw{align-items:flex-end;padding:0}
   .dci-dlg{width:100%;border-radius:18px 18px 0 0;max-height:92vh;padding-bottom:calc(18px + env(safe-area-inset-bottom))}
 }
+
+/* fix/today-layout-1024 (Mohammad t1025u): short desktop (e.g. 1366×635 with the
+   floating dock) locked the shell to 100dvh + overflow:hidden on the page AND
+   the board, so the three columns shrank to ~200px and clipped پرونده / هویت /
+   تماس / کیف پول, with scrollbars globally hidden. Keep the shell at the
+   viewport; let app-main scroll; size the columns to their content; do not
+   let the title/timeline shrink; padding always clears the dock. Values are
+   easy to retune when Armita's corrective design lands. Do not change the
+   header subtitle. */
+@media (min-width: 1024px) {
+  body:has([data-testid="dci-page"]) .app-shell,
+  body:has([data-testid="dci-page"]) .app-shell.ssv2 {
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  body:has([data-testid="dci-page"]) .app-shell .app-main,
+  body:has([data-testid="dci-page"]) .app-shell.ssv2 .app-main {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    max-height: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding-bottom: calc(var(--ss-dock-h, 90px) + var(--ss-gap, 16px) + 24px) !important;
+    box-sizing: border-box;
+    scrollbar-width: thin;
+    scroll-padding-bottom: calc(var(--ss-dock-h, 90px) + var(--ss-gap, 16px) + 24px);
+  }
+  body:has([data-testid="dci-page"]) .app-shell .app-main::-webkit-scrollbar,
+  body:has([data-testid="dci-page"]) .app-shell.ssv2 .app-main::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+    display: block;
+  }
+  /* Size the page wrapper to its content so app-main's scrollHeight includes
+     the full columns, instead of shrinking them into the leftover viewport. */
+  body:has([data-testid="dci-page"]) .app-shell.ssv2 .app-main > :not(.topbar) {
+    flex: 0 0 auto;
+    min-height: auto;
+    height: auto;
+    overflow: visible;
+    display: block;
+  }
+  body:has([data-testid="dci-page"]) .dci,
+  body:has([data-testid="dci-page"]) .dci-page {
+    flex: 0 0 auto;
+    min-height: 0;
+    height: auto;
+    padding-bottom: 8px;
+    display: flex;
+    flex-direction: column;
+  }
+  body:has([data-testid="dci-page"]) .dci-date,
+  body:has([data-testid="dci-page"]) .dci-page > h1,
+  body:has([data-testid="dci-page"]) .dci-tl {
+    flex: 0 0 auto;
+  }
+  body:has([data-testid="dci-page"]) .dci-board {
+    flex: 0 0 auto;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+    align-items: start;
+  }
+  body:has([data-testid="dci-page"]) .dci-col {
+    height: auto;
+    max-height: none;
+    min-height: 0;
+    overflow: visible;
+    padding-bottom: 24px;
+  }
+}
