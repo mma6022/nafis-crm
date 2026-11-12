@@ -6,13 +6,13 @@ import { getGetAuthSessionQueryKey, getListCustomerTagsQueryKey, useCancelLoanAp
 import { useQueryClient } from "@tanstack/react-query";
 import { STATUS_LABEL } from "@/pages/customers-ui";
 import { announceCallSaved, useCqConfig } from "@/features/call-queue/api";
-import { emptyCqResult, type CqResultValue } from "@/features/call-queue/ResultFields";
+import { emptyCqResult, MANUAL_OUTCOME_OPTIONS, type CqResultValue } from "@/features/call-queue/ResultFields";
 import { dpApi } from "@/features/daily-plan/api";
 import { promoteToP1 } from "@/features/history/api";
 import { InstantCreditCheck } from "@/features/team-sales/InstantCreditCheck";
 import { useIccEnabled } from "@/features/team-sales/api";
 import { CustomerNameEdit } from "@/features/customer-name-edit/CustomerNameEdit";
-import { useVcMe, vcApi } from "@/features/voip-call/api";
+import { useVcMe, vcApi, VcError, VC_ME_KEY, type VcMe } from "@/features/voip-call/api";
 import { DciError, dciApi, useDciBoard, useDciToday, type DciBoard, type DciCase, type DciDenied, type DciInbound, type DciTask } from "./api";
 import { HistFeed } from "./today-feed";
 import { FileBox, FileWizard } from "./file-wizard";
@@ -528,6 +528,7 @@ export default function DailyCustomerInline() {
   const [resultBusy, setResultBusy] = useState(false);
   const [resultErr, setResultErr] = useState("");
   const vme = useVcMe().data;
+  const vcQc = useQueryClient();
   const session = sessionEarly;
   const userId = remUserId;
   const updateRem = useUpdateReminder();
@@ -559,15 +560,28 @@ export default function DailyCustomerInline() {
   useEffect(() => {
     setFcOpen(false); setResultOpen(false); setResultVal(emptyCqResult()); setResultShow(false); setResultErr("");
   }, [customerId]);
-  const startCall = (id?: number) => {
-    const cid = id ?? customerId;
-    if (!cid) return;
-    if (ext) void vcApi.start({ customerId: cid }).catch(() => undefined);
+  // CALLVOIP-410000: «تماس» buttons pass onClick={onCall} → React called startCall(clickEvent), so `id ?? customerId` sent the click
+  // EVENT as customerId; JSON.stringify of the event threw before any request and the .catch hid it (no /voip-call/start since 390000).
+  // Only a real numeric id overrides the page customer; a failure is shown instead of swallowed.
+  const callBusy = useRef(false);
+  const startCall = (id?: unknown) => {
+    const cid = typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? id : customerId;
+    if (!cid || !ext || callBusy.current) return;
+    callBusy.current = true;
+    vcApi.start({ customerId: cid })
+      .then((r) => { vcQc.setQueryData<VcMe>(VC_ME_KEY, (o) => ({ ...(o ?? { on: true }), on: true, call: r.call })); })
+      .catch((e) => {
+        setToast(e instanceof VcError ? e.message : "شروع تماس ناموفق بود.");
+        window.setTimeout(() => setToast(""), 3500);
+        void vcQc.invalidateQueries({ queryKey: VC_ME_KEY });
+      })
+      .finally(() => { callBusy.current = false; });
   };
   const startResult = async () => {
     if (!customerId || !board) return;
     setResultErr("");
-    if (selectedTask?.kind === "plan" && selectedTask.itemId) {
+    // CALLRESULT-410000: only the CURRENT plan item can be «started» (server 409 otherwise); any other task just opens the box.
+    if (selectedTask?.kind === "plan" && selectedTask.itemId && selectedTask.status === "current") {
       try { await dpApi.start(selectedTask.itemId); }
       catch (e) { setResultErr(e instanceof Error && /[\u0600-\u06FF]/.test(e.message) ? e.message : "شروع ثبت نتیجه انجام نشد."); }
     }
@@ -601,10 +615,12 @@ export default function DailyCustomerInline() {
           salespersonId: cq?.salespersonId ?? undefined,
           subject: isPlan ? "کارهای امروز" : "تماس ورودی",
           customerRequest: "",
-          expertNotes: one,
+          expertNotes: one || MANUAL_OUTCOME_OPTIONS.find((o) => o.key === resultVal.manual)?.label || "",
           outcome: resultVal.outcome,
           call_result: resultVal.manual,
-          oneLineNote: one,
+          // CALLRESULT-410000: the note is optional for «جواب نداد» / «خاموش یا اشغال» in this box, but the daily-plan API needs a
+          // one-line note — send the chosen result as the note instead of failing with «یادداشت یک‌خطی را بنویس».
+          oneLineNote: one || MANUAL_OUTCOME_OPTIONS.find((o) => o.key === resultVal.manual)?.label || "",
           ...(isPlan ? { planItemId: selectedTask.itemId } : { outOfList: true, context: "out_of_list" }),
         });
         announceCallSaved(r.id, customerId);

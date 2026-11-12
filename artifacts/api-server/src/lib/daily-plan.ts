@@ -1068,7 +1068,7 @@ export function dpMove(user: CqUser & { fullName?: string | null; username?: str
 /** Before cqParseCall. null = not a daily-plan call (normal flow). Sets body.__dp ('plan'|'outside') and body.__dpItem. */
 export function dpPreCall(body: any, user: CqUser, now = new Date()): DpErr | null {
   if (!body || typeof body !== "object") return null;
-  delete body.__dp; delete body.__dpItem;
+  delete body.__dp; delete body.__dpItem; delete body.__dpLate;
   const p = dpActiveFor(user, now); if (!p) return null;
   const outcome = String(body.outcome ?? ""); const note = noteText(body.oneLineNote);
   const need = () => !CQ_OUTCOMES.includes(outcome as any) ? err(422, "outcome_required", "نتیجه‌ی تماس را انتخاب کن.", { allowed: CQ_OUTCOMES })
@@ -1098,7 +1098,26 @@ export function dpPreCall(body: any, user: CqUser, now = new Date()): DpErr | nu
   }
   const id = Number(body.planItemId);
   if (!Number.isSafeInteger(id) || id <= 0) return err(409, "plan_item_required", "این گزارش باید برای کار فعلی «کارهای امروز» باشد (یا «خارج از لیست»).");
-  const it = currentItem(p, id); if (!it || it.customer_id !== Number(body.customerId)) return err(409, "not_current_item", "این کار، کار فعلی نیست.");
+  const it = currentItem(p, id);
+  if (!it || it.customer_id !== Number(body.customerId)) {
+    // CALLRESULT-410000: the v2.0 «کارهای امروز» page lets the expert open ANY task of today's list (not only the current one), and a
+    // VoIP CDR can close the item a few seconds before the expert presses «ثبت». Both sent a planItemId that is no longer «current» and
+    // lost the report (409 not_current_item). If the item is still today's item of THIS customer, save the report instead of refusing:
+    //  - still open (pending/current) → close THAT item exactly like the LOGGED-CALL-63 «خارج از لیست» path (no mirror);
+    //  - already closed (done by the VoIP CDR etc.) → keep the call, fill the item's empty outcome, no «خارج از لیست» mirror.
+    // An item of another plan / another customer still 409s; customer ownership is still checked by POST /calls (getCustomer).
+    const mine = items(p.id, "id=?", [id])[0];
+    if (!mine || mine.customer_id !== Number(body.customerId)) return err(409, "not_current_item", "این کار، کار فعلی نیست.");
+    const e = need(); if (e) return e;
+    body.__dp = "outside";
+    if (mine.status === "pending" || mine.status === "current") {
+      if (!dpFirstCallIncomplete(p, mine)) body.__dpItem = mine.id;
+      else { const own = ownOpen(); if (own && own.id !== mine.id && !dpFirstCallIncomplete(p, own)) body.__dpItem = own.id; else body.__dpLate = mine.id; }
+    } else {
+      const own = ownOpen(); if (own && !dpFirstCallIncomplete(p, own)) body.__dpItem = own.id; else body.__dpLate = mine.id;
+    }
+    return null;
+  }
   const e = need(); if (e) return e;
   body.__dp = "plan"; body.__dpItem = id; return null;
 }
@@ -1128,6 +1147,14 @@ export function dpAfterCall(body: any, callLogId: number, user: CqUser, customer
   if (kind === "plan") {
     executeChanges("UPDATE dp_items SET status='done', outcome=?, call_log_id=?, done_at=? WHERE id=? AND plan_id=? AND status='current'", [outcome, callLogId, nowIso, Number(body.__dpItem), p.id]);
     return { kind, itemId: Number(body.__dpItem) };
+  }
+  // CALLRESULT-410000: report for an item of this customer that is no longer open (closed by the VoIP CDR / first-call held):
+  // the call is saved; the item keeps its status, gets the outcome only if it had none; never a «خارج از لیست» mirror.
+  if (kind === "outside" && body.__dpLate && !body.__dpItem) {
+    const lateId = Number(body.__dpLate);
+    executeChanges("UPDATE dp_items SET outcome=? WHERE id=? AND plan_id=? AND customer_id=? AND status='done' AND outcome IS NULL", [outcome, lateId, p.id, customerId]);
+    dpCloseDialWith(p, customerId, log);
+    return { kind: "late", itemId: lateId };
   }
   dpCloseDialWith(p, customerId, log);
   const id = addItem(p.id, { customerId, type: "followup", source: "out_of_list", bucket: "outside", position: 99999, label: DP_LABELS.outOfList, status: "done" }, nowIso);
