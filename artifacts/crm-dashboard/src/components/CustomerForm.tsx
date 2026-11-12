@@ -68,6 +68,7 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
   }, [customer, defaultProgram, isAdmin, open]);
   if (!open) return null;
   const isEditing = Boolean(customer);
+  const nameLocked = Boolean(isEditing && customer?.verificationStatus === 'verified');
   const setValue = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }));
   const analyzeCustomerText = (text = sourceText) => {
     if (text.trim().length < 3 || parseText.isPending) return;
@@ -101,7 +102,7 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const errors: Record<string, string> = {};
-    if (!form.name.trim()) errors.name = 'نام مشتری را وارد کنید.';
+    if (!nameLocked && !form.name.trim()) errors.name = 'نام مشتری را وارد کنید.';
     if (form.phone.trim().length < 3) errors.phone = 'شماره موبایل را وارد کنید.';
     // کد ملی اختیاری است (crm-nid-optional): خالی = ارسال نمی‌شود و کد ثبت‌شده می‌ماند؛ فقط اگر کاربر فیلد را پاک کند، پاک می‌شود.
     const nc = nationalCodePatch(form.nationalCode, customer?.nationalCode, ncTouched);
@@ -121,11 +122,14 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
     if (customer) {
       // Unchanged / untouched-empty national code is not sent, so editing the name never rewrites or clears it.
       const { nationalCode: _ignored, ...rest } = data;
-      const payload: typeof rest & { nationalCode?: string; clearNationalCode?: true } = { ...rest, ...nc.patch };
-      try { const saved = await update.mutateAsync({ id: customer.id, data: payload }); await saveTagsAndFinish(saved); }
+      const payload = { ...rest, ...nc.patch };
+      const { name: _lockedName, ...payloadWithoutName } = payload;
+      const dataToSend = nameLocked ? payloadWithoutName : payload;
+      try { const saved = await update.mutateAsync({ id: customer.id, data: dataToSend }); await saveTagsAndFinish(saved); }
       catch (cause) {
-        const msg = (cause as { data?: { error?: unknown } })?.data?.error;
-        setError(typeof msg === 'string' && /[\u0600-\u06FF]/.test(msg) ? msg : 'ذخیره پرونده انجام نشد. اطلاعات را بررسی و دوباره تلاش کنید.');
+        const errData = (cause as { data?: { error?: unknown; message?: unknown } })?.data;
+        const msg = [errData?.message, errData?.error].find((v) => typeof v === 'string' && /[\u0600-\u06FF]/.test(v));
+        setError(typeof msg === 'string' ? msg : 'ذخیره پرونده انجام نشد. اطلاعات را بررسی و دوباره تلاش کنید.');
       }
       return;
     }
@@ -177,7 +181,7 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
     const repeatData = { phone: normalizeDigits(form.phone.trim()), requestedName: form.name.trim(), submittedDescription: form.description.trim() || null, explanation: explanation.trim(), ...intakePayload(intake) };
     repeat.mutate({ data: repeatData }, { onSuccess: () => { refreshCustomerViews(queryClient, matched.id); onSaved(); }, onError: (cause) => { const failure = cause as { status?: number }; if (failure.status === 404) setError('پرونده با این شماره دیگر پیدا نشد. دوباره بررسی کنید.'); } }); };
   return <div className="csx csx-formhost" dir="rtl">
-    <Sheet title={isEditing ? `ویرایش ${initials(customer?.name)}` : 'مشتری جدید'} onClose={onClose} testId="customer-form" initialFocus="#customer-name"
+    <Sheet title={isEditing ? `ویرایش ${initials(customer?.name)}` : 'مشتری جدید'} onClose={onClose} testId="customer-form" initialFocus={nameLocked ? "#customer-phone" : "#customer-name"}
       footer={<>
         <button className="csx-ghost" type="button" onClick={done ? onSaved : onClose} data-testid="button-cancel-customer">{done ? 'بستن' : 'انصراف'}</button>
         <button className="csx-primary" type="submit" form="customer-form-el" disabled={pending || Boolean(done)} data-testid="button-save-customer">{pending ? 'در حال بررسی و ذخیره…' : createdForTags ? 'تلاش دوباره برای ذخیره برچسب‌ها' : isEditing ? 'ذخیره تغییرات' : 'ثبت مشتری'}</button>
@@ -210,7 +214,7 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
               {parseText.isSuccess ? <p className="hint ok" data-testid="success-parse-customer-text">نام، شماره تماس و توضیحات استخراج شد؛ لطفاً قبل از ثبت بررسی کنید.</p> : null}
             </div>
           </details> : null}
-          <div className="field"><label htmlFor="customer-name">نام و نام خانوادگی</label><input id="customer-name" value={form.name} onChange={(e) => { setValue('name', e.target.value); setFieldErrors(c => ({ ...c, name: '' })); }} required aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? 'customer-name-err' : undefined} data-testid="input-customer-name" />
+          <div className="field"><label htmlFor="customer-name">نام و نام خانوادگی</label>{nameLocked ? <><p id="customer-name" className="csx-locked-name" data-testid="text-customer-name-locked">{form.name}</p><p className="hint" data-testid="hint-customer-name-locked">نام از احراز هویت آمده و قابل ویرایش نیست.</p></> : <input id="customer-name" value={form.name} onChange={(e) => { setValue('name', e.target.value); setFieldErrors(c => ({ ...c, name: '' })); }} required aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? 'customer-name-err' : undefined} data-testid="input-customer-name" />}
             {fieldErrors.name ? <p className="err" id="customer-name-err"><AlertCircle size={16} aria-hidden="true" /> {fieldErrors.name}</p> : null}</div>
           <div className="field"><label htmlFor="customer-phone">شماره موبایل</label><input id="customer-phone" dir="ltr" inputMode="tel" value={form.phone} onChange={(e) => { setValue('phone', e.target.value); setFieldErrors(c => ({ ...c, phone: '' })); setMatched(null); }} required minLength={3} aria-invalid={Boolean(fieldErrors.phone || matched) || undefined} aria-describedby={fieldErrors.phone || matched ? 'customer-phone-err' : undefined} data-testid="input-customer-phone" />
             {fieldErrors.phone ? <p className="err" id="customer-phone-err"><AlertCircle size={16} aria-hidden="true" /> {fieldErrors.phone}</p> : null}

@@ -10,6 +10,7 @@ import { CROSS_OWNER_EXCLUDED_USER_IDS, crossOwnerEligible, redactForeignCustome
 import { myTransfers } from "../lib/my-transfers";
 import { customerSearchSql } from "../lib/customer-id-search";
 import { identityValuesChanged } from "../lib/identity-change";
+import { CNE_MSG, cneApplyNameChangeInTx, cnePartsFromFullName, cnePrepareNameChange, type CnePrepared } from "../lib/customer-name-edit";
 import { propagateContractTemplateChange } from "../lib/contract-template-updates";
 import { creditProviderFailure } from "../lib/credit-provider-failure";
 import { publicDocumentLabel } from "../lib/public-document-labels";
@@ -3065,7 +3066,24 @@ const customerPatchHandler = (req: express.Request, res: express.Response): void
     // HISTORY-A: a P1 the expert set with «ارتقا به اولویت یک» goes back only through an admin.
     try { assertP1RevertAllowed(params.data.id, body.priority, user); }
     catch (e) { if (e instanceof TeamSalesError) { res.status(e.status).json({ error: e.message, code: "p1_revert_admin_only" }); return; } throw e; }
-    if (body.name !== undefined) entries.push(["name", body.name]);
+    let nameChange: CnePrepared | null = null;
+    if (body.name !== undefined) {
+      const submitted = String(body.name).replace(/\u200C{2,}/g, "\u200C").replace(/[^\S\u200C]+/g, " ").trim();
+      const current = String(existingCustomer.name ?? "").replace(/\u200C{2,}/g, "\u200C").replace(/[^\S\u200C]+/g, " ").trim();
+      if (submitted !== current) {
+        const parts = cnePartsFromFullName(body.name);
+        if ("ok" in parts) {
+          res.status(400).json({ error: parts.error, message: parts.message, field: "name" });
+          return;
+        }
+        const prep = cnePrepareNameChange(user, params.data.id, { firstName: parts.firstName, lastName: parts.lastName }, { requireFlag: false });
+        if (!prep.ok) {
+          res.status(prep.status).json({ error: prep.error, message: prep.message, ...(prep.field ? { field: prep.field } : {}) });
+          return;
+        }
+        if (!prep.unchanged) nameChange = prep;
+      }
+    }
     if (body.phone !== undefined) {
       const mobile = ics24.normalizeMobile(body.phone);
       if (!mobile) { res.status(400).json({ error: "شماره همراه معتبر نیست." }); return; }
@@ -3216,7 +3234,7 @@ const customerPatchHandler = (req: express.Request, res: express.Response): void
       entries.push(["salesperson_id", body.salespersonId]);
     if (body.priority !== undefined) entries.push(["priority", body.priority]);
     if (body.status !== undefined) entries.push(["status", body.status]);
-    if (!entries.length && !urgentChange) {
+    if (!entries.length && !urgentChange && !nameChange) {
       res.status(400).json({ error: "At least one field is required" });
       return;
     }
@@ -3255,10 +3273,23 @@ const customerPatchHandler = (req: express.Request, res: express.Response): void
     try {
       if (nationalCodeLog) ensureIdentityLogSchema();
       changes = runTransaction(() => {
-        let changed = entries.length ? executeChanges(
+        let named = 0;
+        if (nameChange) {
+          try {
+            cneApplyNameChangeInTx(user, nameChange.row, nameChange.first, nameChange.last);
+            named = 1;
+          } catch (err) {
+            if (err instanceof Error && err.message === "CNE_STALE") {
+              const stale = new Error("CNE_STALE");
+              throw stale;
+            }
+            throw err;
+          }
+        }
+        let changed = (entries.length ? executeChanges(
           `UPDATE customers SET ${setClause} WHERE id = ?`,
           [...entries.map(([, value]) => value), params.data.id],
-        ) : 0;
+        ) : 0) || named;
         // crm-urgent-history / urgent v1.1: history row (+ bells on set) through the staff policy.
         if (urgentChange) {
           const u = applyStaffUrgent(crmDb, params.data.id, Boolean(body.isUrgent), { kind: "user", userId: user.id, label: user.fullName || user.username },
@@ -3289,6 +3320,10 @@ const customerPatchHandler = (req: express.Request, res: express.Response): void
         return changed;
       });
     } catch (error) {
+      if (error instanceof Error && error.message === "CNE_STALE") {
+        res.status(409).json({ error: "identity_verified", message: CNE_MSG.verified });
+        return;
+      }
       if (error instanceof Error && error.message.includes("ACTIVE_CUSTOMER_")) {
         const what = error.message.includes("ACTIVE_CUSTOMER_MOBILE_CONFLICT") ? "شماره همراه"
           : error.message.includes("ACTIVE_CUSTOMER_NATIONAL_CODE_CONFLICT") ? "کد ملی" : "شماره همراه یا کد ملی";

@@ -90,7 +90,7 @@ export function ensureCneSchema(): void {
   execute("CREATE INDEX IF NOT EXISTS idx_customer_name_edits_customer ON customer_name_edits(customer_id, id DESC)");
 }
 
-type CustomerRow = {
+export type CustomerRow = {
   id: number;
   name: string;
   first_name: string | null;
@@ -161,14 +161,39 @@ export type CnePatchErr = {
   field?: "firstName" | "lastName";
 };
 
-export function cnePatch(user: AuthUser, customerId: number, body: { firstName?: unknown; lastName?: unknown }, now = new Date()): CnePatchOk | CnePatchErr {
-  if (!cneFlagOn()) return { ok: false, status: 404, error: CNE_OFF, message: CNE_MSG.off };
+
+export type CnePrepared = {
+  ok: true;
+  unchanged: boolean;
+  row: CustomerRow;
+  first: string;
+  last: string;
+  newName: string;
+};
+
+/** Shared checks for the dedicated /name route and the old PATCH /customers/:id form. Flag is optional so the old path stays guarded even when the feature flag is off. */
+export function cnePrepareNameChange(
+  user: AuthUser,
+  customerId: number,
+  body: { firstName?: unknown; lastName?: unknown },
+  opts: { requireFlag?: boolean } = {},
+): CnePrepared | CnePatchErr {
+  if (opts.requireFlag && !cneFlagOn()) return { ok: false, status: 404, error: CNE_OFF, message: CNE_MSG.off };
   const row = cneLoadCustomer(customerId);
   if (!row) return { ok: false, status: 404, error: "not_found", message: CNE_MSG.notFound };
   if (!cneCanEditUser(user, row.salesperson_id)) {
     return { ok: false, status: 403, error: "forbidden", message: CNE_MSG.forbidden };
   }
   if (cneIdentityVerified(row)) {
+    const first = cneNormalizePart(body.firstName);
+    const last = cneNormalizePart(body.lastName);
+    const prev = cneSplitName(row.name, row.first_name, row.last_name);
+    const same = first.ok && last.ok
+      && cneFullName(first.value, last.value) === (row.name || cneFullName(prev.firstName, prev.lastName))
+      && first.value === prev.firstName && last.value === prev.lastName;
+    if (same) {
+      return { ok: true, unchanged: true, row, first: first.value, last: last.value, newName: row.name || cneFullName(first.value, last.value) };
+    }
     return { ok: false, status: 409, error: "identity_verified", message: CNE_MSG.verified };
   }
   const first = cneNormalizePart(body.firstName);
@@ -177,60 +202,84 @@ export function cnePatch(user: AuthUser, customerId: number, body: { firstName?:
   if (!last.ok) return { ok: false, status: 400, error: last.error, message: last.message, field: "lastName" };
   const newName = cneFullName(first.value, last.value);
   const oldName = row.name ?? "";
-  const oldFirst = row.first_name ?? null;
-  const oldLast = row.last_name ?? null;
-  const prev = cneSplitName(oldName, oldFirst, oldLast);
+  const prev = cneSplitName(oldName, row.first_name, row.last_name);
   if (newName === (oldName || cneFullName(prev.firstName, prev.lastName))
       && first.value === prev.firstName && last.value === prev.lastName) {
+    return { ok: true, unchanged: true, row, first: first.value, last: last.value, newName: oldName || newName };
+  }
+  return { ok: true, unchanged: false, row, first: first.value, last: last.value, newName };
+}
+
+export function cnePartsFromFullName(full: unknown): { firstName: string; lastName: string } | { ok: false; error: "required"; message: string } {
+  if (typeof full !== "string") return { ok: false, error: "required", message: CNE_MSG.required };
+  const value = full.replace(/\u200C{2,}/g, "\u200C").replace(/[^\S\u200C]+/g, " ").trim();
+  if (!value) return { ok: false, error: "required", message: CNE_MSG.required };
+  return cneSplitName(value, null, null);
+}
+
+/** Must run inside runTransaction. Does not notify the customer or touch contracts / templates / official identity fields. */
+export function cneApplyNameChangeInTx(
+  user: AuthUser,
+  row: CustomerRow,
+  first: string,
+  last: string,
+  now = new Date(),
+): { editId: number; applicationIds: number[]; newName: string } {
+  const newName = cneFullName(first, last);
+  const oldName = row.name ?? "";
+  const oldFirst = row.first_name ?? null;
+  const oldLast = row.last_name ?? null;
+  const actorName = (user.fullName && user.fullName.trim()) || user.username || "کارشناس";
+  const at = now.toISOString();
+  const reason = JSON.stringify({ oldName, newName, firstName: first, lastName: last });
+  ensureCneSchema();
+  const changed = executeChanges(
+    `UPDATE customers SET name=?, first_name=?, last_name=? WHERE id=? AND merged_into_customer_id IS NULL
+       AND COALESCE(verification_status,'unverified') <> 'verified'`,
+    [newName, first, last, row.id],
+  );
+  if (!changed) throw new Error("CNE_STALE");
+  const editId = execute(
+    `INSERT INTO customer_name_edits(
+       customer_id,old_name,new_name,old_first_name,old_last_name,new_first_name,new_last_name,actor_user_id,actor_name,created_at)
+     VALUES(?,?,?,?,?,?,?,?,?,?)`,
+    [row.id, oldName, newName, oldFirst, oldLast, first, last, user.id, actorName, at],
+  );
+  const apps = queryRows<{ id: number; stage: string | null }>(
+    `SELECT id, stage FROM loan_applications WHERE customer_id=? AND ${cneAppAliveSql()} ORDER BY id`,
+    [row.id],
+  );
+  const applicationIds: number[] = [];
+  for (const app of apps) {
+    const stage = app.stage ?? "";
+    execute(
+      "INSERT INTO loan_application_stage_history(application_id,from_stage,to_stage,action,reason,actor_id,created_at) VALUES(?,?,?,?,?,?,?)",
+      [app.id, stage, stage, CNE_ACTION, reason, user.id, at],
+    );
+    applicationIds.push(Number(app.id));
+  }
+  return { editId: Number(editId), applicationIds, newName };
+}
+
+export function cnePatch(user: AuthUser, customerId: number, body: { firstName?: unknown; lastName?: unknown }, now = new Date()): CnePatchOk | CnePatchErr {
+  const prep = cnePrepareNameChange(user, customerId, body, { requireFlag: true });
+  if (!prep.ok) return prep;
+  if (prep.unchanged) {
     return {
-      ok: true, unchanged: true, id: row.id, name: oldName || newName, firstName: first.value, lastName: last.value,
+      ok: true, unchanged: true, id: prep.row.id, name: prep.newName, firstName: prep.first, lastName: prep.last,
       identityVerified: false, history: { applicationIds: [], editId: null },
     };
   }
-
-  const actorName = (user.fullName && user.fullName.trim()) || user.username || "کارشناس";
-  const at = now.toISOString();
-  const reason = JSON.stringify({ oldName, newName, firstName: first.value, lastName: last.value });
-
-  const result = runTransaction(() => {
-    ensureCneSchema();
-    const changed = executeChanges(
-      `UPDATE customers SET name=?, first_name=?, last_name=? WHERE id=? AND merged_into_customer_id IS NULL
-         AND COALESCE(verification_status,'unverified') <> 'verified'`,
-      [newName, first.value, last.value, row.id],
-    );
-    if (!changed) throw new Error("CNE_STALE");
-    const editId = execute(
-      `INSERT INTO customer_name_edits(
-         customer_id,old_name,new_name,old_first_name,old_last_name,new_first_name,new_last_name,actor_user_id,actor_name,created_at)
-       VALUES(?,?,?,?,?,?,?,?,?,?)`,
-      [row.id, oldName, newName, oldFirst, oldLast, first.value, last.value, user.id, actorName, at],
-    );
-    const apps = queryRows<{ id: number; stage: string | null }>(
-      `SELECT id, stage FROM loan_applications WHERE customer_id=? AND ${cneAppAliveSql()} ORDER BY id`,
-      [row.id],
-    );
-    const applicationIds: number[] = [];
-    for (const app of apps) {
-      const stage = app.stage ?? "";
-      execute(
-        "INSERT INTO loan_application_stage_history(application_id,from_stage,to_stage,action,reason,actor_id,created_at) VALUES(?,?,?,?,?,?,?)",
-        [app.id, stage, stage, CNE_ACTION, reason, user.id, at],
-      );
-      applicationIds.push(Number(app.id));
-    }
-    return { editId: Number(editId), applicationIds };
-  });
-
+  const result = runTransaction(() => cneApplyNameChangeInTx(user, prep.row, prep.first, prep.last, now));
   return {
     ok: true,
     unchanged: false,
-    id: row.id,
-    name: newName,
-    firstName: first.value,
-    lastName: last.value,
+    id: prep.row.id,
+    name: result.newName,
+    firstName: prep.first,
+    lastName: prep.last,
     identityVerified: false,
-    history: result,
+    history: { applicationIds: result.applicationIds, editId: result.editId },
   };
 }
 

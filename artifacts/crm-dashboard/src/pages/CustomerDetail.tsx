@@ -450,7 +450,8 @@ function CustomerDetailFull() {
   const save = (event: FormEvent) => {
     event.preventDefault();
     const errors: Record<string, string> = {};
-    if (!form.name.trim()) errors.name = 'نام مشتری را وارد کنید.';
+    const nameLocked = customer.verificationStatus === 'verified';
+    if (!nameLocked && !form.name.trim()) errors.name = 'نام مشتری را وارد کنید.';
     if (!validateIranianMobile(form.phone)) errors.phone = 'شماره همراه باید با ۰۹ شروع شود و ۱۱ رقم باشد.';
     // crm-nid-optional (PM 16:03): کد ملی اختیاری است؛ خالیِ دست‌نخورده کد ثبت‌شده را پاک نمی‌کند.
     const nc = nationalCodePatch(form.nationalCode, customer?.nationalCode, ncTouched);
@@ -464,7 +465,7 @@ function CustomerDetailFull() {
       if (first) window.requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-testid="${testIds[first]}"]`)?.focus());
       return;
     }
-    const data: CustomerUpdate & { clearNationalCode?: true } = { name: form.name.trim(), phone: normalizeDigits(form.phone.trim()), ...nc.patch, postalCode: form.postalCode.trim() ? normalizeDigits(form.postalCode.trim()) : null, birthDateJalali: form.birthDateJalali.trim() || null, description: form.description, priority: form.priority ? Number(form.priority) : null, status: form.status };
+    const data: CustomerUpdate & { clearNationalCode?: true } = { ...(nameLocked ? {} : { name: form.name.trim() }), phone: normalizeDigits(form.phone.trim()), ...nc.patch, postalCode: form.postalCode.trim() ? normalizeDigits(form.postalCode.trim()) : null, birthDateJalali: form.birthDateJalali.trim() || null, description: form.description, priority: form.priority ? Number(form.priority) : null, status: form.status };
     update.mutate({ id, data }, {
       onSuccess: () => { setEditing(false); setNcTouched(false); setProfileErrors({}); customerQuery.refetch(); setToast('تغییرات پرونده ذخیره شد.'); },
       onError: (error) => {
@@ -910,13 +911,13 @@ function CustomerDetailFull() {
       <div className="colB">{tsCard ? <div className="d-only">{tsCard}</div> : null}<div className="d-only"><DataAccuracyCard customerId={id} place="d" onSubmitted={refreshAfterAccuracy} /></div>{statusSec}{creditSec}{walletSec}{adminSec}</div>
     </div>
     </>}
-    {editing ? <div className="csx-formhost"><Sheet title={`ویرایش پرونده ${customer.name}`} onClose={() => { setEditing(false); setProfileErrors({}); }} testId="customer-edit-sheet" initialFocus='[data-testid="input-detail-name"]' footer={<>
+    {editing ? <div className="csx-formhost"><Sheet title={`ویرایش پرونده ${customer.name}`} onClose={() => { setEditing(false); setProfileErrors({}); }} testId="customer-edit-sheet" initialFocus={verified ? '[data-testid="input-detail-phone"]' : '[data-testid="input-detail-name"]'} footer={<>
       <button className="csx-ghost" type="button" onClick={() => { setEditing(false); setProfileErrors({}); }}>انصراف</button>
       <button className="csx-primary" type="submit" form="customer-edit-form" disabled={update.isPending} data-testid="button-save-detail">{update.isPending ? 'در حال ذخیره...' : 'ذخیره تغییرات'}</button>
     </>}>
       {profileErrors._form && <div role="alert" className="csx-note bad profile-form-error"><AlertCircle size={18} /><p>{profileErrors._form}</p></div>}
       <form id="customer-edit-form" noValidate onSubmit={save} className="csx-sheet-body" style={{ display: 'grid', gap: 14 }}>
-        <div className="field"><label htmlFor="detail-name">نام و نام خانوادگی</label><input id="detail-name" value={form.name} onChange={(e) => { setForm({ ...form, name: e.target.value }); setProfileErrors(current => ({ ...current, name: '' })); }} aria-invalid={Boolean(profileErrors.name)} aria-describedby={profileErrors.name ? 'detail-name-err' : undefined} data-testid="input-detail-name" />{fieldErr('name', 'detail-name')}</div>
+        <div className="field"><label htmlFor="detail-name">نام و نام خانوادگی</label>{verified ? <><p id="detail-name" className="csx-locked-name" data-testid="text-detail-name-locked">{form.name}</p><p className="hint" data-testid="hint-detail-name-locked">نام از احراز هویت آمده و قابل ویرایش نیست.</p></> : <input id="detail-name" value={form.name} onChange={(e) => { setForm({ ...form, name: e.target.value }); setProfileErrors(current => ({ ...current, name: '' })); }} aria-invalid={Boolean(profileErrors.name)} aria-describedby={profileErrors.name ? 'detail-name-err' : undefined} data-testid="input-detail-name" />}{fieldErr('name', 'detail-name')}</div>
         <div className="field"><label htmlFor="detail-phone">شماره موبایل</label><input id="detail-phone" dir="ltr" inputMode="tel" value={form.phone} onChange={(e) => { setForm({ ...form, phone: e.target.value }); setProfileErrors(current => ({ ...current, phone: '' })); }} aria-invalid={Boolean(profileErrors.phone)} aria-describedby={profileErrors.phone ? 'detail-phone-err' : undefined} data-testid="input-detail-phone" />{fieldErr('phone', 'detail-phone')}</div>
         <div className="field"><label htmlFor="detail-nc">کد ملی (اختیاری)</label><input id="detail-nc" dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={(e) => { setForm({ ...form, nationalCode: e.target.value }); setNcTouched(true); setProfileErrors(current => ({ ...current, nationalCode: '' })); }} maxLength={10} aria-invalid={Boolean(profileErrors.nationalCode)} aria-describedby={profileErrors.nationalCode ? 'detail-nc-err' : undefined} data-testid="input-detail-national-code" />{!profileErrors.nationalCode && nationalCodePatch(form.nationalCode, customer?.nationalCode, ncTouched).clearing ? <small className="hint" data-testid="hint-detail-national-code-clear">{NATIONAL_CODE_CLEAR_HINT}</small> : null}{fieldErr('nationalCode', 'detail-nc')}</div>
         <div className="field"><label htmlFor="detail-pc">کد پستی (اختیاری)</label><input id="detail-pc" dir="ltr" inputMode="numeric" value={form.postalCode} onChange={(e) => { setForm({ ...form, postalCode: e.target.value }); setProfileErrors(current => ({ ...current, postalCode: '' })); }} maxLength={10} aria-invalid={Boolean(profileErrors.postalCode)} aria-describedby={profileErrors.postalCode ? 'detail-pc-err' : undefined} data-testid="input-detail-postal-code" />{fieldErr('postalCode', 'detail-pc')}</div>

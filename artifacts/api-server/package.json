@@ -23,6 +23,7 @@
     "test:daily-customer-inline": "node scripts/run-bundled-fixture.mjs scripts/daily-customer-inline-fixture.mjs && node scripts/run-bundled-fixture.mjs scripts/daily-customer-inline-wiring-fixture.mjs",
     "test:inquiry-yes-no": "node --experimental-strip-types scripts/inquiry-yes-no-fixture.mjs",
     "test:customer-name-edit": "NODE_ENV=production node scripts/run-bundled-fixture.mjs scripts/customer-name-edit-fixture.mjs",
+    "test:customer-patch-name-guard": "NODE_ENV=production node scripts/run-bundled-fixture.mjs scripts/customer-patch-name-guard-fixture.mjs",
     "test:customer-name-edit-layout": "node scripts/customer-name-edit-layout-fixture.mjs",
     "test:sales-experts-priority-status": "node scripts/run-bundled-fixture.mjs scripts/sales-experts-priority-status-fixture.mjs",
     "test:recording-transcript": "node scripts/recording-transcript-fixture.mjs",
