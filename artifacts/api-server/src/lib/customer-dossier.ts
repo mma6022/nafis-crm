@@ -22,7 +22,7 @@
  * (site keys, documents, expert note, simple-form extras).
  */
 import { execute, queryRow, queryRows } from "./crm-db";
-import { CREDIT_SUBGRADES } from "./credit-subgrades";
+import { CREDIT_SUBGRADES, GRADE_LETTERS } from "./credit-subgrades";
 import { siteAnswersForCustomer } from "./site-apply";
 import { TeamSalesError, firstCallEditAccess, type Actor } from "./team-sales";
 
@@ -35,6 +35,9 @@ export const SITE_MILITARY = ["yes", "no", "not_applicable"] as const;
 export const SITE_YES_NO = ["yes", "no"] as const;
 export const SITE_TIMING = ["this_week", "this_month", "just_browsing"] as const;
 export const RANKS: readonly string[] = [...CREDIT_SUBGRADES, "unknown"];
+/** site-credit-noinst v1.0 §4: the customer's own rank may be a bare letter from the site (A–E) until the expert refines it
+ *  to A1–E3. Only the customer's credit_rank accepts letters; the guarantor rank and the legacy answers.creditRank stay subgrades. */
+export const CUSTOMER_RANKS: readonly string[] = [...RANKS, ...GRADE_LETTERS];
 export const LEAD_NEED = ["cash", "goods", "help"] as const;
 export const LEAD_BANDS = [
   "0-100", "100-200", "200-300", "300-500", "500-1000", "1000-up",
@@ -184,25 +187,49 @@ function applyPlan(st: DossierState, planId: unknown, planName: unknown, term: u
   if (!st.term && term != null && String(term) !== "") st.term = String(term);
 }
 
+/** Keys a site submission can fill (the «از سایت» badge in the file box). */
+export const SITE_FIELD_KEYS = ["amount_range", "loan_purpose", "job_status", "credit_rank", "documents", "has_military_card",
+  "can_refer_retiree", "has_bounced_or_overdue", "need_timing"] as const;
+
+/**
+ * site-credit-noinst v1.1: every submission counts, newest first, per field — a newer submission updates a field an older
+ * one filled, and a step skipped in the newer one (null) never clears it. Runs first in buildDossier, so the stored
+ * (expert) dossier still wins over every site value.
+ */
 function applySite(st: DossierState, customerId: number) {
   try {
-    const latest = siteAnswersForCustomer(customerId).latest;
-    if (!latest) return;
-    const a = latest.answers;
-    if (!st.amount_range && oneOf(SITE_AMOUNT_RANGE, a.amount_range)) st.amount_range = a.amount_range;
-    if (!st.loan_purpose && oneOf(SITE_PURPOSE, a.loan_purpose)) st.loan_purpose = String(a.loan_purpose);
-    if (!st.job_status && oneOf(SITE_JOB, a.job_status)) st.job_status = a.job_status;
-    if (!(st.documents || []).length && Array.isArray(a.documents)) st.documents = canonDocs(a.documents);
-    if (!st.has_military_card && oneOf(SITE_MILITARY, a.has_military_card)) st.has_military_card = a.has_military_card;
-    if (!st.can_refer_retiree && oneOf(SITE_YES_NO, a.can_refer_retiree)) st.can_refer_retiree = a.can_refer_retiree;
-    if (!st.has_bounced_or_overdue && oneOf(SITE_YES_NO, a.has_bounced_or_overdue)) st.has_bounced_or_overdue = a.has_bounced_or_overdue;
-    if (!st.need_timing && oneOf(SITE_TIMING, a.need_timing)) st.need_timing = a.need_timing;
-    applyPlan(st, latest.planId, latest.planName, latest.term);
+    const all = siteAnswersForCustomer(customerId);
+    for (const sub of [all.latest, ...all.previous]) {
+      if (!sub) continue;
+      const a = sub.answers;
+      if (!st.amount_range && oneOf(SITE_AMOUNT_RANGE, a.amount_range)) st.amount_range = String(a.amount_range);
+      if (!st.loan_purpose && oneOf(SITE_PURPOSE, a.loan_purpose)) st.loan_purpose = String(a.loan_purpose);
+      if (!st.job_status && oneOf(SITE_JOB, a.job_status)) st.job_status = String(a.job_status);
+      if (!st.credit_rank && oneOf(CUSTOMER_RANKS, a.credit_rank)) st.credit_rank = String(a.credit_rank);
+      if (!(st.documents || []).length && Array.isArray(a.documents) && a.documents.length) st.documents = canonDocs(a.documents);
+      if (!st.has_military_card && oneOf(SITE_MILITARY, a.has_military_card)) st.has_military_card = String(a.has_military_card);
+      if (!st.can_refer_retiree && oneOf(SITE_YES_NO, a.can_refer_retiree)) st.can_refer_retiree = String(a.can_refer_retiree);
+      if (!st.has_bounced_or_overdue && oneOf(SITE_YES_NO, a.has_bounced_or_overdue)) st.has_bounced_or_overdue = String(a.has_bounced_or_overdue);
+      if (!st.need_timing && oneOf(SITE_TIMING, a.need_timing)) st.need_timing = String(a.need_timing);
+      applyPlan(st, sub.planId, sub.planName, sub.term);
+    }
   } catch { /* table may be absent on older copies */ }
+}
+
+/** Site-only view (no lead/legacy/stored layers): which file fields the customer filled on the site. */
+function siteOnly(customerId: number): { st: DossierState; any: boolean } {
+  const st = emptyDossier();
+  let any = false;
+  try { any = siteAnswersForCustomer(customerId).count > 0; } catch { any = false; }
+  if (any) applySite(st, customerId);
+  return { st, any };
 }
 
 function applyLead(st: DossierState, row: LeadRow | null) {
   if (!row) return;
+  // site-credit-noinst v1.1: the apply wizard's public_leads row carries placeholders (need 'help', contact_time 'any',
+  // amount_band 'apply:…') — the customer never answered those, so they must not show as «نوع نیاز» / «زمان تماس ترجیحی».
+  if (String(row.amount_band ?? "").startsWith("apply:")) { applyPlan(st, row.plan_id, row.plan_name, row.term); return; }
   if (!st.need && oneOf(LEAD_NEED, row.need)) st.need = String(row.need);
   if (!st.amountBand && oneOf(LEAD_BANDS, row.amount_band)) st.amountBand = String(row.amount_band);
   if (!st.contactTime && oneOf(LEAD_TIMES, row.contact_time)) st.contactTime = String(row.contact_time);
@@ -257,16 +284,24 @@ function applyStored(st: DossierState, row: NonNullable<ReturnType<typeof loadRo
   // Stored dossier wins over site/legacy for every key it actually holds.
   if (row.city != null && String(row.city).trim()) st.city = String(row.city).trim();
   if (row.amount_toman != null && Number(row.amount_toman) > 0) st.amount = String(Math.round(Number(row.amount_toman)));
-  if (oneOf(RANKS, row.credit_rank)) st.credit_rank = String(row.credit_rank);
+  if (oneOf(CUSTOMER_RANKS, row.credit_rank)) st.credit_rank = String(row.credit_rank);
   if (oneOf(SITE_JOB, row.g_job_status)) st.g_job_status = String(row.g_job_status);
   if (oneOf(RANKS, row.g_credit_rank)) st.g_credit_rank = String(row.g_credit_rank);
   if (row.g_conditions != null && String(row.g_conditions).trim()) st.g_conditions = String(row.g_conditions).trim();
   if (row.customer_note != null && String(row.customer_note).trim()) st.customer_note = String(row.customer_note).trim();
+  // site-credit-noinst v1.1: the expert's saved answers (answers_json) beat site answers for the keys they hold — before this,
+  // applyLegacyAnswers only filled EMPTY keys, so a site value merged first could hide an expert correction.
+  const ov = <T extends readonly string[]>(k: "amount_range" | "loan_purpose" | "job_status" | "has_military_card" | "can_refer_retiree"
+    | "has_bounced_or_overdue" | "need_timing", set: T) => { if (oneOf(set, extra[k])) st[k] = String(extra[k]); };
+  ov("amount_range", SITE_AMOUNT_RANGE); ov("loan_purpose", SITE_PURPOSE); ov("job_status", SITE_JOB);
+  ov("has_military_card", SITE_MILITARY); ov("can_refer_retiree", SITE_YES_NO); ov("has_bounced_or_overdue", SITE_YES_NO);
+  ov("need_timing", SITE_TIMING);
+  if (Array.isArray(extra.documents) && extra.documents.length) st.documents = canonDocs(extra.documents);
   applyLegacyAnswers(st, extra, null, str(extra.note));
   // Re-apply column values so JSON cannot clobber the typed columns.
   if (row.city != null && String(row.city).trim()) st.city = String(row.city).trim();
   if (row.amount_toman != null && Number(row.amount_toman) > 0) st.amount = String(Math.round(Number(row.amount_toman)));
-  if (oneOf(RANKS, row.credit_rank)) st.credit_rank = String(row.credit_rank);
+  if (oneOf(CUSTOMER_RANKS, row.credit_rank)) st.credit_rank = String(row.credit_rank);
   if (oneOf(SITE_JOB, row.g_job_status)) st.g_job_status = String(row.g_job_status);
   if (oneOf(RANKS, row.g_credit_rank)) st.g_credit_rank = String(row.g_credit_rank);
   if (row.g_conditions != null && String(row.g_conditions).trim()) st.g_conditions = String(row.g_conditions).trim();
@@ -288,9 +323,18 @@ export function buildDossier(customerId: number, base: { answers?: Record<string
 
 export function enrichFileCard<T extends { answers?: Record<string, unknown> | null; city?: string | null; note?: string | null; customerId?: number }>(card: T, customerId = card.customerId): T & {
   dossier: DossierState; dossierComplete: boolean; dossierPartial: boolean; sitePrefill: boolean;
+  /** site-credit-noinst v1.1 (additive): file keys whose shown value is the customer's own site answer → «از سایت» */
+  siteFields: string[];
+  /** the customer submitted the site wizard at least once (even name + mobile only) → empty rows show «بپرسید» */
+  siteLead: boolean;
 } {
   const id = Number(customerId);
-  const dossier = Number.isFinite(id) && id > 0 ? buildDossier(id, card) : emptyDossier();
+  const ok = Number.isFinite(id) && id > 0;
+  const dossier = ok ? buildDossier(id, card) : emptyDossier();
+  const site = ok ? siteOnly(id) : { st: emptyDossier(), any: false };
+  const siteFields = SITE_FIELD_KEYS.filter((k) => k === "documents"
+    ? site.st.documents.length > 0 && site.st.documents.join() === (dossier.documents || []).join()
+    : !!site.st[k] && site.st[k] === dossier[k]);
   const sitePrefill = !!(dossier.amount_range || dossier.loan_purpose || dossier.job_status || (dossier.documents || []).length
     || dossier.has_military_card || dossier.can_refer_retiree || dossier.has_bounced_or_overdue || dossier.need_timing
     || dossier.need || dossier.amountBand || dossier.contactTime || dossier.planName || dossier.term || dossier.customer_note);
@@ -302,7 +346,8 @@ export function enrichFileCard<T extends { answers?: Record<string, unknown> | n
     const m = Math.max(1, Math.round(Number(dossier.amount) / 1e6));
     if (!answers.amountMillion) answers.amountMillion = m;
   }
-  if (dossier.credit_rank) answers.creditRank = answers.creditRank ?? dossier.credit_rank;
+  // legacy readers expect A1–E3 | unknown: a bare site letter stays in the dossier only
+  if (dossier.credit_rank && RANKS.includes(dossier.credit_rank)) answers.creditRank = answers.creditRank ?? dossier.credit_rank;
   if (dossier.note && answers.note == null) answers.note = dossier.note;
   if (hasGuarantor(dossier) && answers.guarantorAvailable == null) answers.guarantorAvailable = "yes";
   if ((dossier.documents || []).includes("guarantor") === false && (dossier.documents || []).length && answers.guarantorAvailable == null) {
@@ -315,7 +360,9 @@ export function enrichFileCard<T extends { answers?: Record<string, unknown> | n
     dossier,
     dossierComplete: dossierComplete(dossier),
     dossierPartial: dossierPartial(dossier),
-    sitePrefill,
+    sitePrefill: sitePrefill || siteFields.length > 0,
+    siteFields,
+    siteLead: site.any,
   };
 }
 
@@ -358,7 +405,7 @@ export function parseDossierInput(raw: unknown): DossierState {
   st.can_refer_retiree = asEnum(src.can_refer_retiree, SITE_YES_NO);
   st.has_bounced_or_overdue = asEnum(src.has_bounced_or_overdue, SITE_YES_NO);
   st.need_timing = asEnum(src.need_timing, SITE_TIMING);
-  st.credit_rank = asEnum(src.credit_rank, RANKS);
+  st.credit_rank = asEnum(src.credit_rank, CUSTOMER_RANKS);
   st.g_job_status = asEnum(src.g_job_status, SITE_JOB);
   st.g_credit_rank = asEnum(src.g_credit_rank, RANKS);
   st.g_conditions = asText(src.g_conditions, 500, "شرایط ضامن");

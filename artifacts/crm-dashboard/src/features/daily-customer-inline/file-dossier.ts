@@ -183,6 +183,32 @@ export function fileKvRows(st: FileState, all: boolean): { key: KvKey; label: st
   return rows;
 }
 
+/**
+ * site-credit-noinst v1.1 (Armita spec §5): the file box of a lead that is not complete yet lists every first-call field;
+ * a filled one carries «از سایت» when the value is the customer's own site answer, an empty one shows «بپرسید».
+ * Order = the mockup's file scene. «نوع نیاز» / «گواهی کسر از حقوق» / guarantor extras appear only when they hold a value.
+ */
+export const ASK_ORDER: KvKey[] = ["city", "loan_purpose", "job_status", "credit_rank", "has_military_card", "has_bounced_or_overdue",
+  "documents", "guarantor", "can_refer_retiree", "need_timing"];
+export type AskRow = { key: KvKey; label: string; value: string; from: "site" | "ask" | "set" };
+const SITE_KEY: Partial<Record<KvKey, string>> = { guarantor: "documents", salary_deduction: "documents" };
+export function fileAskRows(st: FileState, siteFields: readonly string[] = []): AskRow[] {
+  const site = new Set(siteFields);
+  const byKey = new Map(KV_ALL.map((r) => [r.key, r] as const));
+  const out: AskRow[] = [];
+  for (const key of ASK_ORDER) {
+    const r = byKey.get(key)!;
+    const value = r.value(st);
+    out.push({ key, label: r.label, value, from: !value ? "ask" : site.has(SITE_KEY[key] ?? key) ? "site" : "set" });
+  }
+  for (const r of KV_ALL) {
+    if (ASK_ORDER.includes(r.key)) continue;
+    const value = r.value(st);
+    if (value) out.push({ key: r.key, label: r.label, value, from: site.has(SITE_KEY[r.key] ?? r.key) ? "site" : "set" });
+  }
+  return out;
+}
+
 export function stateFromDossier(raw: unknown): FileState {
   const st = emptyFile();
   if (!raw || typeof raw !== "object") return st;

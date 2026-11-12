@@ -501,3 +501,12 @@ body:has([data-testid="dci-page"]) .dci-right > .dci-empty + h2 {
 .dci-who .dci-nmr h2{min-width:0}
 .dci-who .ed-form.ed-desk{margin-top:8px;width:100%}
 .dci-tags{margin-top:0}
+
+/* site-credit-noinst v1.1 (Armita spec §5, mockup main.css .ask/.ask-v/.fsite): site-lead file box — «از سایت» badge on
+   fields the customer filled on the site, soft amber «بپرسید» rows for empty ones. Scoped to the file box only. */
+#dci-filebox .dci-site-hint{margin:0 0 12px;padding:10px 12px;border-radius:12px;background:var(--nf-brand-50);color:var(--nf-brand-800);font-size:14px;line-height:1.7;font-weight:600}
+#dci-filebox .dci-kv>div.ask{background:var(--nf-warning-50);margin:0 -8px;padding:8px;border-bottom:1px solid var(--nf-gold-100);border-radius:8px}
+#dci-filebox .dci-kv>div.ask+div.ask{margin-top:4px}
+#dci-filebox .ask-v{color:var(--nf-gold-700);font-weight:800}
+#dci-filebox .fsite{display:inline-block;margin-inline-start:6px;padding:1px 8px;border-radius:999px;background:var(--nf-brand-50);color:var(--nf-brand-700);font-style:normal;font-size:13px;font-weight:700;vertical-align:middle}
+.dci-grade-site{margin:8px 0 0;font-size:13px;line-height:1.7;color:var(--nf-brand-800);font-weight:600}
