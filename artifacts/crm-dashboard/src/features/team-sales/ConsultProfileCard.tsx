@@ -16,13 +16,14 @@ import { CREDIT_SUBGRADES } from '@/lib/credit-grade';
 const URG: Record<string, string> = { now: 'همین الان / این هفته', month: 'تا یک ماه', later: 'بعداً', curious: 'فقط کنجکاوه' };
 const GA: Record<string, string> = { yes: 'می‌تونه معرفی کنه', no: 'نمی‌تونه', unknown: 'نمی‌دونه' };
 const TRI: Record<string, string> = { yes: 'بله', no: 'خیر', unknown: 'نمی‌دونه' };
-const SOURCE: Record<string, string> = { first_call: 'فرم تماس اول', edit: 'ویرایش', backfill: 'انتقال از فرم‌های قبلی' };
+const SOURCE: Record<string, string> = { first_call: 'فرم تماس اول', edit: 'ویرایش', backfill: 'انتقال از فرم‌های قبلی', dossier: 'پرونده‌ی مشتری' };
 export const CONSULT_FIELD_LABELS: Record<string, string> = {
   jobType: 'شغل متقاضی', guarantorAvailable: 'ضامن', guarantorCheque: 'چک ضامن', creditRank: 'رتبه‌ی متقاضی',
   gRank: 'رتبه‌ی ضامن', gJobType: 'شغل ضامن', military: 'نظام وظیفه', city: 'شهر', urgency: 'فوریت',
   selectedPlans: 'طرح‌ها', noPlanFit: 'هیچ طرحی نمی‌خوره', noPlanNote: 'چرا (بدون طرح)',
 };
-const job = (v: string | null) => (v === 'unknown' ? 'نمی‌دونه' : v ? JOB_LABELS[v] ?? v : '—');
+const SITE_JOB_FA: Record<string, string> = { employee: 'کارمند', retired: 'بازنشسته', self_employed: 'آزاد', no_fixed_income: 'بدون درآمد ثابت' };
+const job = (v: string | null | undefined) => (v === 'unknown' ? 'نمی‌دونه' : v ? JOB_LABELS[v] ?? SITE_JOB_FA[v] ?? v : '—');
 const rank = (v: string | null) => (v === 'unknown' ? 'نمی‌دونه' : v ? <GradeChip value={v} /> : '—');
 
 type Draft = Record<ConsultEditable, string>;
@@ -72,15 +73,15 @@ export function ConsultProfileCard({ customerId, onEditFirstCall }: { customerId
     <h3 id="h-consult">اطلاعات مشاوره <small>{[d.submitterName ? `ثبت: ${d.submitterName}` : '', d.formDate ? fmtDateTime(d.formDate) : '',
       latest.source === 'edit' ? `آخرین ویرایش: ${latest.actorName ?? '—'}` : ''].filter(Boolean).join(' · ')}</small></h3>
     {!editing ? <dl className="fc-grid">
-      <div><dt>شغل متقاضی</dt><dd data-testid="consult-job">{job(d.jobType)}</dd></div>
-      <div><dt>نظام وظیفه</dt><dd>{d.military ? MILITARY_LABELS[d.military] ?? '—' : '—'}</dd></div>
+      <div><dt>شغل متقاضی</dt><dd data-testid="consult-job">{job(d.jobType) !== '—' ? job(d.jobType) : job((d as { jobStatus?: string | null }).jobStatus)}</dd></div>
+      <div><dt>نظام وظیفه</dt><dd>{d.military ? MILITARY_LABELS[d.military] ?? (String(d.military) === 'not_applicable' ? 'مشمول نیست' : '—') : '—'}</dd></div>
       <div><dt>شهر</dt><dd>{d.city || '—'}</dd></div>
       <div className="cp-rank"><dt>رتبه‌ی متقاضی <em>اظهار مشتری</em></dt><dd data-testid="consult-declared-rank">{rank(d.creditRank)}
         {official ? <span className="cp-official" data-testid="consult-official-rank">استعلام رسمی: <GradeChip value={official.rank} /> <small>{fmtDateTime(official.checkedAt)}</small></span> : null}</dd></div>
       <div><dt>ضامن</dt><dd>{d.guarantorAvailable ? GA[d.guarantorAvailable] : '—'}</dd></div>
       {g ? <div><dt>چک ضامن</dt><dd>{d.guarantorCheque ? TRI[d.guarantorCheque] : '—'}</dd></div> : null}
       {g ? <div><dt>رتبه‌ی ضامن <em>اظهار مشتری</em></dt><dd>{rank(d.gRank)}</dd></div> : null}
-      {g ? <div><dt>شغل ضامن</dt><dd>{job(d.gJobType)}</dd></div> : null}
+      {g ? <div><dt>شغل ضامن</dt><dd>{job(d.gJobType) !== '—' ? job(d.gJobType) : job((d as { gJobStatus?: string | null }).gJobStatus)}</dd></div> : null}
       <div><dt>فوریت</dt><dd>{d.urgency ? URG[d.urgency] ?? '—' : '—'}</dd></div>
       <div className="cp-plans"><dt>طرح‌ها</dt><dd className="pc-wrap" data-testid="consult-plans">{d.noPlanFit ? <NoPlanChip note={d.noPlanNote} testId="consult-noplan" />
         : d.selectedPlans.length ? d.selectedPlans.map((p) => <PlanChip key={p.id} plan={{ name: p.name, status: (p.status as 'fit' | 'depends') ?? 'fit', reasons: [] }} />) : '—'}</dd></div>
@@ -100,7 +101,7 @@ export function ConsultProfileCard({ customerId, onEditFirstCall }: { customerId
     <div className="cp-foot">
       <button type="button" className="cp-link" aria-expanded={showHistory} onClick={() => setShowHistory((v) => !v)} data-testid="consult-history-toggle"><History size={14} aria-hidden="true" />تاریخچه ({versions.length.toLocaleString('fa-IR')})</button>
       {onEditFirstCall && !editing ? <button type="button" className="cp-link fc-edit-btn" onClick={onEditFirstCall} data-testid="consult-edit-wizard"><Pencil size={14} aria-hidden="true" />ویرایش</button> : null}
-      {canEdit && !editing ? <button type="button" className="cp-link" onClick={startEdit} data-testid="consult-edit"><Pencil size={14} aria-hidden="true" />{onEditFirstCall ? 'ویرایش سریع یک مورد' : 'ویرایش'}</button> : null}
+      {canEdit && !editing && (latest.source as string) !== 'dossier' ? <button type="button" className="cp-link" onClick={startEdit} data-testid="consult-edit"><Pencil size={14} aria-hidden="true" />{onEditFirstCall ? 'ویرایش سریع یک مورد' : 'ویرایش'}</button> : null}
     </div>
     {showHistory ? <ol className="cp-history" data-testid="consult-history">{versions.map((v) => <li key={v.id}>
       <b>{SOURCE[v.source] ?? v.source}</b> · {v.actorName ?? '—'} · {fmtDateTime(v.createdAt)}

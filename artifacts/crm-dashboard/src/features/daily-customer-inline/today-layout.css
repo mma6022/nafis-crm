@@ -848,3 +848,20 @@ body.fs-open .dci-fscrim{display:block}
 .dq-arrive{display:flex;align-items:center;gap:10px;bottom:72px}
 .dq-arrive .btn{min-height:32px;padding:0 12px}
 .dq-nameform{margin:10px 0}
+
+/* ——— 450000 patch (Armita REVIEW-v21-build) ——— */
+/* §4: at phone width «نوع کار» sits in the «اکنون» row (one row, ~50px saved); the active-filter line still wraps under it. */
+@media (max-width:1023.98px){
+  .dci-qhead{flex-wrap:nowrap;gap:8px}
+  .dci-qhead:has(#dci-fst:not(:empty)){flex-wrap:wrap;row-gap:6px}
+  .dci-qhead #dci-fst:not(:empty){flex:1 0 100%;order:3}
+  .dci-blknow{flex:1 1 auto;min-width:0;flex-wrap:nowrap;white-space:nowrap;overflow:hidden}
+  .dci-blknow>b,.dci-blknow>span:not(.dci-blk-k){overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .dci-lg-btn{flex:none;margin-inline-start:0}
+}
+/* patch 6: «ثبت» before a result is chosen */
+.dci-callres .btn.pri.is-off{opacity:.45;cursor:not-allowed;box-shadow:none}
+/* §7: grouped urgent incoming calls */
+.dci-node.dci-ingroup b{white-space:nowrap}
+/* Q20: attempts line in the early bar */
+.dci-att{display:inline-block;font-size:13px;font-weight:700;color:var(--nf-ink-muted)}

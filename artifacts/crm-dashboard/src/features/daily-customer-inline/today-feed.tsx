@@ -131,7 +131,9 @@ export function ResultBlock({ val, onChange, onSave, busy, err, show, voipNote, 
     </div> : null}
     {show && missing ? <p className="dci-empty" role="alert">{!voipNote && !val.manual ? "نتیجه‌ی تماس را انتخاب کنید." : "یادداشت تماس را بنویسید."}</p> : null}
     {err ? <p className="dci-empty" role="alert" data-testid="dci-result-err">{err}</p> : null}
-    <button className="btn pri" type="button" disabled={busy} onClick={onSave} data-testid="dci-result-save">ثبت</button>
+    {/* 450000 (Armita REVIEW-v21-build patch 6): «ثبت» looks disabled until a result is chosen; it stays focusable (spec §1) and a press shows the hint. */}
+    <button className={`btn pri${!voipNote && !val.manual ? " is-off" : ""}`} type="button" disabled={busy} aria-disabled={!voipNote && !val.manual ? true : undefined}
+      onClick={onSave} data-testid="dci-result-save">ثبت</button>
   </div>;
 }
 

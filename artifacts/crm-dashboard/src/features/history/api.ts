@@ -63,6 +63,9 @@ export function useFileCard(customerId: number, enabled = true) {
 }
 export const saveFileCard = (customerId: number, answers: unknown) =>
   req<FileCard>(`/customers/${customerId}/file-card`, { method: 'POST', body: JSON.stringify({ answers }) });
-/** v2.0 dossier (partial or final). Does not go through the first-call required-field validator. */
-export const saveDossier = (customerId: number, dossier: unknown) =>
-  req<FileCard>(`/customers/${customerId}/file-card`, { method: 'POST', body: JSON.stringify({ formVersion: 20, dossier }) });
+/** v2.0 dossier (partial or final). Does not go through the first-call required-field validator. customer_note is never sent. */
+export const saveDossier = (customerId: number, dossier: unknown, opts?: { final?: boolean }) => {
+  const body = dossier && typeof dossier === 'object' ? { ...(dossier as Record<string, unknown>) } : dossier;
+  if (body && typeof body === 'object') delete (body as Record<string, unknown>).customer_note;
+  return req<FileCard>(`/customers/${customerId}/file-card`, { method: 'POST', body: JSON.stringify({ formVersion: 20, dossier: body, final: opts?.final === true }) });
+};

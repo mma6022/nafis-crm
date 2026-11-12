@@ -116,4 +116,14 @@ ok("site-credit-noinst v1.1: ask rows — «از سایت» on site values, «ب
   assert.ok(quick.every((r) => r.from === "ask") && quick.length === 10);
   assert.equal(m.gradeFa("unknown"), "نمی‌دونه");
 });
+
+ok("turning guarantor off keeps g_* answers in state until a later final clear", () => {
+  const off = m.setDocFlag(full, "guarantor", false);
+  assert.equal(m.hasGuarantor(off), false);
+  assert.equal(off.g_job_status, "employee");
+  assert.equal(off.g_credit_rank, "C1");
+  assert.equal(off.g_conditions, "چک ضامن");
+  assert.ok(!m.visSteps(off).includes("gjr"));
+});
+
 console.log(`passed ${passed}`);

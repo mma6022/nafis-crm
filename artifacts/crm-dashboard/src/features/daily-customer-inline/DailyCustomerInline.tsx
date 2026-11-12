@@ -21,7 +21,7 @@ import "./dci.css";
 import "./today-layout.css";
 import { getListRemindersQueryKey, useListReminders, useUpdateReminder } from "@workspace/api-client-react";
 import { mergeQueue, queueKindClass, queueKindLabel, type QueueTask } from "./queue";
-import { DQ_KEY, DqEarlyBar, DqFileActCard, DqIntBanner, DqPayCard, DqStrip, DqUnknownBoard, KIND_FA, dqApi, dqCurText, useDqArrivals, useDqQueue, type DqItem, type DqKind } from "./queue-v21";
+import { DQ_ATTEMPT_RESULTS, DQ_KEY, DqEarlyBar, DqFileActCard, DqIntBanner, DqPayCard, DqStrip, DqUnknownBoard, KIND_FA, dqApi, dqCurText, useDqArrivals, useDqQueue, type DqItem, type DqKind } from "./queue-v21";
 
 const FD = "۰۱۲۳۴۵۶۷۸۹";
 /** Existing catalog labels (customer_tag_catalog). Fallback if the catalog has not loaded yet. */
@@ -637,7 +637,31 @@ export default function DailyCustomerInline() {
       setResultErr("یادداشت تماس را بنویسید."); return;
     }
     setResultBusy(true); setResultErr("");
+    // 450000 Q20 (Armita REVIEW-v21-build §3): on a task opened early, «جواب نداد» / «خاموش یا اشغال» records only the attempt —
+    // the call log is saved, the plan item / reminder / file task stay open until their turn, no done mark, back to the current task.
+    // Overrides the 410000 close-on-any-result rule for early-opened tasks only; a task at its turn keeps the 410000 behaviour.
+    const attemptOnly = Boolean(dq && dqEarly && dqItem && dqItem.customer_id && !voipPendingNote
+      && (DQ_ATTEMPT_RESULTS as readonly string[]).includes(resultVal.manual || ""));
     try {
+      if (attemptOnly && dqItem) {
+        const r = await dpApi.saveCall({
+          customerId,
+          salespersonId: cq?.salespersonId ?? undefined,
+          subject: "کارهای امروز · تلاش زودتر از نوبت",
+          customerRequest: "",
+          expertNotes: one || MANUAL_OUTCOME_OPTIONS.find((o) => o.key === resultVal.manual)?.label || "",
+          outcome: resultVal.outcome,
+          call_result: resultVal.manual,
+          oneLineNote: one || MANUAL_OUTCOME_OPTIONS.find((o) => o.key === resultVal.manual)?.label || "",
+          outOfList: true, context: "out_of_list", dqAttempt: true, dqTaskId: dqItem.id,
+        });
+        announceCallSaved(r.id, customerId);
+        setResultOpen(false); setResultVal(emptyCqResult()); setResultShow(false);
+        flash("تلاش ثبت شد؛ این کار سر نوبت خودش باز می‌ماند. برگشت به کار جاری…", 3500);
+        await Promise.all([boardQ.refetch(), todayQ.refetch(), remQ.refetch(), dqQ.refetch()]);
+        if (dqCur) pickDq(dqCur);
+        return;
+      }
       if (voipPendingNote && lastVoip) {
         await vcApi.note(lastVoip.callId, one);
       } else {
@@ -726,7 +750,7 @@ export default function DailyCustomerInline() {
   const dqBanner = dqItem && ["incoming_call", "outgoing_call", "payment_order", "file_action"].includes(dqItem.kind) && !dqItem.done
     ? <DqIntBanner it={dqItem} text={dqCurText(dqItem) || board?.call || ""} /> : null;
   if (dq && dqItem && dqItem.customer_id == null) {
-    boardEl = <DqUnknownBoard key={dqItem.id} it={dqItem} banner={dqBanner}
+    boardEl = <DqUnknownBoard key={dqItem.id} it={dqItem} banner={dqBanner} onCopy={copy}
       onNamed={(cid, taskId, name) => { flash(`نام «${name}» ثبت شد.`, 2500); void dqQ.refetch(); setLoc(`/today?customer=${cid}&task=${encodeURIComponent(taskId)}`, { replace: true } as any); }} />;
   } else if ((todayQ.isLoading && !todayQ.data) || dqQ.isLoading) {
     boardEl = <div className="dci-board"><div className="dci-side"><SkCol cls="dci-right" title="تاریخچه‌ی تماس‌ها" /><SkCol cls="dci-left" title="اعتبارسنجی فوری" /></div><SkCol cls="dci-mid" title="اطلاعات مشتری" /></div>;

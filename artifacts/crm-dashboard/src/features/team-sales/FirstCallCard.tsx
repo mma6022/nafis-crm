@@ -27,6 +27,12 @@ export function NoPlanBox({ note, actorName }: { note?: string | null; actorName
   </div>;
 }
 
+const SITE_JOB_FA: Record<string, string> = { employee: 'کارمند', retired: 'بازنشسته', self_employed: 'آزاد', no_fixed_income: 'بدون درآمد ثابت' };
+const jobLabel = (v: string | null | undefined) => {
+  if (!v) return '';
+  if (v === 'unknown') return 'نمی‌دونه';
+  return JOB_LABELS[v] ?? SITE_JOB_FA[v] ?? '';
+};
 const DOCS: Record<string, string> = { all: 'همه آماده‌ست', partial: 'بخشی', none: 'آماده نیست' };
 const URG: Record<string, string> = { now: 'همین الان / این هفته', month: 'تا یک ماه', later: 'بعداً', curious: 'فقط کنجکاوه' };
 const GA: Record<string, string> = { yes: 'می‌تونه معرفی کنه', no: 'نمی‌تونه', unknown: 'نمی‌دونه' };
@@ -52,16 +58,16 @@ export function FirstCallSummaryCard({ fc, editInfo, onEdit }: { fc: FirstCallSu
       <div><dt>ضامن</dt><dd>{GA[a.guarantorAvailable ?? ''] ?? '—'}</dd></div>
       {g ? <div><dt>چک ضامن</dt><dd>{TRI[a.guarantorCheque ?? ''] ?? '—'}</dd></div> : null}
       {g ? <div><dt>رتبه‌ی ضامن</dt><dd>{rank(a.gRank)}</dd></div> : null}
-      {a.military ? <div><dt>نظام وظیفه</dt><dd>{MILITARY_LABELS[a.military] ?? '—'}</dd></div> : null}
-      {a.jobType ? <div><dt>شغل متقاضی</dt><dd>{a.jobType === 'unknown' ? 'نمی‌دونه' : JOB_LABELS[a.jobType] ?? '—'}</dd></div> : null}
-      {g && a.gJobType ? <div><dt>شغل ضامن</dt><dd>{a.gJobType === 'unknown' ? 'نمی‌دونه' : JOB_LABELS[a.gJobType] ?? '—'}</dd></div> : null}
+      {a.military ? <div><dt>نظام وظیفه</dt><dd>{MILITARY_LABELS[a.military] ?? (a.military === 'not_applicable' ? 'مشمول نیست' : '—')}</dd></div> : null}
+      {(a.jobType || (a as { jobStatus?: string | null }).jobStatus) ? <div><dt>شغل متقاضی</dt><dd>{jobLabel(a.jobType) || jobLabel((a as { jobStatus?: string | null }).jobStatus) || '—'}</dd></div> : null}
+      {g && (a.gJobType || (a as { gJobStatus?: string | null }).gJobStatus) ? <div><dt>شغل ضامن</dt><dd>{jobLabel(a.gJobType) || jobLabel((a as { gJobStatus?: string | null }).gJobStatus) || '—'}</dd></div> : null}
       {a.city ? <div><dt>شهر</dt><dd>{a.city}</dd></div> : null}
     </dl>
     {fc.note ? <p className="fc-note">«{fc.note}»</p> : null}
     {edits.length || (editInfo?.canEdit && onEdit) ? <div className="cp-foot">
       {edits.length ? <button type="button" className="cp-link" aria-expanded={showEdits} onClick={() => setShowEdits((v) => !v)} data-testid="fc-edit-history-toggle">
         <History size={14} aria-hidden="true" />ویرایش‌ها ({fa(edits.length)})</button> : <span />}
-      {editInfo?.canEdit && onEdit ? <button type="button" className="cp-link fc-edit-btn" onClick={onEdit} data-testid="fc-edit"><Pencil size={14} aria-hidden="true" />ویرایش</button> : null}
+      {editInfo?.canEdit && onEdit && fc.id > 0 ? <button type="button" className="cp-link fc-edit-btn" onClick={onEdit} data-testid="fc-edit"><Pencil size={14} aria-hidden="true" />ویرایش</button> : null}
     </div> : null}
     {showEdits ? <ol className="cp-history fc-edits" data-testid="fc-edit-history">{edits.map((e) => <li key={e.id} data-testid={`fc-edit-${e.id}`}>
       <b>{e.actorName ?? '—'}</b> · {fmtDateTime(e.createdAt)}{e.sentToCloser ? <span className="ts-pill ok">ارسال به کارشناس فروش</span> : null}

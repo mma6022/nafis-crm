@@ -1,0 +1,30 @@
+/** DCI-QUEUE 450000 — Armita REVIEW-v21-build patch client fixture. Source/CSS only; no DB, no network, no phones, no user 29. */
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+const here = path.dirname(fileURLToPath(import.meta.url));
+const dir = path.resolve(here, "../src/features/daily-customer-inline");
+const q = fs.readFileSync(path.join(dir, "queue-v21.tsx"), "utf8");
+const d = fs.readFileSync(path.join(dir, "DailyCustomerInline.tsx"), "utf8");
+const f = fs.readFileSync(path.join(dir, "today-feed.tsx"), "utf8");
+const css = fs.readFileSync(path.join(dir, "today-layout.css"), "utf8");
+const dock = fs.readFileSync(path.resolve(here, "../src/features/assistant/AssistantDock.tsx"), "utf8");
+let n = 0;
+const ok = (name, cond) => { n += 1; if (!cond) { console.error(`FAIL ${n} ${name}`); process.exit(1); } console.log(`ok ${n} ${name}`); };
+const attempt = d.slice(d.indexOf("const attemptOnly"), d.indexOf("if (voipPendingNote && lastVoip)"));
+
+ok("Q20: the two attempt results are exactly جواب نداد / خاموش یا اشغال", /DQ_ATTEMPT_RESULTS = \["no_answer", "off_or_busy"\] as const/.test(q));
+ok("Q20: attempt only for an early-opened queue task of a customer, not for a VoIP note", /attemptOnly = Boolean\(dq && dqEarly && dqItem && dqItem\.customer_id && !voipPendingNote/.test(attempt));
+ok("Q20: attempt sends dqAttempt + dqTaskId + outOfList", /dqAttempt: true, dqTaskId: dqItem\.id/.test(attempt) && /outOfList: true/.test(attempt));
+ok("Q20: attempt never closes the reminder / writes a done mark / closes the case", !/remApi|dqApi\.done|markDone|closeReminder|caseDone/.test(attempt) && /return;\s*\}/.test(attempt));
+ok("Q20: back to the current task after an attempt", /if \(dqCur\) pickDq\(dqCur\)/.test(attempt));
+ok("Q20: the early bar shows the attempts count", /data-testid="dq-attempts"/.test(q) && /it\.attempts \?/.test(q));
+ok("§7: more than groupOver urgent incoming → one «تماس‌های ورودی (n)» node, only with no filter", /const grp = !flt && q\.incomingGroup && q\.incomingGroup\.count > \(q\.groupOver \?\? 2\)/.test(q) && /data-testid="dq-node-ingroup"/.test(q) && q.includes("تماس‌های ورودی"));
+ok("§7: the group opens the newest call", /newestId/.test(q));
+ok("§8: «نوع کار» sheet carries data-nodnd; the dock hides the DND bar for data-nodnd forms", /data-testid="dq-sheet" data-nodnd=""/.test(q) && /closest\('\[data-nodnd\]'\)/.test(dock));
+ok("§4: at <1024px the «اکنون» row does not wrap and «نوع کار» stays in it", /@media \(max-width:1023\.98px\)\{\s*\.dci-qhead\{flex-wrap:nowrap/.test(css) && /\.dci-lg-btn\{flex:none/.test(css));
+ok("patch 6: «ثبت» looks off + aria-disabled until a result is chosen (still focusable, saveResult shows the error)", /is-off/.test(f) && /aria-disabled=\{!voipNote && !val\.manual \? true : undefined\}/.test(f) && /\.btn\.pri\.is-off\{opacity:\.45/.test(css));
+ok("B7: unknown caller full number only when the server sent phone_full; else the masked one", /it\.phone && it\.phone_full !== false/.test(q) && /dq-unknown-phone-masked/.test(q) && /dir="ltr" data-testid="dq-unknown-phone-full"/.test(q));
+ok("B7: copy button copies the full number", /data-testid="dq-unknown-phone-copy"/.test(q) && /onCopy=\{copy\}/.test(d));
+ok("no user 29 / no hard-coded phone in the client", !/\b29\b.*user|user.*\b29\b/.test(q) && !/09\d{9}/.test(q + d));
+console.log(`today-queue-450000 fixture PASS (${n} checks)`);

@@ -19,10 +19,18 @@ export type DqItem = {
   pay: { id: number; amountToman: string; planName: string | null; createdAt: string; stage: string } | null;
   fileAct: { fileId: number; stage: string; stageLabel: string; planName: string | null; need: string } | null;
   fileTask: { fileId: number; stage: string; stageLabel: string } | null; phone: string | null;
+  /** 450000 B7: `phone` is the full number only when phone_full (viewer may see phones); phone_masked always for an unknown number. */
+  phone_masked?: string | null; phone_full?: boolean;
+  /** 450000 Q20: early «جواب نداد» / «خاموش یا اشغال» attempts today (the task stayed open). */
+  attempts?: number;
 };
 export type DqBlock = { k: "actual" | "potential"; from: string; to: string; fromIso: string };
 export type DqQueue = { enabled: true; hasExtension: boolean; date: string; now: string; nowBlock: number; refBlock: number; inHours: boolean;
-  blocks: DqBlock[]; items: DqItem[]; counts: Record<DqKind, number>; openCount: number; currentId: string | null };
+  blocks: DqBlock[]; items: DqItem[]; counts: Record<DqKind, number>; openCount: number; currentId: string | null;
+  /** 450000 §7: urgent window (min) and grouping threshold; incomingGroup = more than groupOver urgent incoming calls. */
+  urgentInMin?: number; groupOver?: number; incomingGroup?: { count: number; ids: string[]; newestId: string } | null };
+/** Q20: on an early-opened task these two results record only the attempt; the task stays open until its turn. */
+export const DQ_ATTEMPT_RESULTS = ["no_answer", "off_or_busy"] as const;
 
 export const KIND_FA: Record<DqKind, string> = { incoming_call: "تماس ورودی", outgoing_call: "تماس خروجی", new_lead: "لید تازه", follow_up: "پیگیری", reminder: "یادآور", file_action: "اقدام پرونده", payment_order: "دستور پرداخت" };
 const KIND_SHORT: Record<DqKind, string> = { incoming_call: "ورودی", outgoing_call: "خروجی", new_lead: "لید", follow_up: "پیگیری", reminder: "یادآور", file_action: "پرونده", payment_order: "پرداخت" };
@@ -116,8 +124,36 @@ export function DqStrip({ q, openId, flt, setFlt, onPick }: { q: DqQueue; openId
   const urgOut = flt ? q.items.filter((x) => x.urgent && !x.done && x.kind !== flt).length : 0;
   const nodes: ReactNode[] = [];
   let last = -1;
+  // 450000 §7: more than groupOver urgent incoming calls → one «تماس‌های ورودی (n)» node where the first of them sits (no filter only;
+  // the «ورودی» filter chip still counts and lists every call). Tapping it opens the newest.
+  const grp = !flt && q.incomingGroup && q.incomingGroup.count > (q.groupOver ?? 2) ? q.incomingGroup : null;
+  const inGrp = new Set(grp?.ids ?? []);
+  let grpDone = false;
   for (const t of q.items) {
     if (flt && t.kind !== flt) continue;
+    if (grp && inGrp.has(t.id)) {
+      if (grpDone) continue;
+      grpDone = true;
+      const newest = q.items.find((x) => x.id === grp.newestId) ?? t;
+      if (t.blockIdx !== last) {
+        const b = q.blocks[t.blockIdx]; const now = q.inHours && t.blockIdx === q.nowBlock;
+        nodes.push(<span key={`b-${t.blockIdx}`} className={`dci-blk${now ? " is-now" : ""}`} role="presentation" data-testid={`dq-blk-${t.blockIdx}`}>
+          <b>{now ? "اکنون" : BLK_FA[b.k]}</b><span>{now ? `${BLK_FA[b.k]}، ` : ""}{hh(b.from)} تا {hh(b.to)}</span></span>);
+        last = t.blockIdx;
+      }
+      const isOpenG = Boolean(openId && inGrp.has(openId));
+      const nextG = q.items.some((x) => inGrp.has(x.id) && x.next);
+      nodes.push(<a key="dq-ingroup" ref={isOpenG ? nodeRef : undefined} data-id={newest.id} data-testid="dq-node-ingroup"
+        className="dci-node k-in is-urgent dci-ingroup" href={`#${newest.id}`} aria-current={isOpenG ? "true" : undefined}
+        aria-label={`تماس‌های ورودی، ${fd(grp.count)} تماس فوری؛ باز کردن تازه‌ترین: ${newest.name}`}
+        onClick={(e) => { e.preventDefault(); onPick(newest); }}>
+        <span className="dci-nord" aria-hidden="true">{nextG ? "بعدی" : fd(newest.turn)}</span>
+        <span className="dci-dot" aria-hidden="true" />
+        <b>تماس‌های ورودی ({fd(grp.count)})</b>
+        <span className="dci-kind">فوری · تازه‌ترین: {fd(newest.name)}</span>
+      </a>);
+      continue;
+    }
     if (t.blockIdx !== last) {
       const b = q.blocks[t.blockIdx]; const now = q.inHours && t.blockIdx === q.nowBlock;
       nodes.push(<span key={`b-${t.blockIdx}`} className={`dci-blk${now ? " is-now" : ""}`} role="presentation" data-testid={`dq-blk-${t.blockIdx}`}>
@@ -172,7 +208,8 @@ export function DqStrip({ q, openId, flt, setFlt, onPick }: { q: DqQueue; openId
       <button className="dci-tl-btn" type="button" aria-label="کارهای چپ" disabled={!can.end} onClick={() => go("end")}><DciIcon id="i-chev-l" /></button>
     </div>
     <div className="dci-fscrim" onClick={() => setSheet(false)} />
-    <div className="dci-fsheet" id="dci-fsheet" role="dialog" aria-modal="true" aria-labelledby="dci-fs-t" hidden={!sheet} data-testid="dq-sheet">
+    {/* 450000 §8: a filter sheet, not a form — data-nodnd keeps the assistant «مزاحم نشو» bar off (same marker as the VoIP sheets). */}
+    <div className="dci-fsheet" id="dci-fsheet" role="dialog" aria-modal="true" aria-labelledby="dci-fs-t" hidden={!sheet} data-testid="dq-sheet" data-nodnd="">
       <div className="grab" aria-hidden="true" />
       <h3 id="dci-fs-t">نوع کار</h3>
       <p className="dci-fs-sub">با زدن هر نوع، فقط همان کارها در صف می‌ماند.</p>
@@ -191,7 +228,8 @@ export function DqEarlyBar({ q, it, cur, onBack }: { q: DqQueue; it: DqItem; cur
   return <div className={`dci-early ${KIND_CLS[it.kind]}`} id="dci-early" role="region" aria-label="کار زودتر از نوبت" data-testid="dq-early">
     <span className="dci-early-chip"><ClockI />زودتر از نوبت</span>
     <p>{it.timed && it.tm ? <><b>نوبت: ساعت {it.tm}</b>، بازه‌ی </> : <><b>نوبت: بازه‌ی </b></>}{BLK_FA[b.k]} {hh(b.from)} تا {hh(b.to)}{other ? " (بازه‌ی دیگر)" : ""}.
-      {cur ? <> کار جاری سر جایش است: <b>{fd(cur.name)}</b>.</> : null}</p>
+      {cur ? <> کار جاری سر جایش است: <b>{fd(cur.name)}</b>.</> : null}
+      {it.attempts ? <> <span className="dci-att" data-testid="dq-attempts">{fd(it.attempts)} تلاش بی‌پاسخ ثبت شد؛ کار سر نوبت باز می‌ماند.</span></> : null}</p>
     <button type="button" className="btn gh dci-back" id="dci-back" onClick={onBack} data-testid="dq-back">
       <svg className="i dci-back-i" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>برگشت به کار جاری</button>
   </div>;
@@ -293,7 +331,7 @@ export function DqFileActCard({ it, customerId }: { it: DqItem; customerId: numb
 }
 
 /** Unknown number (no customer yet): «بدون نام», name first, «تکمیل پرونده» locked until the name is saved (§0.11). */
-export function DqUnknownBoard({ it, banner, onNamed }: { it: DqItem; banner: ReactNode; onNamed: (customerId: number, taskId: string, name: string) => void }) {
+export function DqUnknownBoard({ it, banner, onNamed, onCopy }: { it: DqItem; banner: ReactNode; onNamed: (customerId: number, taskId: string, name: string) => void; onCopy?: (v: string) => void }) {
   const [first, setFirst] = useState(""); const [last, setLast] = useState("");
   const [err, setErr] = useState<{ first?: string; last?: string; serv?: string }>({});
   const [busy, setBusy] = useState(false);
@@ -324,7 +362,12 @@ export function DqUnknownBoard({ it, banner, onNamed }: { it: DqItem; banner: Re
         <div className="dci-head-main">
           <div className="dci-who-row"><div className="dci-who"><h2>{it.name}</h2></div>
             {it.live ? <span className="dci-detect" data-testid="dq-live">در حال تماس {it.direction === "out" ? "خروجی" : "ورودی"}</span> : null}</div>
-          {it.phone ? <div className="dci-idrow dci-idrow-phone"><span className="ph"><span className="phn phd" dir="ltr">{fd(it.phone)}</span></span></div> : null}
+          {/* 450000 B7: the responsible expert (customers.view, the CRM's phone rule) sees the caller's full number LTR with «کپی»; otherwise masked, nothing to copy. */}
+          {it.phone && it.phone_full !== false ? <div className="dci-idrow dci-idrow-phone" data-testid="dq-unknown-phone"><span className="ph big">
+            <span className="phn phd" dir="ltr" data-testid="dq-unknown-phone-full">{fd(it.phone)}</span>
+            <button className="phc" type="button" aria-label={`کپی شماره‌ی ${fd(it.phone)}`} data-copy={it.phone} onClick={() => onCopy?.(it.phone!)} data-testid="dq-unknown-phone-copy">
+              <DciIcon id="i-copy" /><span>کپی</span></button></span></div>
+            : it.phone_masked ? <div className="dci-idrow dci-idrow-phone" data-testid="dq-unknown-phone"><span className="ph"><span className="phn phd" dir="ltr" data-testid="dq-unknown-phone-masked">{fd(it.phone_masked)}</span></span></div> : null}
         </div>
       </div>
       <form className="ed-form ed-desk dq-nameform" onSubmit={(e) => void save(e)} noValidate data-testid="dq-nameform">

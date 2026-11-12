@@ -186,19 +186,27 @@ export function FileWizard({ customerId, userId, startStep, onDone }: {
   const x = idx + 1;
   const patch = (p: Partial<FileState> | FileState) => {
     setSt((cur) => {
+      // Keep guarantor answers in state when the toggle is off; they are cleared only on «پایان».
       const next = { ...cur, ...p };
-      if (!hasGuarantor(next)) { next.g_job_status = ""; next.g_credit_rank = ""; /* keep g_conditions in memory only while no guarantor is hidden */ }
       writeDraft(userId, customerId, next);
       return next;
     });
   };
   const timer = useRef<number>(0);
   const skipSave = useRef(true);
+  const failCount = useRef(0);
+  const [saveHint, setSaveHint] = useState("");
   useEffect(() => {
     if (skipSave.current) { skipSave.current = false; return; }
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
-      void saveDossier(customerId, st).catch(() => undefined);
+      void saveDossier(customerId, st).then(() => {
+        failCount.current = 0;
+        setSaveHint("");
+      }).catch(() => {
+        failCount.current += 1;
+        if (failCount.current >= 3) setSaveHint("ذخیرهٔ خودکار انجام نشد. اتصال را بررسی کنید.");
+      });
     }, 500);
     return () => window.clearTimeout(timer.current);
   }, [st, customerId]);
@@ -214,7 +222,8 @@ export function FileWizard({ customerId, userId, startStep, onDone }: {
     }
     setBusy(true); setErr("");
     try {
-      const card = await saveDossier(customerId, st);
+      const payload = hasGuarantor(st) ? st : { ...st, g_job_status: "", g_credit_rank: "", g_conditions: "" };
+      const card = await saveDossier(customerId, payload, { final: true });
       qc.setQueryData(fileCardKey(customerId), card);
       void qc.invalidateQueries({ queryKey: fileCardKey(customerId) });
       void qc.invalidateQueries({ queryKey: ["dci-board", customerId] });
@@ -235,7 +244,7 @@ export function FileWizard({ customerId, userId, startStep, onDone }: {
       <span style={{ width: `${(x / n) * 100}%` }} />
     </div>
     <div id="dci-fbody">{stepBody(id, st, patch)}</div>
-    {err ? <p className="dci-empty" role="alert" data-testid="dci-fc-err">{err}</p> : null}
+    {err ? <p className="dci-empty" role="alert" data-testid="dci-fc-err">{err}</p> : saveHint ? <p className="dci-hint" role="status" data-testid="dci-fc-autosave-err">{saveHint}</p> : null}
     <div className="dci-acts">
       <button className="btn gh" type="button" id="dci-prev" hidden={idx === 0} onClick={() => void go(-1)}>قبلی</button>
       <button className="btn pri" type="button" id="dci-next" data-testid="dci-fc-next" disabled={busy} onClick={() => void go(1)}>
