@@ -61,6 +61,7 @@ import { BaleLinkBadge } from '@/features/bale/BaleLinkBadge';
 import { baleChatVisible } from '@/features/bale/api';
 import CsFileItems from '@/features/call-summary-fields/FileItems';
 import { useDetailCallButtons } from '@/features/voip-call/VoipAnywhere'; // VOIP-ANYWHERE single-button rule
+import { CustomerNameEdit } from '@/features/customer-name-edit/CustomerNameEdit';
 
 const faNum = (n: number) => n.toLocaleString('fa-IR');
 const faId = (n: number) => n.toLocaleString('fa-IR', { useGrouping: false });
@@ -601,7 +602,12 @@ function CustomerDetailFull() {
       <div className="who">
         <span className="csx-av" aria-hidden="true">{initialsOf(customer.name)}</span>
         <div style={{ minWidth: 0 }}>
-          <h2 id="customer-hero-name" className="kzs-wrap"><CustomerName id={customer.id} name={customer.name} nameTestId="text-customer-name" badgeTestId="text-customer-id" /><KazemiSourceChip source={kazemiSourceOf(customer)} testId="chip-kazemi-source" />{baleOn ? <BaleLinkBadge customerId={customer.id} /> : null}</h2>
+          {/* NAME-EDIT-420000: ویرایش نام pencil (flag.customer_name_edit; server decides canEdit: own unverified customer or admin). */}
+          <CustomerNameEdit customerId={customer.id} name={customer.name} firstName={(customer as any).firstName} lastName={(customer as any).lastName}
+            toast={setToast} rowClassName="nmr ed-view csx-nmr"
+            onSaved={() => { void customerQuery.refetch(); void queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() }); }}>
+            <h2 id="customer-hero-name" className="kzs-wrap"><CustomerName id={customer.id} name={customer.name} nameTestId="text-customer-name" badgeTestId="text-customer-id" /><KazemiSourceChip source={kazemiSourceOf(customer)} testId="chip-kazemi-source" />{baleOn ? <BaleLinkBadge customerId={customer.id} /> : null}</h2>
+          </CustomerNameEdit>
           <div className="sub">کارشناس: {handoff ? handoff.closerName : customer.salespersonName || 'بدون تخصیص'}</div>
         </div>
       </div>

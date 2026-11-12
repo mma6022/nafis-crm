@@ -122,3 +122,7 @@ body.ed-open .ed-scrim,body.ed-open .ed-sheet{display:block}
 .fdv1 .ftl li.new .tx small{font-weight:600}
 
 .bale-side .ed-pen,.nmr .ed-pen{flex:none}
+
+/* NAME-EDIT-420000: customer page hero — h2 keeps its own margin rules, pencil sits right after the name. */
+.csx-hero .csx-nmr{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
+.csx-hero .csx-nmr > h2{margin:0;min-width:0}
