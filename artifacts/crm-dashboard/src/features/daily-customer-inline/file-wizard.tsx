@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { fileCardKey, saveDossier, useFileCard, type FileCard } from "@/features/history/api";
 import {
   AMOUNT_RANGE_OPTS, BOUNCED_OPTS, DOC_OTHER, JOB_OPTS, MILITARY_OPTS, NEED_FA, PURPOSE_OPTS,
-  REFER_OPTS, TIMING_OPTS, YN, amountChip, contactChip, fd, fileComplete, fileKvRows, filePartial,
+  REFER_OPTS, TIMING_OPTS, YN, amountChip, contactChip, fd, fileAskRows, fileComplete, fileKvRows, filePartial,
   formatTomanFa, hasDoc, hasGuarantor, planChip, readDraft, setDocFlag, stateFromDossier, visSteps,
   writeDraft, type FileState, type WizStep,
 } from "./file-dossier";
@@ -55,6 +55,8 @@ function GradeGroup({ name, label, value, onPick }: { name: string; label: strin
           aria-checked={value === "unknown"} onClick={() => onPick("unknown")}>نمی‌دونه</button>
       </div>
     </div>
+    {/^[A-E]$/.test(value) ? <p className="dci-grade-site" data-testid={`${name}-site-letter`}>
+      مشتری در سایت «{value}» زده است؛ زیررتبه را بپرسید و یکی از {value}۱ تا {value}۳ را بزنید.</p> : null}
   </div>;
 }
 
@@ -255,6 +257,12 @@ export function FileBox({ customerId, onOpen, wizard, startStep }: {
   const complete = q.data?.dossierComplete ?? fileComplete(st);
   const partial = q.data?.dossierPartial ?? filePartial(st);
   const siteHint = Boolean(q.data?.sitePrefill) && !complete;
+  // site-credit-noinst v1.1: a site lead (even name + mobile only) shows every field, «از سایت» / «بپرسید»
+  const siteLead = Boolean(q.data?.siteLead);
+  const siteFields = q.data?.siteFields ?? [];
+  const askRows = fileAskRows(st, siteFields);
+  const siteSet = new Set(siteFields);
+  const fromSite = (k: string) => siteSet.has(k === "guarantor" || k === "salary_deduction" ? "documents" : k);
   const open = Boolean(wizard);
   const long = complete && fileKvRows(st, true).length > fileKvRows(st, false).length;
   const rows = fileKvRows(st, !complete || showAll);
@@ -272,7 +280,21 @@ export function FileBox({ customerId, onOpen, wizard, startStep }: {
     </div>
     <div className="dci-filebox" id="dci-filebox" hidden={open} data-testid="dci-filebox">
       {q.isLoading ? <p className="dci-empty">در حال بارگذاری…</p> : q.isError ? <p className="dci-empty" role="alert">پرونده بارگذاری نشد.</p>
-        : !complete && !partial ? <>
+        : !complete && siteLead ? <>
+          <p className="dci-site-hint" data-testid="dci-site-hint">{siteFields.length
+            ? "بخشی از اطلاعات را مشتری در سایت پر کرده است. فیلدهای خالی را در تماس بپرسید."
+            : "مشتری در سایت فقط نام و شماره گذاشته است. فیلدها را در تماس بپرسید."}</p>
+          <dl className="dci-kv dci-kv-2" data-testid="dci-ask-kv">{askRows.map((r) => <div key={r.key} className={r.from === "ask" ? "ask" : r.from === "site" ? "from" : undefined}
+            data-testid={`dci-kv-${r.key}`} data-from={r.from}>
+            <dt>{r.label}</dt>
+            <dd>{r.from === "ask" ? <span className="ask-v">بپرسید</span> : <>{r.value}{r.from === "site" ? <i className="fsite">از سایت</i> : null}</>}</dd>
+          </div>)}</dl>
+          {(st.customer_note || st.note) ? <div className="dci-filenotes">
+            {st.customer_note ? <div className="dci-fnote"><span className="dci-fnote-k">یادداشت مشتری</span><p>{st.customer_note}</p></div> : null}
+            {st.note ? <div className="dci-fnote"><span className="dci-fnote-k">یادداشت کارشناس</span><p>{st.note}</p></div> : null}
+          </div> : null}
+          <button className="btn pri" type="button" id="dci-file-open" data-testid="dci-file-open" onClick={() => onOpen("new")}>تکمیل پرونده</button>
+        </> : !complete && !partial ? <>
           <p className="dci-empty">پرونده تماس اول هنوز تکمیل نشده است.</p>
           <button className="btn pri" type="button" id="dci-file-open" data-testid="dci-file-open" onClick={() => onOpen("new")}>تکمیل پرونده</button>
         </> : !complete ? <>
@@ -284,7 +306,7 @@ export function FileBox({ customerId, onOpen, wizard, startStep }: {
           </div> : null}
           <button className="btn pri" type="button" id="dci-file-open" data-testid="dci-file-open" onClick={() => onOpen("new")}>تکمیل پرونده</button>
         </> : <>
-          {rows.length ? <dl className="dci-kv dci-kv-2">{rows.map((r) => <div key={r.key}><dt>{r.label}</dt><dd>{r.value}</dd></div>)}</dl> : null}
+          {rows.length ? <dl className="dci-kv dci-kv-2">{rows.map((r) => <div key={r.key}><dt>{r.label}</dt><dd>{r.value}{fromSite(r.key) ? <i className="fsite">از سایت</i> : null}</dd></div>)}</dl> : null}
           {long ? <button type="button" className="btn gh" id="dci-file-more" data-testid="dci-file-more" onClick={() => setShowAll((v) => !v)}>
             {showAll ? "نمایش کمتر" : "نمایش همه"}
           </button> : null}

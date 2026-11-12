@@ -1,9 +1,10 @@
-/** v82: answers the customer gave in the site's 7-step «ثبت درخواست» form (GET /api/customers/:id/site-answers). Read only. */
+/** v82: answers the customer gave in the site's «ثبت درخواست» form (GET /api/customers/:id/site-answers). Read only.
+ *  site-credit-noinst v1.1: 8 steps, every answer optional (null = skipped), new credit_rank (A–E | unknown). */
 import { useQuery } from '@tanstack/react-query';
 
 export type SiteAnswers = {
-  amount_range: string; loan_purpose: string | null; job_status: string; documents: string[];
-  has_military_card: string; can_refer_retiree: string; has_bounced_or_overdue: string; need_timing: string;
+  amount_range: string | null; loan_purpose: string | null; job_status: string | null; credit_rank?: string | null; documents: string[];
+  has_military_card: string | null; can_refer_retiree: string | null; has_bounced_or_overdue: string | null; need_timing: string | null;
 };
 export type SiteSubmission = { id: number; submittedAt: string; src: string | null; outcome: string; planId: number | null; planName: string | null; term: number | null; answers: SiteAnswers };
 export type SiteAnswersResponse = { count: number; latest: SiteSubmission | null; previous: SiteSubmission[] };
@@ -26,6 +27,7 @@ export const SA_LABELS: Record<keyof SiteAnswers, [string, Record<string, string
   amount_range: ['مبلغ', { up_to_50m: 'تا ۵۰ میلیون تومان', '50m_100m': '۵۰ تا ۱۰۰ میلیون تومان', '100m_300m': '۱۰۰ تا ۳۰۰ میلیون تومان', '300m_500m': '۳۰۰ تا ۵۰۰ میلیون تومان', over_500m: 'بیشتر از ۵۰۰ میلیون تومان', not_sure: 'هنوز نمی‌داند' }],
   loan_purpose: ['برای', { goods: 'خرید کالا', wedding: 'جهیزیه و ازدواج', medical: 'درمان', home: 'خانه و تعمیرات', business: 'کسب‌وکار', other: 'کار دیگر' }],
   job_status: ['شغل', { employee: 'کارمند', retired: 'بازنشسته', self_employed: 'آزاد', no_fixed_income: 'بدون درآمد ثابت' }],
+  credit_rank: ['رتبه‌ی اعتباری', { A: 'A', B: 'B', C: 'C', D: 'D', E: 'E', unknown: 'نمی‌داند' }],
   documents: ['مدارک', { payslip: 'فیش حقوقی', salary_deduction_cert: 'گواهی کسر از حقوق', sayadi_cheque: 'چک صیادی', guarantor: 'ضامن', none: 'هیچ‌کدام' }],
   has_military_card: ['پایان خدمت', { yes: 'دارد', no: 'ندارد', not_applicable: 'مشمول نیست' }],
   can_refer_retiree: ['معرفی بازنشسته', { yes: 'بله، می‌تواند معرفی کند', no: 'خیر' }],

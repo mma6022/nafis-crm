@@ -1,5 +1,10 @@
 /**
- * v82 «ثبت درخواست» — the site's 7-step apply wizard (Armita site-apply-wizard v1.0.1; Mohammad t129u/t130u/t131u/t134u).
+ * v82 «ثبت درخواست» — the site's apply wizard (Armita site-apply-wizard v1.0.1; Mohammad t129u/t130u/t131u/t134u).
+ * site-credit-noinst v1.0/v1.1 (Mohammad «اکیه بده بسازه», 2026-11-12): 8 steps — new optional `credit_rank` (A–E | unknown);
+ * the wizard is now the site's ONLY form, so only name + mobile are required: every answer key is optional (a skipped step
+ * is simply absent and the file shows «بپرسید»). Min fill: 8 s when any answer is sent, the general 3 s for name + mobile only.
+ * Skipped answers are stored as '' ('[]' for documents) in the existing NOT NULL columns (no table rebuild); the read side maps
+ * them back to null. `credit_rank` is an additive column.
  *
  * POST /api/public/leads with `type:'apply'` (same endpoint, CORS, attempt limiter, per-IP/per-phone caps and 10-minute
  * duplicate window as the other public intakes) → validateSiteApply (own key set, 8 s minimum fill time — this form only)
@@ -28,8 +33,10 @@ import {
 } from "./public-leads";
 
 export const SITE_APPLY_SOURCE = "site_apply_form" as const;
-/** Mohammad (via PM, 2026-10-28): this 7-step form needs at least 8 seconds; every other intake keeps 3 s. */
+/** Mohammad (via PM, 2026-10-28): this form needs at least 8 seconds when answers are sent; every other intake keeps 3 s. */
 export const SITE_APPLY_MIN_FILL_MS = 8_000;
+/** site-credit-noinst v1.1: «فعلاً فقط تماس بگیرید» (name + mobile only) uses the general public-intake minimum. */
+export const SITE_APPLY_QUICK_MIN_FILL_MS = 3_000;
 export const REPEAT_REQUEST_TAG = "repeat_request";
 
 export const AMOUNT_RANGES = ["up_to_50m", "50m_100m", "100m_300m", "300m_500m", "over_500m", "not_sure"] as const;
@@ -39,16 +46,20 @@ export const DOCUMENTS = ["payslip", "salary_deduction_cert", "sayadi_cheque", "
 export const MILITARY = ["yes", "no", "not_applicable"] as const;
 export const YES_NO = ["yes", "no"] as const;
 export const NEED_TIMINGS = ["this_week", "this_month", "just_browsing"] as const;
+/** site-credit-noinst v1.0 §4: letters only on the site (+ «نمی‌دونم»); the expert refines to A1–E3 in the file. */
+export const SITE_CREDIT_RANKS = ["A", "B", "C", "D", "E", "unknown"] as const;
 
+/** null = the customer skipped that step (v1.1); documents [] = skipped. */
 export type SiteApplyAnswers = {
-  amount_range: (typeof AMOUNT_RANGES)[number];
+  amount_range: (typeof AMOUNT_RANGES)[number] | null;
   loan_purpose: (typeof LOAN_PURPOSES)[number] | null;
-  job_status: (typeof JOB_STATUSES)[number];
+  job_status: (typeof JOB_STATUSES)[number] | null;
+  credit_rank: (typeof SITE_CREDIT_RANKS)[number] | null;
   documents: (typeof DOCUMENTS)[number][];
-  has_military_card: (typeof MILITARY)[number];
-  can_refer_retiree: (typeof YES_NO)[number];
-  has_bounced_or_overdue: (typeof YES_NO)[number];
-  need_timing: (typeof NEED_TIMINGS)[number];
+  has_military_card: (typeof MILITARY)[number] | null;
+  can_refer_retiree: (typeof YES_NO)[number] | null;
+  has_bounced_or_overdue: (typeof YES_NO)[number] | null;
+  need_timing: (typeof NEED_TIMINGS)[number] | null;
 };
 export type SiteApply = {
   name: string; phone: string; answers: SiteApplyAnswers; planId: number | null; term: number | null;
@@ -58,15 +69,28 @@ export type SiteApplyValidation =
   | { ok: true; apply: SiteApply }
   | { ok: false; status: 400 | 422; error: "invalid" | "spam" | "too_fast" | "expired"; fields?: string[] };
 
-const ANSWER_KEYS = ["amount_range", "loan_purpose", "job_status", "documents", "has_military_card", "can_refer_retiree",
-  "has_bounced_or_overdue", "need_timing"] as const;
+const ANSWER_KEYS = ["amount_range", "loan_purpose", "job_status", "credit_rank", "documents", "has_military_card",
+  "can_refer_retiree", "has_bounced_or_overdue", "need_timing"] as const;
+const absent = (v: unknown) => v === undefined || v === null || v === "";
+/** any answer key present → the 8 s rule; name + mobile only → 3 s */
+const sendsAnswers = (body: unknown): boolean => {
+  if (!body || typeof body !== "object") return false;
+  const b = body as Record<string, unknown>;
+  return ANSWER_KEYS.some((k) => (k === "documents" ? Array.isArray(b[k]) && (b[k] as unknown[]).length > 0 : !absent(b[k])));
+};
+/** optional enum: absent → null, present must be valid */
+function optEnum<T extends readonly string[]>(set: T, v: unknown, key: string, fields: string[]): T[number] | null {
+  if (absent(v)) return null;
+  if (!oneOf(set, v)) { fields.push(key); return null; }
+  return v as T[number];
+}
 const APPLY_KEYS = new Set<string>([
   "type", "name", "phone", ...ANSWER_KEYS, "planId", "term", "src", "consent", "website", "startedAt", "fillMs", ...UTM_KEYS,
 ]);
 
 /** Strict validation of the apply wizard body. */
 export function validateSiteApply(body: unknown, now = Date.now()): SiteApplyValidation {
-  const gate = intakeGate(body, APPLY_KEYS, now, SITE_APPLY_MIN_FILL_MS);
+  const gate = intakeGate(body, APPLY_KEYS, now, sendsAnswers(body) ? SITE_APPLY_MIN_FILL_MS : SITE_APPLY_QUICK_MIN_FILL_MS);
   if ("ok" in gate) return gate;
   const { input } = gate;
   const fields: string[] = [];
@@ -75,21 +99,21 @@ export function validateSiteApply(body: unknown, now = Date.now()): SiteApplyVal
   if (!name) fields.push("name");
   const phone = normalizeLeadPhone(input.phone);
   if (!phone) fields.push("phone");
-  if (!oneOf(AMOUNT_RANGES, input.amount_range)) fields.push("amount_range");
-  const purposeRaw = input.loan_purpose;
-  const purpose = purposeRaw === undefined || purposeRaw === null || purposeRaw === "" ? null : purposeRaw;
-  if (purpose !== null && !oneOf(LOAN_PURPOSES, purpose)) fields.push("loan_purpose");
-  if (!oneOf(JOB_STATUSES, input.job_status)) fields.push("job_status");
+  const amount_range = optEnum(AMOUNT_RANGES, input.amount_range, "amount_range", fields);
+  const purpose = optEnum(LOAN_PURPOSES, input.loan_purpose, "loan_purpose", fields);
+  const job_status = optEnum(JOB_STATUSES, input.job_status, "job_status", fields);
+  const credit_rank = optEnum(SITE_CREDIT_RANKS, input.credit_rank, "credit_rank", fields);
   const docs = input.documents;
   let documents: SiteApplyAnswers["documents"] = [];
-  if (!Array.isArray(docs) || docs.length < 1 || docs.length > DOCUMENTS.length
+  if (docs === undefined || docs === null || (Array.isArray(docs) && docs.length === 0)) documents = [];
+  else if (!Array.isArray(docs) || docs.length > DOCUMENTS.length
     || !docs.every((d) => oneOf(DOCUMENTS, d)) || new Set(docs).size !== docs.length
     || (docs.includes("none") && docs.length > 1)) fields.push("documents");
   else documents = DOCUMENTS.filter((d) => (docs as string[]).includes(d)); // canonical order
-  if (!oneOf(MILITARY, input.has_military_card)) fields.push("has_military_card");
-  if (!oneOf(YES_NO, input.can_refer_retiree)) fields.push("can_refer_retiree");
-  if (!oneOf(YES_NO, input.has_bounced_or_overdue)) fields.push("has_bounced_or_overdue");
-  if (!oneOf(NEED_TIMINGS, input.need_timing)) fields.push("need_timing");
+  const has_military_card = optEnum(MILITARY, input.has_military_card, "has_military_card", fields);
+  const can_refer_retiree = optEnum(YES_NO, input.can_refer_retiree, "can_refer_retiree", fields);
+  const has_bounced_or_overdue = optEnum(YES_NO, input.has_bounced_or_overdue, "has_bounced_or_overdue", fields);
+  const need_timing = optEnum(NEED_TIMINGS, input.need_timing, "need_timing", fields);
   const planId = optionalInt(input.planId, 1, 9_999_999);
   if (planId === undefined) fields.push("planId");
   const term = optionalInt(input.term, 1, 120);
@@ -102,16 +126,8 @@ export function validateSiteApply(body: unknown, now = Date.now()): SiteApplyVal
     apply: {
       name: name!, phone: phone!, planId: planId ?? null, term: term ?? null, src, utm,
       fillMs: typeof input.fillMs === "number" ? input.fillMs : null,
-      answers: {
-        amount_range: input.amount_range as SiteApplyAnswers["amount_range"],
-        loan_purpose: purpose as SiteApplyAnswers["loan_purpose"],
-        job_status: input.job_status as SiteApplyAnswers["job_status"],
-        documents,
-        has_military_card: input.has_military_card as SiteApplyAnswers["has_military_card"],
-        can_refer_retiree: input.can_refer_retiree as SiteApplyAnswers["can_refer_retiree"],
-        has_bounced_or_overdue: input.has_bounced_or_overdue as SiteApplyAnswers["has_bounced_or_overdue"],
-        need_timing: input.need_timing as SiteApplyAnswers["need_timing"],
-      },
+      answers: { amount_range, loan_purpose: purpose, job_status, credit_rank, documents, has_military_card, can_refer_retiree,
+        has_bounced_or_overdue, need_timing },
     },
   };
 }
@@ -144,37 +160,43 @@ export function computeSiteApplyPriority(a: Pick<SiteApplyAnswers, "documents" |
 }
 
 // ---- Persian labels (Armita sa.js LB; staff-facing) ----
-export const AMOUNT_FA: Record<SiteApplyAnswers["amount_range"], string> = {
+export const AMOUNT_FA: Record<(typeof AMOUNT_RANGES)[number], string> = {
   up_to_50m: "تا ۵۰ میلیون تومان", "50m_100m": "۵۰ تا ۱۰۰ میلیون تومان", "100m_300m": "۱۰۰ تا ۳۰۰ میلیون تومان",
   "300m_500m": "۳۰۰ تا ۵۰۰ میلیون تومان", over_500m: "بیشتر از ۵۰۰ میلیون تومان", not_sure: "هنوز نمی‌داند",
 };
 export const PURPOSE_FA: Record<(typeof LOAN_PURPOSES)[number], string> = {
   goods: "خرید کالا", wedding: "جهیزیه و ازدواج", medical: "درمان", home: "خانه و تعمیرات", business: "کسب‌وکار", other: "کار دیگر",
 };
-export const JOB_FA: Record<SiteApplyAnswers["job_status"], string> = {
+export const JOB_FA: Record<(typeof JOB_STATUSES)[number], string> = {
   employee: "کارمند", retired: "بازنشسته", self_employed: "آزاد", no_fixed_income: "بدون درآمد ثابت",
 };
 export const DOC_FA: Record<(typeof DOCUMENTS)[number], string> = {
   payslip: "فیش حقوقی", salary_deduction_cert: "گواهی کسر از حقوق", sayadi_cheque: "چک صیادی", guarantor: "ضامن", none: "هیچ‌کدام",
 };
-export const MILITARY_FA: Record<SiteApplyAnswers["has_military_card"], string> = { yes: "دارد", no: "ندارد", not_applicable: "مشمول نیست" };
-export const TIMING_FA: Record<SiteApplyAnswers["need_timing"], string> = {
+export const MILITARY_FA: Record<(typeof MILITARY)[number], string> = { yes: "دارد", no: "ندارد", not_applicable: "مشمول نیست" };
+export const TIMING_FA: Record<(typeof NEED_TIMINGS)[number], string> = {
   this_week: "همین هفته", this_month: "این ماه", just_browsing: "فقط دارد بررسی می‌کند",
 };
 
 /** Staff summary of ONLY the customer's own answers (Telegram «این درخواست» + repeat-request text). */
+export const CREDIT_RANK_FA = (v: SiteApplyAnswers["credit_rank"]): string => (v === "unknown" ? "نمی‌داند" : v ?? "");
+const SKIPPED = "بی‌جواب";
 export function siteApplySummary(a: SiteApplyAnswers, planName?: string | null, planId?: number | null, term?: number | null): string {
-  const lines = [
-    "فرم ۷ مرحله‌ای سایت (همه اعلامی مشتری)",
-    `مبلغ: ${AMOUNT_FA[a.amount_range]}`,
-    `برای: ${a.loan_purpose ? PURPOSE_FA[a.loan_purpose] : "بی‌جواب (اختیاری)"}`,
-    `شغل: ${JOB_FA[a.job_status]}`,
-    `مدارک: ${a.documents.map((d) => DOC_FA[d]).join("، ")}`,
-    `پایان خدمت: ${MILITARY_FA[a.has_military_card]}`,
-    `معرفی بازنشسته: ${a.can_refer_retiree === "yes" ? "بله، می‌تواند معرفی کند" : "خیر"}`,
-    `چک برگشتی / معوق: ${a.has_bounced_or_overdue === "yes" ? "بله، دارد" : "خیر"}`,
-    `زمان نیاز: ${TIMING_FA[a.need_timing]}`,
-  ];
+  const yn = (v: string | null, yes: string) => (v == null ? SKIPPED : v === "yes" ? yes : "خیر");
+  const answered = !!(a.amount_range || a.loan_purpose || a.job_status || a.credit_rank || a.documents.length || a.has_military_card
+    || a.can_refer_retiree || a.has_bounced_or_overdue || a.need_timing);
+  const lines = answered ? [
+    "فرم ثبت درخواست سایت (همه اعلامی مشتری)",
+    `مبلغ: ${a.amount_range ? AMOUNT_FA[a.amount_range] : SKIPPED}`,
+    `برای: ${a.loan_purpose ? PURPOSE_FA[a.loan_purpose] : `${SKIPPED} (اختیاری)`}`,
+    `شغل: ${a.job_status ? JOB_FA[a.job_status] : SKIPPED}`,
+    `رتبه‌ی اعتباری: ${a.credit_rank ? CREDIT_RANK_FA(a.credit_rank) : SKIPPED}`,
+    `مدارک: ${a.documents.length ? a.documents.map((d) => DOC_FA[d]).join("، ") : SKIPPED}`,
+    `پایان خدمت: ${a.has_military_card ? MILITARY_FA[a.has_military_card] : SKIPPED}`,
+    `معرفی بازنشسته: ${yn(a.can_refer_retiree, "بله، می‌تواند معرفی کند")}`,
+    `چک برگشتی / معوق: ${yn(a.has_bounced_or_overdue, "بله، دارد")}`,
+    `زمان نیاز: ${a.need_timing ? TIMING_FA[a.need_timing] : SKIPPED}`,
+  ] : ["فرم ثبت درخواست سایت: فقط نام و موبایل (مشتری فعلاً فقط تماس خواست)"];
   if (planId) lines.push(`طرح انتخابی: ${planName ? `${planName} ` : ""}(#${planId})${term ? `، ${term} ماهه` : ""}`);
   return lines.join("\n");
 }
@@ -206,6 +228,9 @@ export function ensureSiteApplySchema(): void {
     created_at TEXT NOT NULL
   )`);
   execute("CREATE INDEX IF NOT EXISTS idx_site_apply_answers_customer ON site_apply_answers(customer_id, id)");
+  // site-credit-noinst v1.0 (additive, guarded): the customer's own credit-rank letter (A–E | unknown); NULL = skipped/older row
+  const cols = queryRows<{ name: string }>("PRAGMA table_info(site_apply_answers)").map((c) => c.name);
+  if (!cols.includes("credit_rank")) execute("ALTER TABLE site_apply_answers ADD COLUMN credit_rank TEXT");
 }
 
 export type SiteApplyResult = {
@@ -272,7 +297,7 @@ export function recordSiteApply(apply: SiteApply, ipHash: string, userAgent: str
         `INSERT INTO customer_repeat_requests
           (customer_id,requested_name,submitted_description,explanation,status,created_by_user_id,provenance,lead_source,created_at)
          VALUES (?,?,?,?, 'pending',NULL,'human','site',?)`,
-        [customerId, apply.name, summary.slice(0, 2000), "درخواست تازه از فرم ۷ مرحله‌ای سایت (همان شماره موبایل)", timestamp],
+        [customerId, apply.name, summary.slice(0, 2000), "درخواست تازه از فرم ثبت درخواست سایت (همان شماره موبایل)", timestamp],
       );
       execute("INSERT OR IGNORE INTO customer_tag_catalog(tag,label_fa,canonical_label) VALUES (?,?,?)",
         [REPEAT_REQUEST_TAG, "درخواست چند باره", "درخواست چند باره"]);
@@ -287,7 +312,7 @@ export function recordSiteApply(apply: SiteApply, ipHash: string, userAgent: str
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         LEAD_SOURCE, customerId, created ? "new_customer" : "existing_customer", apply.name, apply.phone,
-        "help", `apply:${apply.answers.amount_range}`, apply.planId, apply.term, "any", apply.src,
+        "help", `apply:${apply.answers.amount_range ?? "skipped"}`, apply.planId, apply.term, "any", apply.src,
         apply.utm.utm_source ?? null, apply.utm.utm_medium ?? null, apply.utm.utm_campaign ?? null,
         apply.utm.utm_content ?? null, apply.utm.utm_term ?? null, ipHash, timestamp, trackingCode,
       ],
@@ -298,12 +323,13 @@ export function recordSiteApply(apply: SiteApply, ipHash: string, userAgent: str
       `INSERT INTO site_apply_answers
         (public_lead_id, customer_id, outcome, amount_range, loan_purpose, job_status, documents_json, has_military_card,
          can_refer_retiree, has_bounced_or_overdue, need_timing, plan_id, term, priority_computed, priority_rule, old_priority,
-         routed_salesperson_id, src, fill_ms, ip_hash, user_agent, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [leadId, customerId, created ? "new_customer" : "existing_customer", a.amount_range, a.loan_purpose, a.job_status,
-        JSON.stringify(a.documents), a.has_military_card, a.can_refer_retiree, a.has_bounced_or_overdue, a.need_timing,
+         routed_salesperson_id, src, fill_ms, ip_hash, user_agent, created_at, credit_rank)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      // skipped answers → '' in the legacy NOT NULL columns (read side maps '' back to null)
+      [leadId, customerId, created ? "new_customer" : "existing_customer", a.amount_range ?? "", a.loan_purpose, a.job_status ?? "",
+        JSON.stringify(a.documents), a.has_military_card ?? "", a.can_refer_retiree ?? "", a.has_bounced_or_overdue ?? "", a.need_timing ?? "",
         apply.planId, apply.term, created ? priority : 1, created ? rule : "repeat_request", oldPriority,
-        created ? owner : null, apply.src, apply.fillMs, ipHash, cleanUa(userAgent), timestamp],
+        created ? owner : null, apply.src, apply.fillMs, ipHash, cleanUa(userAgent), timestamp, a.credit_rank],
     );
     return { customerId, created, trackingCode, priority: created ? priority : 1, rule, ownerSalespersonId: owner, answersId, planName };
   });
@@ -313,7 +339,7 @@ export function recordSiteApply(apply: SiteApply, ipHash: string, userAgent: str
 type AnswerRow = {
   id: number; customer_id: number; amount_range: string; loan_purpose: string | null; job_status: string; documents_json: string;
   has_military_card: string; can_refer_retiree: string; has_bounced_or_overdue: string; need_timing: string; plan_id: number | null;
-  term: number | null; src: string | null; created_at: string; outcome: string;
+  term: number | null; src: string | null; created_at: string; outcome: string; credit_rank?: string | null;
 };
 export type SiteAnswersView = {
   id: number; submittedAt: string; src: string | null; outcome: string; planId: number | null; planName: string | null; term: number | null;
@@ -323,6 +349,8 @@ export type SiteAnswersView = {
 function tableExists(name: string): boolean {
   return Boolean(queryRow("SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name=?", [name]));
 }
+
+const pick = <T extends readonly string[]>(set: T, v: unknown): T[number] | null => (oneOf(set, v) ? (v as T[number]) : null);
 
 /** Every submission for this customer (newest first; merged duplicates included). Read only; no priority/owner exposed. */
 export function siteAnswersForCustomer(customerId: number): { count: number; latest: SiteAnswersView | null; previous: SiteAnswersView[] } {
@@ -338,13 +366,12 @@ export function siteAnswersForCustomer(customerId: number): { count: number; lat
     return {
       id: Number(r.id), submittedAt: r.created_at, src: r.src, outcome: r.outcome, planId: r.plan_id == null ? null : Number(r.plan_id),
       planName: r.plan_name ?? null, term: r.term == null ? null : Number(r.term),
+      // '' (skipped, v1.1) and unknown values → null
       answers: {
-        amount_range: r.amount_range as SiteApplyAnswers["amount_range"], loan_purpose: (r.loan_purpose ?? null) as SiteApplyAnswers["loan_purpose"],
-        job_status: r.job_status as SiteApplyAnswers["job_status"], documents,
-        has_military_card: r.has_military_card as SiteApplyAnswers["has_military_card"],
-        can_refer_retiree: r.can_refer_retiree as SiteApplyAnswers["can_refer_retiree"],
-        has_bounced_or_overdue: r.has_bounced_or_overdue as SiteApplyAnswers["has_bounced_or_overdue"],
-        need_timing: r.need_timing as SiteApplyAnswers["need_timing"],
+        amount_range: pick(AMOUNT_RANGES, r.amount_range), loan_purpose: pick(LOAN_PURPOSES, r.loan_purpose),
+        job_status: pick(JOB_STATUSES, r.job_status), credit_rank: pick(SITE_CREDIT_RANKS, r.credit_rank), documents,
+        has_military_card: pick(MILITARY, r.has_military_card), can_refer_retiree: pick(YES_NO, r.can_refer_retiree),
+        has_bounced_or_overdue: pick(YES_NO, r.has_bounced_or_overdue), need_timing: pick(NEED_TIMINGS, r.need_timing),
       },
     };
   };

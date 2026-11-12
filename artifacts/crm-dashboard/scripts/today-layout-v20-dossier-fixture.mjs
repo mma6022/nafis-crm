@@ -100,4 +100,20 @@ ok("canonDocs keeps none exclusive and official order", () => {
   assert.deepEqual(m.canonDocs(["none"]), ["none"]);
 });
 
+ok("site-credit-noinst v1.1: ask rows — «از سایت» on site values, «بپرسید» on empty ones, mockup order", () => {
+  const st = { ...m.emptyFile(), job_status: "employee", credit_rank: "B", amount_range: "100m_300m" };
+  const rows = m.fileAskRows(st, ["job_status", "credit_rank", "amount_range"]);
+  assert.deepEqual(rows.slice(0, 10).map((r) => r.key), ["city", "loan_purpose", "job_status", "credit_rank", "has_military_card",
+    "has_bounced_or_overdue", "documents", "guarantor", "can_refer_retiree", "need_timing"]);
+  const by = Object.fromEntries(rows.map((r) => [r.key, r]));
+  assert.equal(by.job_status.from, "site"); assert.equal(by.job_status.value, "کارمند");
+  assert.equal(by.credit_rank.from, "site"); assert.equal(by.credit_rank.value, "B");
+  assert.equal(by.city.from, "ask"); assert.equal(by.documents.from, "ask"); assert.equal(by.guarantor.from, "ask");
+  const expert = m.fileAskRows({ ...st, city: "تهران", credit_rank: "B2" }, ["job_status"]);
+  assert.equal(expert.find((r) => r.key === "city").from, "set");
+  assert.equal(expert.find((r) => r.key === "credit_rank").from, "set");
+  const quick = m.fileAskRows(m.emptyFile(), []);
+  assert.ok(quick.every((r) => r.from === "ask") && quick.length === 10);
+  assert.equal(m.gradeFa("unknown"), "نمی‌دونه");
+});
 console.log(`passed ${passed}`);

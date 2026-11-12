@@ -48,6 +48,8 @@ export type FileCard = {
   answers: Record<string, any> | null; city: string | null; missing: string[]; missingCount: number; total: number; complete: boolean;
   canEdit: boolean; isP1: boolean; revertAdminOnly: boolean; adminLine: string;
   dossier?: FileDossier; dossierComplete?: boolean; dossierPartial?: boolean; sitePrefill?: boolean;
+  /** site-credit-noinst v1.1 (additive): keys whose value is the customer's own site answer, and whether the site form was ever sent */
+  siteFields?: string[]; siteLead?: boolean;
 };
 export const callHistoryKey = (id: number) => ['call-history', id] as const;
 export const fileCardKey = (id: number) => ['file-card', id] as const;

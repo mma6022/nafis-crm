@@ -40,6 +40,6 @@ export function siteHints(a: SiteAnswers): SiteHints {
   if (a.job_status && a.job_status !== 'retired') h.jobType = `سایت: ${saText('job_status', a.job_status)}؛ ${JOB_ASK[a.job_status] ?? 'جزئیات را بپرس'}`;
   if (a.can_refer_retiree === 'yes') h.sso = 'سایت: می‌تواند یک متقاضی بازنشسته معرفی کند؛ این سؤال جداست';
   else if (a.can_refer_retiree === 'no') h.sso = 'سایت: متقاضی بازنشسته‌ای معرفی نمی‌کند؛ این سؤال جداست';
-  if (!docs.includes('guarantor')) h.gAvail = 'سایت: ضامن را انتخاب نکرده؛ بپرس';
+  if (docs.length && !docs.includes('guarantor')) h.gAvail = 'سایت: ضامن را انتخاب نکرده؛ بپرس'; // v1.1: skipped step → no hint
   return h;
 }
