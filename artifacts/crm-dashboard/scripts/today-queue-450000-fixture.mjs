@@ -26,5 +26,9 @@ ok("§4: at <1024px the «اکنون» row does not wrap and «نوع کار» s
 ok("patch 6: «ثبت» looks off + aria-disabled until a result is chosen (still focusable, saveResult shows the error)", /is-off/.test(f) && /aria-disabled=\{!voipNote && !val\.manual \? true : undefined\}/.test(f) && /\.btn\.pri\.is-off\{opacity:\.45/.test(css));
 ok("B7: unknown caller full number only when the server sent phone_full; else the masked one", /it\.phone && it\.phone_full !== false/.test(q) && /dq-unknown-phone-masked/.test(q) && /dir="ltr" data-testid="dq-unknown-phone-full"/.test(q));
 ok("B7: copy button copies the full number", /data-testid="dq-unknown-phone-copy"/.test(q) && /onCopy=\{copy\}/.test(d));
+ok("decision 4: page end padding is dock height + 16px and stays under autohide",
+  css.includes("--dci-end-pad: calc(var(--dock-h, var(--ss-dock-h, 90px)) + 16px)")
+  && css.includes("body.dock-autohide:not(.dock-collapsed):has([data-testid=\"dci-page\"]) .dci-page")
+  && /body:has\(\[data-testid="dci-page"\]\) \.app-shell\.ssv2 \.app-main\{[\s\S]*?padding-bottom: 0 !important/.test(css));
 ok("no user 29 / no hard-coded phone in the client", !/\b29\b.*user|user.*\b29\b/.test(q) && !/09\d{9}/.test(q + d));
 console.log(`today-queue-450000 fixture PASS (${n} checks)`);

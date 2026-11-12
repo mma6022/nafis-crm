@@ -865,3 +865,48 @@ body.fs-open .dci-fscrim{display:block}
 .dci-node.dci-ingroup b{white-space:nowrap}
 /* Q20: attempts line in the early bar */
 .dci-att{display:inline-block;font-size:13px;font-weight:700;color:var(--nf-ink-muted)}
+
+/* ——— 450000 Armita decision 4: dock never covers page content ——— */
+/* Padding at the end of the page equals the measured dock height + 16px.
+   Kept while the dock auto-hides on scroll, so when it is shown again
+   «ویرایش» and «ثبت نتیجه‌ی تماس» stay fully above it. Manual collapse
+   keeps the reopen-pill clearance from dock-collapse.css. */
+body:has([data-testid="dci-page"]){
+  --dci-end-pad: calc(var(--dock-h, var(--ss-dock-h, 90px)) + 16px);
+}
+main.pg.dci-page,
+.dci-page,
+body:has([data-testid="dci-page"]) .dci,
+body:has([data-testid="dci-page"]) .dci-page,
+body:has([data-testid="dci-page"]) main.pg.dci-page{
+  padding-bottom: var(--dci-end-pad);
+}
+@media (max-width:1023.98px){
+  main.pg.dci-page,
+  .dci-page,
+  body:has([data-testid="dci-page"]) .dci-page,
+  body:has([data-testid="dci-page"]) main.pg.dci-page{
+    padding-bottom: calc(var(--dci-end-pad) + env(safe-area-inset-bottom, 0px));
+  }
+}
+/* Clearance lives on the page content; do not add a second dock-sized pad on app-main. */
+body:has([data-testid="dci-page"]) .app-shell .app-main,
+body:has([data-testid="dci-page"]) .app-shell.ssv2 .app-main{
+  padding-bottom: 0 !important;
+}
+/* Autohide must not shrink this padding (height vars stay at the real dock size). */
+body.dock-autohide:not(.dock-collapsed):has([data-testid="dci-page"]) .dci-page,
+body.dock-autohide:not(.dock-collapsed):has([data-testid="dci-page"]) main.pg.dci-page{
+  padding-bottom: var(--dci-end-pad);
+}
+@media (max-width:1023.98px){
+  body.dock-autohide:not(.dock-collapsed):has([data-testid="dci-page"]) .dci-page,
+  body.dock-autohide:not(.dock-collapsed):has([data-testid="dci-page"]) main.pg.dci-page{
+    padding-bottom: calc(var(--dci-end-pad) + env(safe-area-inset-bottom, 0px));
+  }
+}
+body.dock-collapsed:has([data-testid="dci-page"]) .dci-page,
+body.dock-collapsed:has([data-testid="dci-page"]) main.pg.dci-page,
+body.dock-collapsed:has([data-testid="dci-page"]) main.pg{
+  padding-bottom: calc(24px + 44px + 24px + env(safe-area-inset-bottom, 0px));
+}
