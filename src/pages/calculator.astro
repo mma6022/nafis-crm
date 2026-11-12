@@ -1,6 +1,6 @@
 ---
 /**
- * /calculator (UX-SPEC §7, designer ANSWERS-1 §9): type → band → term, 1–3 result cards (مبلغ واریزی / مبلغ هر قسط / تعداد اقساط), FAQ.
+ * /calculator (UX-SPEC §7, designer ANSWERS-1 §9): type → band → term, 1–3 result cards (مبلغ واریزی / مدت بازپرداخت; site-credit-noinst: no per-payment figure), FAQ.
  * The long 18-plan <select> is gone; money is shown as «حدود ۳۱۵ میلیون تومان», never «۳۱۵,۰۰۰,۰۰۰».
  */
 import BaseLayout from '../layouts/BaseLayout.astro';
@@ -12,7 +12,7 @@ import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 import { breadcrumbLd, faqLd } from '../lib/seo';
 const crumbs = [
   { name: 'خانه', path: '/' },
-  { name: 'محاسبه قسط', path: '/calculator/' },
+  { name: 'مبلغ و مدت', path: '/calculator/' },
 ];
 /** P3-B: the FAQ answer is fixed verbatim (scripts/check-guarantees.mjs checks it in the HTML and FAQPage JSON-LD). */
 const CALC_FAQ_ANSWER =
@@ -24,16 +24,16 @@ const faq = [
 ---
 
 <BaseLayout
-  title="محاسبه قسط وام"
-  description="با محاسبه‌گر قسط نفیس وام حدود مبلغ و مدت بازپرداخت را انتخاب کنید و مبلغ واریزی و قسط ماهانه طرح‌های نزدیک را ببینید."
+  title="مبلغ و مدت وام"
+  description="در صفحه‌ی مبلغ و مدت نفیس وام حدود مبلغ و مدت بازپرداخت را انتخاب کنید و مبلغ واریزی و مدت بازپرداخت طرح‌های نزدیک را ببینید."
   jsonLd={[breadcrumbLd(crumbs), faqLd(faq)]}
 >
-  <PageHeader title="محاسبه قسط وام" lead="مبلغ و مدت را انتخاب کنید؛ نزدیک‌ترین طرح‌های فعال را با قسط تقریبی نشان می‌دهیم." crumbs={crumbs} />
+  <PageHeader title="مبلغ و مدت وام" lead="مبلغ و مدت را انتخاب کنید؛ نزدیک‌ترین طرح‌های فعال را با مبلغ واریزی و مدت بازپرداخت نشان می‌دهیم." crumbs={crumbs} />
   <div class="container-nf pt-8">
     <LoanCalculator client:load snapshot={LOAN_PLANS_SNAPSHOT} />
   </div>
   <section class="container-nf pt-section" aria-labelledby="calc-faq-h">
-    <h2 id="calc-faq-h" class="text-h2 lg:text-h2-lg mb-4">سؤالات متداول محاسبه قسط</h2>
+    <h2 id="calc-faq-h" class="text-h2 lg:text-h2-lg mb-4">سؤالات متداول مبلغ و مدت</h2>
     <div style="max-width:var(--nf-prose)"><FaqList items={faq} /></div>
   </section>
   <FinalCTA src="calculator" />

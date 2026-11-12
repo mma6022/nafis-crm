@@ -115,15 +115,13 @@ test('money format', () => {
 import { planFactValue, toFinderPreset, fillFacts } from '../src/lib/plans';
 test('PlanFact values reproduce the numbers written in the content (snapshot 2 Aban 1405)', () => {
   const cases: [number, string, number | undefined, string][] = [
-    [18, 'installment', undefined, '۹٫۴ میلیون تومان'],
-    [22, 'installment', undefined, '۱۶٫۶ میلیون تومان'],
     [1, 'payout', undefined, '۱۸۰ میلیون تومان'],
     [9, 'payout', undefined, '۲۹۰ میلیون تومان'],
-    [8, 'installment', 24, '۱۵٫۷ میلیون تومان'],
+    [11, 'term', 36, '۳۶ ماه'],
   ];
   for (const [id, f, t, want] of cases) assert.equal(planFactValue(plans, id, f, t), want, `${id}.${f}`);
   assert.equal(planFactValue(plans, 999, 'principal'), null);
-  for (const f of ['principal', 'rate', 'prepayment']) assert.equal(planFactValue(plans, 11, f), null, `${f} is never shown (Mohammad 2026-10-28)`);
+  for (const f of ['principal', 'rate', 'prepayment', 'installment']) assert.equal(planFactValue(plans, 11, f), null, `${f} is never shown (Mohammad 2026-10-28; installment: site-credit-noinst v1.0)`);
   assert.equal(planFactValue(plans, 10, 'payout'), null, 'inactive plan 10 is not in the live data');
 });
 test('content presets map onto finder presets', () => {

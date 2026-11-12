@@ -25,7 +25,7 @@ const facts = planFacts(LOAN_PLANS_SNAPSHOT);
       <p class="eyebrow">مأموریت ما</p>
       <h2 id="mission-h">برای هر مشتری یک طرح مناسب و شفاف</h2>
       <p>
-        مبلغ واریزی، قسط ماهانه و زمان بررسی هر کدام از <span data-plan-count="planCount">{fa(facts.planCount)}</span> طرح فعال را قبل از درخواست
+        مبلغ واریزی، مدت بازپرداخت و زمان بررسی هر کدام از <span data-plan-count="planCount">{fa(facts.planCount)}</span> طرح فعال را قبل از درخواست
         نشان می‌دهیم تا بدون غافلگیری تصمیم بگیرید.
       </p>
     </section>
@@ -37,7 +37,7 @@ const facts = planFacts(LOAN_PLANS_SNAPSHOT);
       <dl>
         <div><dt>نام حقوقی</dt><dd>{SITE.legalName}</dd></div>
         <div><dt>نشانی</dt><dd><address class="not-italic" data-address>{SITE.address}</address></dd></div>
-        <div><dt>ارتباط با ما</dt><dd><a href="/contact/#callback">درخواست مشاوره‌ی رایگان</a></dd></div>
+        <div><dt>ارتباط با ما</dt><dd><a href="/request/?src=about">ثبت درخواست</a></dd></div>
         <div><dt>ساعت کاری</dt><dd>{WORK_HOURS.daysFa}، {WORK_HOURS.fa}</dd></div>
         <div><dt>اینستاگرام</dt><dd><a href={SOCIAL.instagram.href} target="_blank" rel="noopener"><span class="ltr">@{SOCIAL.instagram.handle}</span></a></dd></div>
       </dl>

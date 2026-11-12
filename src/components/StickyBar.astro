@@ -1,5 +1,5 @@
 ---
-/** Mobile sticky CTA bar (mockup src/bar.html; HANDOFF §0 v1.2 #4): one full-width «درخواست وام» button — no call /
+/** Mobile sticky CTA bar (mockup src/bar.html; HANDOFF §0 v1.2 #4): one full-width «ثبت درخواست» button (v1.1 label) — no call /
  *  messenger buttons. Hidden ≥1024px and while a text field has focus (body.kbd, scripts/chrome.ts). */
 import I from './ui/I.astro';
 interface Props {
@@ -9,5 +9,5 @@ const { src = 'page' } = Astro.props;
 ---
 
 <nav class="bar bar--one" aria-label="درخواست سریع">
-  <a class="req" href={`/request/?src=${src}-sticky`}>درخواست وام <I name="arrow" size={20} /></a>
+  <a class="req" href={`/request/?src=${src}-sticky`}>ثبت درخواست <I name="arrow" size={20} /></a>
 </nav>

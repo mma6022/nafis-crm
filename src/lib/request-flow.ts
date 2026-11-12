@@ -1,5 +1,6 @@
 /**
- * /request wizard flow rules (designer ANSWERS-1 §3, §6). Pure, unit-tested; used by RequestWizard.tsx.
+ * Finder deep-link + legacy flow rules (designer ANSWERS-1 §3, §6). Pure, unit-tested; parseDeepLink is used by
+ * PlanFinder.tsx (the old RequestWizard that used stepOrder was removed in site-credit-noinst v1.1).
  * Legal 2026-10-24: the customer is never asked a request type (cash / goods); the old «need» step is gone and
  * old `?need=` links are ignored. Amount bands count EVERY active plan.
  */

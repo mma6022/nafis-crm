@@ -31,7 +31,7 @@ const crumbs = [
 
 <BaseLayout
   title={`${fa(facts.planCount)} طرح فعال تسهیلات اقساطی`}
-  description="همه طرح‌های فعال نفیس وام: مبلغ واریزی، قسط ماهانه، مدت بازپرداخت و زمان بررسی هر طرح؛ با طرح‌یاب ۲ سؤالی."
+  description="همه طرح‌های فعال نفیس وام: مبلغ واریزی، مدت بازپرداخت و زمان بررسی هر طرح؛ با طرح‌یاب ۲ سؤالی."
   jsonLd={[breadcrumbLd(crumbs), faqLd(faq)]}
 >
   <PageHeader title={`${fa(facts.planCount)} طرح فعال تسهیلات اقساطی`} lead="لازم نیست همه را بخوانید؛ به ۲ سؤال جواب دهید." crumbs={crumbs} />
@@ -42,18 +42,17 @@ const crumbs = [
   </div>
   <section class="container-nf pt-section" aria-labelledby="all-h">
     <h2 id="all-h" class="text-h2 lg:text-h2-lg mb-4">همه طرح‌ها</h2>
-    <p class="text-ink-muted mb-4">{fa(one.length)} طرح فعال{soon.length > 0 && ` و ${fa(soon.length)} طرح ${COMING_SOON_LABEL}`}؛ مبلغ واریزی و قسط هر طرح روی کارت آن آمده است.</p>
+    <p class="text-ink-muted mb-4">{fa(one.length)} طرح فعال{soon.length > 0 && ` و ${fa(soon.length)} طرح ${COMING_SOON_LABEL}`}؛ مبلغ واریزی و مدت بازپرداخت هر طرح روی کارت آن آمده است.</p>
     <div class="pt not-prose" role="table" aria-label="همه طرح‌ها">
       <div class="pt-h" role="row">
-        <span role="columnheader">طرح</span><span role="columnheader">روش</span><span role="columnheader">مبلغ واریزی</span><span role="columnheader">مبلغ هر قسط</span><span role="columnheader">تعداد اقساط</span><span role="columnheader"><span class="sr">درخواست</span></span>
+        <span role="columnheader">طرح</span><span role="columnheader">روش</span><span role="columnheader">مبلغ واریزی</span><span role="columnheader">مدت بازپرداخت</span><span role="columnheader"><span class="sr">درخواست</span></span>
       </div>
       {one.map((c) => (
         <div class="pt-r" role="row">
           <b class="pt-nm" role="rowheader">{c.name}{c.retirees && <small>ویژه‌ی بازنشستگان</small>}</b>
           <span role="cell">{MODE_LABEL[c.mode] && <span class={`mode mode--${c.mode}`}><I name={MODE_ICON[c.mode] ?? 'online'} size={18} /><span><span class="sr">روش: </span>{MODE_LABEL[c.mode]}</span></span>}</span>
           <span role="cell"><b class="pt-n">حدود {millionsFa(c.payout)}</b><small>میلیون تومان</small></span>
-          <span role="cell"><b class="pt-n">حدود {millionsFa(c.inst)}</b><small>میلیون تومان</small></span>
-          <span role="cell"><b class="pt-n">{fa(c.term)}</b><small>قسط ماهانه</small></span>
+          <span role="cell"><b class="pt-n">{fa(c.term)}</b><small>ماهه</small></span>
           <span role="cell"><a class="nf-btn nf-btn--secondary pt-go" href={`/request/?plan=${c.id}&term=${c.term}&src=plans-table`}>درخواست این طرح</a></span>
         </div>
       ))}
@@ -62,8 +61,7 @@ const crumbs = [
           <b class="pt-nm" role="rowheader">{cleanPlanName(p.name)}{p.retireesOnly && <small>ویژه‌ی بازنشستگان</small>}</b>
           <span role="cell">{MODE_LABEL[p.processMode] && <span class={`mode mode--${p.processMode}`}><I name={MODE_ICON[p.processMode] ?? 'online'} size={18} /><span><span class="sr">روش: </span>{MODE_LABEL[p.processMode]}</span></span>}</span>
           <span role="cell"><b class="pt-n">{COMING_SOON_LABEL}</b></span>
-          <span role="cell"><b class="pt-n">{COMING_SOON_LABEL}</b></span>
-          <span role="cell"><b class="pt-n">{p.terms.map((t) => fa(t)).join('، ')}</b><small>قسط ماهانه</small></span>
+          <span role="cell"><b class="pt-n">{p.terms.map((t) => fa(t)).join('، ')}</b><small>ماهه</small></span>
           <span role="cell"></span>
         </div>
       ))}

@@ -1,7 +1,8 @@
 /**
  * /calculator island (UX-SPEC §7, designer ANSWERS-1 §9): received-amount band (option cards) → term (chips),
  * then 1–3 PlanCards (lib/plans `calcPicks`). No 18-plan <select>; amounts read «حدود ۳۱۵ میلیون تومان».
- * Amounts are the public مبلغ واریزی and installment of each term. No plan-type selector (legal 2026-10-24): every eligible plan counts.
+ * Cards show only مبلغ واریزی + مدت بازپرداخت (site-credit-noinst v1.0). No plan-type selector (legal 2026-10-24): every eligible plan counts.
+ * Request links carry ?amount= (the card's مبلغ واریزی as amount_range) so the wizard prefills step 2.
  */
 import { useMemo, useState } from 'react';
 import type { LoanPlan } from '../../lib/loan-plans';
@@ -62,7 +63,7 @@ export default function LoanCalculator({ snapshot, src = 'calculator' }: { snaps
         <h2 className="lc-h">{picks.length === 1 ? 'طرح نزدیک به انتخاب شما' : `${fa(picks.length)} طرح نزدیک به انتخاب شما`}</h2>
         <div className={`cards plancards n${picks.length}`}>
           {picks.map((c, i) => (
-            <PlanCard key={c.id} c={c} featured={i === 0} src={src} variant="result" />
+            <PlanCard key={c.id} c={c} featured={i === 0} src={src} variant="result" amount />
           ))}
         </div>
       </div>

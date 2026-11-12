@@ -25,7 +25,6 @@ import {
 import { parseDeepLink, type FinderDeepLink } from '../../lib/request-flow';
 import { useLoanPlans } from './useLoanPlans';
 import { LONG_NAME, PlanCard, QA } from './PlanCard';
-import CallbackForm from './CallbackForm';
 import { I, type SpriteIcon } from '../ui/I';
 
 type Key = 'band' | 'prio';
@@ -94,7 +93,7 @@ export default function PlanFinder({
   const i = ORDER.indexOf(step);
   const complete = ans.band !== undefined && ans.prio !== undefined;
   const r = useMemo(() => (step === 'result' && complete ? recommend(all, { ...(ans as FinderAnswers), retired }, preset) : null), [step, complete, all, ans, preset, retired]);
-  // home: hides the #callback section so only one callback form is open (CALLBACK-HANDOFF.md)
+  // event kept for page scripts (v1.1: the home no longer hides its consult section — there is no second form)
   useEffect(() => {
     if (r) root.current?.dispatchEvent(new CustomEvent('finder:result', { bubbles: true }));
   }, [r]);
@@ -212,15 +211,16 @@ export default function PlanFinder({
         )}
         <div className="res-foot">
           {r && (
-            <div className="help cb-mount">
-              {/* secondary: the featured plan card owns the page's primary button (CALLBACK-HANDOFF.md) */}
-              <CallbackForm
-                key={`${ans.band}-${ans.prio}-${retired}`}
-                variant="inline"
-                src={`${src}-result`}
-                planId={r.cards[0]?.id ?? null}
-                titleTag="h3"
-              />
+            <div className="help cb-mount rq-cta-inline">
+              {/* v1.1: the inline callback form became the same /request/ entry (secondary: the featured card owns the
+                  page's primary button); the recommended plan is preselected */}
+              <p className="cb-sub">مطمئن نیستید؟ درخواست‌تان را ثبت کنید؛ کارشناس نفیس وام درباره همین طرح‌ها رایگان راهنمایی‌تان می‌کند.</p>
+              <a
+                className="nf-btn nf-btn--secondary nf-btn--block"
+                href={`/request/?${r.cards[0] ? `plan=${r.cards[0].id}&term=${r.cards[0].term}&` : ''}src=${encodeURIComponent(`${src}-result`)}`}
+              >
+                ثبت درخواست
+              </a>
             </div>
           )}
           <div className="all-link">

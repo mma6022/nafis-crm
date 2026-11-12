@@ -10,7 +10,7 @@ import PageHeader from '../components/PageHeader.astro';
 import Icon from '../components/ui/Icon.astro';
 import I from '../components/ui/I.astro';
 import { buttonClass } from '../components/ui/styles';
-import CallbackForm from '../components/islands/CallbackForm';
+import RequestCTA from '../components/RequestCTA.astro';
 import { SITE, SOCIAL, WORK_HOURS } from '../lib/site';
 import { breadcrumbLd } from '../lib/seo';
 const crumbs = [
@@ -22,16 +22,13 @@ const card = 'rounded-card border border-line bg-white p-5';
 
 <BaseLayout
   title="ارتباط با نفیس وام"
-  description="درخواست مشاوره‌ی رایگان بگذارید؛ کارشناس نفیس وام در ساعت کاری با شما تماس می‌گیرد. ساعت کاری، نشانی و ایمیل."
+  description="درخواست‌تان را ثبت کنید؛ کارشناس نفیس وام در ساعت کاری با شما تماس می‌گیرد. ساعت کاری، نشانی و ایمیل."
   jsonLd={[breadcrumbLd(crumbs)]}
 >
   <PageHeader title="ارتباط با ما" lead="یک کارشناس رایگان راهنمایی‌تان می‌کند." crumbs={crumbs} />
   <div class="container-nf grid gap-3 pt-8 sm:grid-cols-2 lg:grid-cols-3">
-    <section class="sm:col-span-2 lg:col-span-3" id="callback" aria-label="درخواست مشاوره‌ی رایگان">
-      <CallbackForm client:visible variant="section" src="contact-callback" />
-      <p class="text-small text-ink-muted mt-3 c-req">
-        ترجیح می‌دهید مستقیم درخواست وام ثبت کنید؟ <a class="text-brand-700 font-semibold underline" href="/request/?src=contact">ثبت درخواست وام</a>
-      </p>
+    <section class="sm:col-span-2 lg:col-span-3" id="callback" aria-label="مشاوره‌ی رایگان">
+      <RequestCTA src="contact-callback" />
     </section>
     <div class={card}>
       <p class="text-ink-muted text-small">ایمیل</p>

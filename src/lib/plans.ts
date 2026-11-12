@@ -240,10 +240,12 @@ export function recommend(all: Combo[], a: FinderAnswers, preset: FinderPreset =
     return { ...c, t, b, g: guaranteeOk(c) ? 1 : 0, s: t + b };
   });
   const best = Math.max(...base.map((c) => c.s));
-  const minInst = Math.min(...base.filter((c) => c.s === best).map((c) => c.inst));
+  // site-credit-noinst v1.0 §3: 'cheap' is now «مدت بازپرداخت کوتاه‌تر» (no per-payment figure on the cards any more,
+  // so the customer can only compare what the card shows): the shortest term among the best-scored plans wins.
+  const minTerm = Math.min(...base.filter((c) => c.s === best).map((c) => c.term));
   const prioOk = (c: Combo) =>
     // «بدون مراجعه حضوری» = processMode 'both' (ANSWERS-1 §4: the data has no fully-online flag)
-    a.prio === 'fast' ? c.days === 'under_7' : a.prio === 'online' ? c.mode === 'both' : c.inst <= minInst * 1.2;
+    a.prio === 'fast' ? c.days === 'under_7' : a.prio === 'online' ? c.mode === 'both' : c.term <= minTerm;
   const scored = base
     .map((c) => ({ ...c, p: prioOk(c) ? 30 : 0 }))
     .map((c) => ({ ...c, s: c.s + c.p }))
@@ -253,8 +255,8 @@ export function recommend(all: Combo[], a: FinderAnswers, preset: FinderPreset =
         y.t - x.t ||
         y.b - x.b ||
         y.p - x.p ||
-        // ties (ANSWERS-1 §4): higher received amount, then lower installment, then smaller id (cheap: installment first)
-        (a.prio === 'cheap' ? x.inst - y.inst || y.payout - x.payout : y.payout - x.payout || x.inst - y.inst) ||
+        // ties (ANSWERS-1 §4): higher received amount, then lower installment, then smaller id (cheap: shorter term first)
+        (a.prio === 'cheap' ? x.term - y.term || y.payout - x.payout : y.payout - x.payout || x.inst - y.inst) ||
         x.id - y.id ||
         x.term - y.term,
     );
@@ -340,7 +342,7 @@ export const FINDER_Q = {
     hint: 'طرحی را بالاتر نشان می‌دهیم که این مورد را بهتر دارد.',
     opts: [
       { v: 'fast', icon: 'clock', title: 'زودتر برسد', sub: 'طرح‌هایی با بررسی کمتر از ۷ روز' },
-      { v: 'cheap', icon: 'coins', title: 'قسط ماهانه کمتر', sub: 'فشار کمتر روی خرج ماهانه' },
+      { v: 'cheap', icon: 'coins', title: 'مدت بازپرداخت کوتاه‌تر', sub: 'زودتر تمام شود' },
       { v: 'online', icon: 'online', title: 'بدون مراجعه حضوری', sub: 'کارها آنلاین انجام شود' },
     ],
   },
@@ -348,7 +350,7 @@ export const FINDER_Q = {
 
 export const FINDER_LABEL = {
   band: ['کمتر از ۱۰۰ میلیون', '۱۰۰ تا ۲۰۰ میلیون', 'بیش از ۲۰۰ میلیون'],
-  prio: { fast: 'زودتر برسد', cheap: 'قسط کمتر', online: 'بدون مراجعه حضوری' } as Record<FinderPrio, string>,
+  prio: { fast: 'زودتر برسد', cheap: 'مدت بازپرداخت کوتاه‌تر', online: 'بدون مراجعه حضوری' } as Record<FinderPrio, string>,
 };
 export const DAYS_LABEL: Record<string, string> = { under_7: 'کمتر از ۷ روز', '10_to_15': '۱۰ تا ۱۵ روز' };
 /** Card «روش» label. Never «کاملاً آنلاین»: there is no data for it (ANSWERS-1 §4). */
@@ -475,8 +477,7 @@ export function planFactValue(plans: LoanPlan[], id: number, field: string, term
   switch (field) {
     case 'payout':
       return `${millionsFa(t.payout)} میلیون تومان`;
-    case 'installment':
-      return `${millionsFa(t.installment)} میلیون تومان`;
+    // site-credit-noinst v1.0: no per-payment figure on the site (the per-payment field was removed)
     case 'term':
       return `${fa(t.installments)} ماه`;
     case 'speed':

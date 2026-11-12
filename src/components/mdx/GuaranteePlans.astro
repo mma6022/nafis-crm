@@ -10,12 +10,12 @@
  * `fast-no-guarantor` never ship an empty state. Both show the FASTEST plans meeting the base condition
  * (lib/plans `fastestGuaranteePlans`, max 3, sorted by real grantDays; no-guarantor ties by the highest مبلغ واریزی
  * without a guarantor, no repeated plan name), promise no time (no «زمان بررسی» line) and are followed by the
- * «درخواست مشاوره‌ی رایگان» callback form.
+ * «مشاوره‌ی رایگان» entry into the /request/ wizard (site-credit-noinst v1.1: the callback form is gone).
  * On the no-cheque / no-guarantor pages (and their fast pages) no row shows a review time.
  */
 import { LOAN_PLANS_SNAPSHOT } from '../../lib/loan-plans.snapshot';
 import { DAYS_LABEL, MODE_LABEL, cleanPlanName, fastestGuaranteePlans, guaranteePagePlans } from '../../lib/plans';
-import CallbackForm from '../islands/CallbackForm';
+import RequestCTA from '../RequestCTA.astro';
 import { whyFor, type GuaranteePage } from '../../data/plan-guarantees';
 import I from '../ui/I.astro';
 interface Props {
@@ -61,14 +61,14 @@ const via = (p: (typeof list)[number]) => [p.bankName, p.platformName].map((s) =
     </ul>
     {fastOf && (
       <div class="gplans-cb">
-        <CallbackForm client:visible variant="section" titleTag="h3" primary={false} src={`${src}-fastest-callback`} lead="عجله دارید؟ شماره‌تان را بگذارید؛ کارشناس نفیس وام سریع‌ترین راه متناسب با شرایط شما را رایگان با شما مرور می‌کند." />
+        <RequestCTA titleTag="h3" primary={false} src={`${src}-fastest-callback`} lead="عجله دارید؟ درخواست‌تان را ثبت کنید؛ کارشناس نفیس وام سریع‌ترین راه متناسب با شرایط شما را رایگان با شما مرور می‌کند." />
       </div>
     )}
     </div>
   ) : (
     <div class="gplans-empty not-prose" data-guarantee-page={page} data-count="0">
-      <p>{empty ?? 'در حال حاضر طرح فعالی با این شرط نداریم. شماره‌تان را بگذارید تا کارشناس نزدیک‌ترین راه را بگوید.'}</p>
-      <a class="nf-btn nf-btn--secondary" href="#callback">درخواست مشاوره‌ی رایگان</a>
+      <p>{empty ?? 'در حال حاضر طرح فعالی با این شرط نداریم. درخواست‌تان را ثبت کنید تا کارشناس نزدیک‌ترین راه را بگوید.'}</p>
+      <a class="nf-btn nf-btn--secondary" href={`/request/?src=${encodeURIComponent(src + '-empty')}`}>ثبت درخواست</a>
     </div>
   )
 }

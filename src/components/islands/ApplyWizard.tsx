@@ -1,11 +1,16 @@
 /**
- * Release 82 — /request «ثبت درخواست» 7-step wizard (Armita, site-apply-wizard v1.0.1; src/wiz.js + wiz.css).
- * 1 name+mobile · 2 amount (+ optional purpose) · 3 job · 4 documents (multi, «هیچ‌کدام» exclusive) ·
- * 5 military card + retiree referral · 6 bounced cheque / overdue · 7 timing → one thank-you page for everyone
- * (masked mobile; no priority, no expert name, no SMS code). Rules + payload: lib/apply.ts.
- * - Deep links: ?plan=&term= (kept as planId/term and shown as the chosen plan on step 1), ?src=, utm_* (BaseLayout).
- * - Honeypot `website` filled → the same thank-you page, NO POST. Real submits wait until 8 s of fill time passed
- *   (the CRM rejects faster ones for this form). Success only after a 2xx; any failure keeps the answers + retry.
+ * /request «ثبت درخواست» — the site's ONE form, 8 steps (site-credit-noinst v1.0 + v1.1, Armita; was the release-82
+ * 7-step wizard of site-apply-wizard v1.0.1).
+ * 1 name+mobile · 2 amount (+ optional purpose) · 3 job · 4 credit rank (A–E + «نمی‌دونم», new) · 5 documents (multi,
+ * «هیچ‌کدام» exclusive) · 6 military card + retiree referral · 7 bounced cheque / overdue · 8 timing → one thank-you page
+ * for everyone (masked mobile; no priority, no expert name, no SMS code). Rules + payload: lib/apply.ts.
+ * - v1.1: only name + mobile are required. Steps 2–8 have «رد کردن» (moves on without an answer); step 1 has
+ *   «فعلاً فقط تماس بگیرید», which submits name + mobile only. No contact-time step.
+ * - Deep links: ?plan=&term= (chosen plan on step 1), ?amount= (calculator → amount_range prefill), ?src= (a consult
+ *   entry shows «منبع: مشاوره‌ی رایگان»; no src → 'request'), utm_* (BaseLayout). guarantee= is context only.
+ * - Honeypot `website` filled → the same thank-you page, NO POST. A submit with answers waits until 8 s of fill time
+ *   passed (CRM rule); a name + mobile only submit waits only for the CRM's general 3 s (§6 #12). Success only after a
+ *   2xx; any failure keeps the answers + retry.
  * - State survives a reload (sessionStorage) and the browser back button moves between steps (history.pushState).
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
@@ -15,9 +20,9 @@ import type { LoanPlan } from '../../lib/loan-plans';
 import { combos, fa } from '../../lib/plans';
 import { LeadError, readUtm } from '../../lib/lead';
 import {
-  AMOUNT_RANGES, APPLY_CONSENT_TEXT, APPLY_MIN_FILL_MS, APPLY_STEPS, DOCUMENTS, JOB_STATUSES, LOAN_PURPOSES, MILITARY,
-  NEED_TIMINGS, YES_NO, emptyAnswers, maskMobile, shouldPost, stepErrors, submitApply, toggleDoc,
-  type ApplyAnswers, type StepErrors,
+  AMOUNT_RANGES, APPLY_CONSENT_TEXT, APPLY_STEPS, CREDIT_RANKS, DOCUMENTS, JOB_STATUSES, LOAN_PURPOSES, MILITARY,
+  NEED_TIMINGS, YES_NO, emptyAnswers, isConsultSrc, maskMobile, minFillFor, readAmountParam, shouldPost, stepErrors,
+  submitApply, toggleDoc, type ApplyAnswers, type CreditRank, type StepErrors,
 } from '../../lib/apply';
 
 const KEY = 'nf-apply';
@@ -28,6 +33,7 @@ const TITLES: { t: string; sub?: string }[] = [
   { t: 'برای تماس کارشناس، اسم و شماره‌تان را بنویسید', sub: 'کد پیامکی لازم نیست. شماره فقط برای تماس کارشناس نفیس وام است.' },
   { t: 'حدوداً چه مبلغی لازم دارید؟', sub: 'یک بازه را انتخاب کنید؛ کارشناس جزئیات را با شما بررسی می‌کند.' },
   { t: 'وضعیت شغلی‌تان کدام است؟' },
+  { t: 'رتبه‌ی اعتباری‌تان کدام است؟' },
   { t: 'کدام‌یک از این‌ها را دارید؟', sub: 'هرچند تا که دارید را انتخاب کنید.' },
   { t: 'دو سؤال کوتاه' },
   { t: 'چک برگشتی یا بدهی معوق بانکی دارید؟', sub: 'جواب «بله» درخواست را رد نمی‌کند؛ کارشناس راه مناسب را بررسی می‌کند.' },
@@ -45,7 +51,7 @@ export default function ApplyWizard({ snapshot }: { snapshot: LoanPlan[] }) {
   const { plans } = useLoanPlans(snapshot);
   const all = useMemo(() => combos(plans), [plans]);
   const [a, setA] = useState<ApplyAnswers>(emptyAnswers);
-  const [step, setStep] = useState(0); // 0..6, 7 = thank-you
+  const [step, setStep] = useState(0); // 0..7, 8 = thank-you
   const [err, setErr] = useState<StepErrors>({});
   const [meta, setMeta] = useState({ startedAt: Date.now(), planId: null as number | null, term: null as number | null, src: null as string | null });
   const [ready, setReady] = useState(false);
@@ -76,7 +82,9 @@ export default function ApplyWizard({ snapshot }: { snapshot: LoanPlan[] }) {
     }
     if (q.get('src')) m.src = q.get('src');
     setMeta(m);
-    if (s) setA({ ...emptyAnswers(), ...s.a });
+    const amount = readAmountParam(q.get('amount')); // calculator: prefill only, the customer can change or skip it
+    if (s) setA({ ...emptyAnswers(), ...s.a, ...(amount && !s.a.amount_range ? { amount_range: amount } : {}) });
+    else if (amount) setA({ ...emptyAnswers(), amount_range: amount });
     const h = (history.state as { ap?: number } | null)?.ap;
     const start = typeof h === 'number' && h >= 0 && h < APPLY_STEPS ? h : (s?.step ?? 0);
     history.replaceState({ ap: start }, '');
@@ -135,16 +143,18 @@ export default function ApplyWizard({ snapshot }: { snapshot: LoanPlan[] }) {
     go(APPLY_STEPS);
   };
 
-  async function send() {
+  const quickRef = useRef(false);
+  async function send(quick = quickRef.current) {
     if (busy || sending.current) return;
+    quickRef.current = quick;
     if (!shouldPost(honeypot.current?.value)) return done(a.mobile); // bot: same thank-you page, nothing sent
     sending.current = true;
     setBusy(true);
     setFail(false);
     try {
-      const wait = APPLY_MIN_FILL_MS + 250 - (performance.now() - t0.current);
-      if (wait > 0) await new Promise((r) => setTimeout(r, wait)); // client-side 8 s guard (the CRM enforces it too)
-      await submitApply(a, { ...meta, utm: readUtm(), fillMs: performance.now() - t0.current });
+      const wait = minFillFor(a, quick) + 250 - (performance.now() - t0.current);
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait)); // client-side guard (8 s with answers, 3 s name + mobile only; the CRM enforces it too)
+      await submitApply(a, { ...meta, utm: readUtm(), fillMs: performance.now() - t0.current }, undefined, undefined, { quick });
       done(a.mobile);
     } catch (e) {
       console.warn('apply submit failed:', e instanceof LeadError ? `${e.code} ${e.status}` : 'error');
@@ -165,7 +175,25 @@ export default function ApplyWizard({ snapshot }: { snapshot: LoanPlan[] }) {
       return;
     }
     if (step < APPLY_STEPS - 1) go(step + 1);
-    else void send();
+    else void send(false);
+  }
+
+  /** v1.1 «رد کردن» (steps 2–8): on without an answer for this step; on the last step it submits what was answered. */
+  function skip() {
+    setErr({});
+    if (step < APPLY_STEPS - 1) go(step + 1);
+    else void send(false);
+  }
+
+  /** v1.1 «فعلاً فقط تماس بگیرید» (step 1): name + mobile only, the optional answers stay empty. */
+  function quickCall() {
+    const bad = stepErrors(0, a);
+    setErr(bad);
+    if (Object.keys(bad).length) {
+      requestAnimationFrame(() => root.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
+      return;
+    }
+    void send(true);
   }
 
   // arrow keys inside a radiogroup (RTL: right = previous)
@@ -228,12 +256,18 @@ export default function ApplyWizard({ snapshot }: { snapshot: LoanPlan[] }) {
     </h2>
   );
 
+  const consult = isConsultSrc(meta.src);
   const chosen = meta.planId ? (all.find((c) => c.id === meta.planId && c.term === meta.term) ?? all.find((c) => c.id === meta.planId)) : null;
 
   function body(i: number) {
     if (i === 0)
       return (
         <>
+          {consult && (
+            <p className="src-chip" role="note">
+              منبع: مشاوره‌ی رایگان
+            </p>
+          )}
           {chosen && (
             <div className="chosen">
               <span className="ic">
@@ -242,7 +276,7 @@ export default function ApplyWizard({ snapshot }: { snapshot: LoanPlan[] }) {
               <span className="tx">
                 <small>طرح انتخابی شما</small>
                 <b>{chosen.name}</b>
-                <small>قسط {fa(chosen.term)} ماهه</small>
+                <small>مدت بازپرداخت {fa(chosen.term)} ماهه</small>
               </span>
               <button type="button" onClick={() => setMeta((m) => ({ ...m, planId: null, term: null }))}>
                 تغییر
@@ -314,6 +348,51 @@ export default function ApplyWizard({ snapshot }: { snapshot: LoanPlan[] }) {
         </>
       );
     if (i === 3) {
+      const cur = a.credit_rank;
+      const bad = !!err.credit_rank;
+      return (
+        <>
+          <p className="wz-help" id="credit_rank-h">
+            <I name="help" size={16} />
+            <span>رتبه‌تان را از سامانه‌ی اعتبارسنجی ایرانیان می‌توانید ببینید. اگر مطمئن نیستید، «نمی‌دونم» را بزنید.</span>
+          </p>
+          <div
+            className={`cr-chips${bad ? ' bad' : ''}`}
+            role="radiogroup"
+            aria-labelledby="credit_rank-l"
+            aria-describedby={`credit_rank-h${bad ? ' credit_rank-e' : ''}`}
+            aria-invalid={bad || undefined}
+          >
+            <span className="sr" id="credit_rank-l">
+              رتبه‌ی اعتباری
+            </span>
+            {CREDIT_RANKS.map(([v, t], n) => {
+              const on = cur === v;
+              const tab = on || (!cur && n === 0);
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  className={`wz-o ${v === 'unknown' ? 'cr-unk' : 'cr-letter'}`}
+                  role="radio"
+                  aria-checked={on}
+                  tabIndex={tab ? 0 : -1}
+                  dir={v === 'unknown' ? undefined : 'ltr'}
+                  data-k="credit_rank"
+                  data-v={v}
+                  onKeyDown={onRadioKey}
+                  onClick={() => set('credit_rank', v as CreditRank)}
+                >
+                  {t}
+                </button>
+              );
+            })}
+          </div>
+          {bad && <Err id="credit_rank-e">یکی را انتخاب کنید؛ اگر رتبه‌تان را نمی‌دانید، «نمی‌دونم» را بزنید.</Err>}
+        </>
+      );
+    }
+    if (i === 4) {
       const none = a.documents.includes('none');
       return (
         <>
@@ -344,7 +423,7 @@ export default function ApplyWizard({ snapshot }: { snapshot: LoanPlan[] }) {
         </>
       );
     }
-    if (i === 4)
+    if (i === 5)
       return (
         <>
           {q('has_military_card', 'کارت پایان خدمت دارید؟')}
@@ -356,7 +435,7 @@ export default function ApplyWizard({ snapshot }: { snapshot: LoanPlan[] }) {
           {radios('can_refer_retiree', YES_NO, { cols: 'c2', req: true, hint: 'can_refer_retiree-h' })}
         </>
       );
-    if (i === 5)
+    if (i === 6)
       return (
         <>
           {q('has_bounced_or_overdue', 'چک برگشتی یا بدهی معوق', { vh: true })}
@@ -409,6 +488,8 @@ export default function ApplyWizard({ snapshot }: { snapshot: LoanPlan[] }) {
     );
 
   const last = step === APPLY_STEPS - 1;
+  /** the consent line sits under every button that can submit: step 1 («فعلاً فقط تماس بگیرید») and the last step */
+  const submits = last || step === 0;
   const T = TITLES[step]!;
   return (
     <div className="rq-wrap rq-card apw" ref={root} data-step={step + 1}>
@@ -446,7 +527,7 @@ export default function ApplyWizard({ snapshot }: { snapshot: LoanPlan[] }) {
         <h1 tabIndex={-1}>{T.t}</h1>
         {T.sub && <p className="sub">{T.sub}</p>}
         <div className="wz-body">{body(step)}</div>
-        {last && (
+        {submits && (
           <div className="alert" role="alert" tabIndex={-1} ref={failRef} hidden={!fail}>
             <I name="alert" />
             <span>
@@ -458,11 +539,20 @@ export default function ApplyWizard({ snapshot }: { snapshot: LoanPlan[] }) {
           </div>
         )}
         <div className="wz-foot">
-          <button type="submit" className="nf-btn nf-btn--primary wz-go" id={last ? 'apply-submit' : undefined} disabled={busy} aria-busy={busy || undefined} aria-describedby={last ? 'consent' : undefined}>
-            {last ? (busy ? 'در حال ثبت…' : 'ثبت درخواست') : 'ادامه'}
+          <button type="submit" className="nf-btn nf-btn--primary wz-go" id={last ? 'apply-submit' : undefined} disabled={busy} aria-busy={busy || undefined} aria-describedby={submits ? 'consent' : undefined}>
+            {last ? (busy && !quickRef.current ? 'در حال ثبت…' : 'ثبت درخواست') : 'ادامه'}
             <I name={last ? 'check' : 'arrow'} size={20} />
           </button>
-          {last && (
+          {step === 0 ? (
+            <button type="button" className="nf-btn nf-btn--text wz-skip" id="apply-quick" disabled={busy} aria-busy={(busy && quickRef.current) || undefined} aria-describedby="consent" onClick={quickCall}>
+              {busy && quickRef.current ? 'در حال ثبت…' : 'فعلاً فقط تماس بگیرید'}
+            </button>
+          ) : (
+            <button type="button" className="nf-btn nf-btn--text wz-skip" data-skip={step + 1} disabled={busy} aria-describedby={last ? 'consent' : undefined} onClick={skip}>
+              رد کردن
+            </button>
+          )}
+          {submits && (
             <p className="wz-help wz-consent" id="consent">
               {APPLY_CONSENT_TEXT}
             </p>

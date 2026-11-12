@@ -31,7 +31,7 @@ const { Content, headings } = await render(post);
 const faqItems = fillFaq(d.faq, LOAN_PLANS_SNAPSHOT);
 Astro.locals.faq = faqItems;
 Astro.locals.headings = headings;
-Astro.locals.ctaLead = d.category === 'vam-fori' ? 'طرح‌های سریع فعلی را با مبلغ و قسط واقعی ببینید.' : 'طرح‌های فعلی را با مبلغ و قسط واقعی ببینید.';
+Astro.locals.ctaLead = d.category === 'vam-fori' ? 'طرح‌های سریع فعلی را با مبلغ واریزی و مدت بازپرداخت ببینید.' : 'طرح‌های فعلی را با مبلغ واریزی و مدت بازپرداخت ببینید.';
 const toc = headings.filter((h) => h.depth === 2);
 const path = postPath(post);
 const src = `blog-${post.id}`.slice(0, 40);
@@ -145,7 +145,7 @@ const updated = d.updated ?? d.date;
         }
         <div class="nf-card aside-card">
           <h2>طرح مناسب‌تان را پیدا کنید</h2>
-          <p>به ۲ سؤال جواب دهید و طرح پیشنهادی را با مبلغ و قسط ببینید.</p>
+          <p>به ۲ سؤال جواب دهید و طرح پیشنهادی را با مبلغ واریزی و مدت بازپرداخت ببینید.</p>
           <a class="nf-btn nf-btn--secondary nf-btn--block" href="/#plan-finder">شروع طرح‌یاب</a>
         </div>
       </aside>

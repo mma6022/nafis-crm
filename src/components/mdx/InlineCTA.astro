@@ -24,7 +24,7 @@ const href = Astro.props.href ?? `/request/?src=${blog ? 'blog-' : ''}${page}-in
 const lead =
   Astro.props.lead ??
   (blog
-    ? Astro.locals.ctaLead ?? 'طرح‌های فعلی را با مبلغ و قسط واقعی ببینید.'
+    ? Astro.locals.ctaLead ?? 'طرح‌های فعلی را با مبلغ واریزی و مدت بازپرداخت ببینید.'
     : page === 'vam-fori'
       ? 'سریع‌ترین طرح متناسب با شما را کارشناس ما پیشنهاد می‌دهد.'
       : 'طرح متناسب با شما را کارشناس ما پیشنهاد می‌دهد.');

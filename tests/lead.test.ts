@@ -1,51 +1,25 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLeadPayload, submitLead, LeadError, type LeadInput } from '../src/lib/lead';
+import { cleanSrc, postPublicLead, LeadError } from '../src/lib/lead';
 
-const base: LeadInput = {
-  name: ' مریم احمدی ',
-  phone: '۰۹۱۲ ۳۴۵ ۶۷۸۹',
-  amountBand: '100-200',
-  contactTime: 'any',
-  consent: true,
-  website: '',
-  startedAt: 1_700_000_000_000,
-  src: 'Home-Finder',
-  planId: 10,
-  term: 36,
-  utm: { utm_source: 'google', utm_medium: '' },
-};
+// site-credit-noinst v1.1: the site has ONE body (type:'apply', tests/apply.test.ts); this file covers the shared POST.
+const body = { type: 'apply', name: 'مریم احمدی', phone: '09123456789', consent: true, website: '', startedAt: 1, fillMs: 9000 };
+const res = (status: number, b = '{}') => async () => new Response(status === 204 ? null : b, { status });
 
-test('payload has only CRM keys, normalised phone, slug src', () => {
-  const p = buildLeadPayload(base);
-  assert.deepEqual(Object.keys(p).sort(), ['amountBand', 'consent', 'contactTime', 'name', 'need', 'phone', 'planId', 'src', 'startedAt', 'term', 'utm_source', 'website'].sort());
-  assert.equal(p.phone, '09123456789');
-  assert.equal(p.name, 'مریم احمدی');
-  assert.equal(p.src, 'home-finder');
-  assert.equal(p.website, '');
+test('cleanSrc: slug only, lower-cased', () => {
+  assert.equal(cleanSrc('Home-Finder'), 'home-finder');
+  assert.equal(cleanSrc('x y'), undefined);
+  assert.equal(cleanSrc(null), undefined);
 });
-
-test('legal 2026-10-24: need is always \'help\' (no request-type question), even if a caller passes one', () => {
-  assert.equal(buildLeadPayload(base).need, 'help');
-  assert.equal(buildLeadPayload({ ...base, need: 'goods' } as LeadInput).need, 'help');
-});
-
-test('bad src dropped, term only with plan', () => {
-  const p = buildLeadPayload({ ...base, src: 'x y', planId: null });
-  assert.equal(p.src, undefined);
-  assert.equal(p.term, undefined);
-});
-
-const res = (status: number, body = '{}') => async () => new Response(status === 204 ? null : body, { status });
 
 test('success only on 2xx', async () => {
-  await submitLead(base, 'https://x/api', res(201) as typeof fetch);
-  await submitLead(base, 'https://x/api', res(204) as typeof fetch);
-  await assert.rejects(submitLead(base, 'https://x/api', res(422, '{"ok":false,"error":"too_fast"}') as typeof fetch), (e: LeadError) => e.code === 'too_fast' && e.status === 422);
-  await assert.rejects(submitLead(base, 'https://x/api', res(500, 'oops') as typeof fetch), (e: LeadError) => e.code === 'http');
-  await assert.rejects(submitLead(base, 'https://x/api', (async () => { throw new TypeError('net'); }) as typeof fetch), (e: LeadError) => e.code === 'network');
+  await postPublicLead(body, 'https://x/api', res(201) as typeof fetch);
+  await postPublicLead(body, 'https://x/api', res(204) as typeof fetch);
+  await assert.rejects(postPublicLead(body, 'https://x/api', res(422, '{"ok":false,"error":"too_fast"}') as typeof fetch), (e: LeadError) => e.code === 'too_fast' && e.status === 422);
+  await assert.rejects(postPublicLead(body, 'https://x/api', res(500, 'oops') as typeof fetch), (e: LeadError) => e.code === 'http');
+  await assert.rejects(postPublicLead(body, 'https://x/api', (async () => { throw new TypeError('net'); }) as typeof fetch), (e: LeadError) => e.code === 'network');
 });
 
 test('missing endpoint is an error, never a fake success', async () => {
-  await assert.rejects(submitLead(base, undefined), (e: LeadError) => e.code === 'no_endpoint');
+  await assert.rejects(postPublicLead(body, undefined), (e: LeadError) => e.code === 'no_endpoint');
 });

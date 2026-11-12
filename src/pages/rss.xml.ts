@@ -7,7 +7,7 @@ export const GET: APIRoute = async ({ site }) => {
   const posts = (await getPosts()).filter((p) => !p.data.sample);
   return rss({
     title: `مجله ${SITE.name}`,
-    description: 'آموزش وام، تسهیلات، اقساط و سواد مالی به زبان ساده.',
+    description: 'آموزش وام، تسهیلات، بازپرداخت و سواد مالی به زبان ساده.',
     site: site!,
     items: posts.map((p) => ({
       title: p.data.title,

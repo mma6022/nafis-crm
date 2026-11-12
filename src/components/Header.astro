@@ -3,8 +3,9 @@
  * Site header + mobile menu (mockup src/header.html). Behaviour lives in scripts/chrome.ts:
  * services dropdown, menu ⇄ x toggle, `.is-stuck` (desktop CTA turns primary once the hero is gone).
  * `minimal` = /request: `.hdr--min` (logo only).
- * HANDOFF §0 v1.2 (2026-10-28): no call / messenger entry point — desktop «مشاوره‌ی رایگان» → /contact/#callback,
- * mobile = menu icon; the mobile menu has no «تماس با کارشناس» and no messenger icons.
+ * HANDOFF §0 v1.2 (2026-10-28): no call / messenger entry point; the mobile menu has no «تماس با کارشناس» and no messenger icons.
+ * site-credit-noinst v1.1 §8.4: ONE header button «ثبت درخواست» → /request/ (the separate «مشاوره‌ی رایگان» link and its
+ * modal are gone); the mobile menu's consult button is the same /request/ entry with src=…-menu.
  */
 import I from './ui/I.astro';
 import Logo from './Logo.astro';
@@ -28,7 +29,7 @@ const blurb = (b: string) => b.replace('{planCount}', fa(facts.planCount));
 const DD_BLURB: Record<string, string> = { 'vam-ba-chek': 'با ضمانت چک صیادی' };
 const NAV = [
   { href: '/plans/', label: 'طرح‌ها' },
-  { href: '/calculator/', label: 'محاسبه قسط' },
+  { href: '/calculator/', label: 'مبلغ و مدت' },
   { href: '/blog/', label: 'مجله' },
   { href: '/about/', label: 'درباره ما' },
   // «تماس» left the desktop nav (CALLBACK-HANDOFF.md); it stays in the mobile menu and the footer
@@ -65,15 +66,7 @@ const NAV = [
       )
     }
     {!minimal && <a class="portal d-only" href={SITE.portal}>ورود مشتریان</a>}
-    {
-      !minimal && (
-        <a class="cbk d-only" href="/contact/#callback" data-callback={`${src}-header`}>
-          <I name="callback" size={18} />
-          مشاوره‌ی رایگان
-        </a>
-      )
-    }
-    {!minimal && <a class="cta" href={`/request/?src=${src}-header`}>درخواست وام</a>}
+    {!minimal && <a class="cta" href={`/request/?src=${src}-header`}>ثبت درخواست</a>}
     {
       !minimal && (
         <button type="button" class="icon-btn m-only" aria-label="منو" aria-expanded="false" aria-controls="mmenu" id="menu-btn">
@@ -101,14 +94,14 @@ const NAV = [
             </ul>
           </details>
         </li>
-        <li><a href="/calculator/">محاسبه قسط</a></li>
+        <li><a href="/calculator/">مبلغ و مدت</a></li>
         <li><a href="/how-it-works/">مراحل دریافت</a></li>
         <li><a href="/blog/">مجله نفیس</a></li>
         <li><a href="/about/">درباره ما</a></li>
         <li><a href="/contact/">ارتباط با ما</a></li>
       </ul>
       <div class="mfoot">
-        <a class="nf-btn nf-btn--secondary nf-btn--block" href="/contact/#callback" data-callback={`${src}-menu`}><I name="callback" /> درخواست مشاوره‌ی رایگان</a>
+        <a class="nf-btn nf-btn--secondary nf-btn--block" href={`/request/?src=${src}-menu`}><I name="callback" /> ثبت درخواست</a>
         <a class="nf-btn nf-btn--secondary nf-btn--block" href={SITE.portal}><I name="login" /> ورود مشتریان</a>
       </div>
     </div>

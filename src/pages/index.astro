@@ -13,7 +13,7 @@ import HeroSefr from '../components/home/HeroSefr.astro';
 import MidBanner from '../components/home/MidBanner.astro';
 import PlanFinder from '../components/islands/PlanFinder';
 import HomeCalc from '../components/islands/HomeCalc';
-import CallbackForm from '../components/islands/CallbackForm';
+import RequestCTA from '../components/RequestCTA.astro';
 import I from '../components/ui/I.astro';
 import FaqList from '../components/FaqList.astro';
 import PostCard from '../components/blog/PostCard.astro';
@@ -57,7 +57,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
       </div>
       <ul class="why2">
         <li><span class="ic"><I name="layers" /></span><span>یک طرح برای هر شرایط<small>با <span data-plan-count="planCount">{fa(facts.planCount)}</span> طرح فعال، احتمال اینکه طرحی متناسب با شما داشته باشیم زیاد است.</small></span></li>
-        <li><span class="ic"><I name="eye" /></span><span>قسط روشن از روز اول<small>مبلغ واریزی، قسط و تعداد اقساط را قبل از هر تصمیمی می‌بینید.</small></span></li>
+        <li><span class="ic"><I name="eye" /></span><span>مبلغ و مدت روشن از روز اول<small>مبلغ واریزی و مدت بازپرداخت را قبل از هر تصمیمی می‌بینید.</small></span></li>
         <li><span class="ic"><I name="chat" /></span><span>کارشناس واقعی، نه ربات<small>یک نفر از تیم ما شرایط شما را می‌شنود و راهنمایی می‌کند.</small></span></li>
         <li><span class="ic"><I name="shield" /></span><span>بدون غافلگیری قبل از امضا<small>همه شرایط را قبل از امضای قرارداد می‌دانید.</small></span></li>
       </ul>
@@ -82,8 +82,8 @@ const SVC_ICON: Record<string, SpriteIcon> = {
     </div>
   </section>
 
-  <section class="cb-sec" id="callback" aria-label="درخواست مشاوره‌ی رایگان">
-    <div class="container-nf"><CallbackForm client:visible variant="section" src="home-callback" wa /></div>
+  <section class="cb-sec" id="callback" aria-label="مشاوره‌ی رایگان">
+    <div class="container-nf"><RequestCTA src="home-callback" /></div>
   </section>
 
   <MidBanner n={1} eb="قدم بعدی" h="طرح مناسب را پیدا کردید؟" p="درخواست‌تان را در چند دقیقه ثبت کنید؛ کارشناس برای ادامه با شما تماس می‌گیرد." cta="ثبت درخواست" href="/request/?src=home-mid-1" />
@@ -121,7 +121,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
         <li><span class="ic"><I name="phone" /></span>کارشناس تماس می‌گیرد و مدارک را تحویل می‌دهید</li>
         <li><span class="ic"><I name="check" /></span>پرداخت تسهیلات طبق شرایط طرح</li>
       </ol>
-      <div class="steps-cta"><a class="nf-btn nf-btn--text" href="/request/?src=home-steps">شروع درخواست <I name="arrow" size={18} /></a></div>
+      <div class="steps-cta"><a class="nf-btn nf-btn--text" href="/request/?src=home-steps">ثبت درخواست <I name="arrow" size={18} /></a></div>
     </div>
   </section>
 
@@ -149,7 +149,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
     <div class="container-nf faq-wrap">
       <div class="sec-head" style="display:block">
         <h2 id="faq-h">سؤالات متداول</h2>
-        <p>جواب سؤالی را پیدا نکردید؟ <a href="/contact/#callback">درخواست مشاوره‌ی رایگان بگذارید</a>.</p>
+        <p>جواب سؤالی را پیدا نکردید؟ <a href="/request/?src=home-faq">ثبت درخواست</a> کنید تا کارشناس رایگان راهنمایی‌تان کند.</p>
       </div>
       <FaqList items={faq} bindPlanCount={fa(facts.planCount)} />
       <div class="faq-more"><a class="nf-btn nf-btn--text" href="/faq/">همه سؤالات متداول <I name="arrow" size={18} /></a></div>
@@ -157,12 +157,6 @@ const SVC_ICON: Record<string, SpriteIcon> = {
   </section>
 
   <script>
-    // one open callback form per page: once the finder shows its result (with its own inline form), hide the home section
-    document.getElementById('finder')?.addEventListener('finder:result', () => {
-      const s = document.getElementById('callback');
-      if (s) s.hidden = true;
-    });
-
     // home-order v1.0.1 §4: on the home page the mobile sticky bar waits until the slider's bottom edge has scrolled
     // above the bar's top edge (the bar is display:none ≥1024px, so this only matters below that). No JS → bar as before.
     const hero = document.getElementById('hero');

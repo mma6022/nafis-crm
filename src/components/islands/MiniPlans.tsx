@@ -1,4 +1,4 @@
-/** Blog «طرح‌های مرتبط» (mockup `.mini-plans`): compact cards for the post's relatedPlans (same 3 figures as PlanCard, PM 2026-10-23), live data with snapshot fallback. */
+/** Blog «طرح‌های مرتبط» (mockup `.mini-plans`): compact cards for the post's relatedPlans (same 2 figures as PlanCard: مبلغ واریزی + مدت بازپرداخت, site-credit-noinst v1.0), live data with snapshot fallback. */
 import { useMemo } from 'react';
 import type { LoanPlan } from '../../lib/loan-plans';
 import { byId, combos, fa, millionsFa } from '../../lib/plans';
@@ -21,12 +21,8 @@ export default function MiniPlans({ snapshot, ids, src }: { snapshot: LoanPlan[]
             <b>حدود {millionsFa(c.payout)} میلیون</b>
           </div>
           <div className="row">
-            <span>مبلغ هر قسط</span>
-            <b>حدود {millionsFa(c.inst)} میلیون</b>
-          </div>
-          <div className="row">
-            <span>تعداد اقساط</span>
-            <b>{fa(c.term)}</b>
+            <span>مدت بازپرداخت</span>
+            <b>{fa(c.term)} ماهه</b>
           </div>
           <a className="nf-btn nf-btn--secondary nf-btn--block nf-btn--sm" style={{ marginTop: 6 }} href={`/request/?plan=${c.id}&term=${c.term}&src=${encodeURIComponent(src)}`}>
             درخواست این طرح

@@ -8,7 +8,7 @@ import { render } from 'astro:content';
 import BaseLayout from './BaseLayout.astro';
 import Breadcrumbs from '../components/Breadcrumbs.astro';
 import I from '../components/ui/I.astro';
-import CallbackForm from '../components/islands/CallbackForm';
+import RequestCTA from '../components/RequestCTA.astro';
 import { mdxComponents } from '../components/mdx';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 import { fa, fillFacts, leadHtml, planFacts, planFilter } from '../lib/plans';
@@ -67,7 +67,7 @@ const badge = badgeDef && badgeFn && badgeN > 0 ? { ...badgeDef, n: badgeN } : n
 /** Side panel (ANSWERS-1 §7): never a guarantee claim; only the frontmatter cta.primary (no call / messenger button: HANDOFF §0 v1.2). */
 const ASIDE: Record<string, { h?: string; p: string }> = {
   'vam-fori': { p: 'درخواست ثبت کنید؛ کارشناس سریع‌ترین طرح متناسب با شما را پیشنهاد می‌دهد.' },
-  'kharid-aghsati': { h: 'قصد خرید اقساطی دارید؟', p: 'درخواست ثبت کنید؛ کارشناس طرح متناسب با مبلغ و قسط شما را پیشنهاد می‌دهد.' },
+  'kharid-aghsati': { h: 'قصد خرید اقساطی دارید؟', p: 'درخواست ثبت کنید؛ کارشناس طرح متناسب با مبلغ و مدت بازپرداخت دلخواه شما را پیشنهاد می‌دهد.' },
   'vam-ani': { h: 'می‌خواهید آنلاین شروع کنید؟', p: 'درخواست را از گوشی ثبت کنید؛ کارشناس در ساعت کاری، پس از ثبت درخواست تماس می‌گیرد.' },
   'vam-fori-bedun-chek': { h: 'دسته‌چک ندارید و عجله دارید؟', p: 'درخواست ثبت کنید؛ کارشناس سریع‌ترین طرح بدون چک متناسب با شما را پیشنهاد می‌دهد.' },
   'vam-fori-bedun-zamen': { h: 'ضامن ندارید و عجله دارید؟', p: 'درخواست ثبت کنید؛ کارشناس سریع‌ترین طرح بدون ضامن متناسب با شما را پیشنهاد می‌دهد.' },
@@ -124,7 +124,7 @@ const secondary = d.cta.secondary && !isTel(d.cta.secondary.href) ? d.cta.second
       }
     </aside>
   </div>
-  <section class="cb-sec cb-sec--end" id="callback" aria-label="درخواست مشاوره‌ی رایگان">
-    <div class="container-nf"><CallbackForm client:visible variant="section" primary={false} src={`${page}-callback`} lead={cbLead} /></div>
+  <section class="cb-sec cb-sec--end" id="callback" aria-label="مشاوره‌ی رایگان">
+    <div class="container-nf"><RequestCTA primary={false} src={`${page}-callback`} lead={cbLead} /></div>
   </section>
 </BaseLayout>

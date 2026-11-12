@@ -17,7 +17,7 @@ const groups = FAQ_GROUPS.map((g) => ({ ...g, items: fillFaq(g.items, LOAN_PLANS
 
 <BaseLayout
   title="سوالات متداول وام و تسهیلات"
-  description="پاسخ سوالات رایج درباره مدارک وام، وام بدون ضامن، زمان بررسی درخواست، محاسبه قسط و هزینه مشاوره در نفیس وام."
+  description="پاسخ سوالات رایج درباره مدارک وام، وام بدون ضامن، زمان بررسی درخواست، مبلغ و مدت بازپرداخت و هزینه مشاوره در نفیس وام."
   jsonLd={[breadcrumbLd(crumbs), faqLd(groups.flatMap((g) => g.items))]}
 >
   <PageHeader title="سوالات متداول" lead="پاسخ کوتاه به رایج‌ترین سؤال‌ها، دسته‌بندی‌شده." crumbs={crumbs} />

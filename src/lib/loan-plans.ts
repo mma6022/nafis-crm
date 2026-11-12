@@ -20,7 +20,7 @@ export const LOAN_PLANS_URL = '/data/loan-plans.json';
 export interface InstallmentTerm {
   installments: number; // months
   payout: number; // مبلغ واریزی به شما (تومان)
-  installment: number; // مبلغ هر قسط ماهانه (تومان)
+  installment: number; // CRM per-payment amount (toman): internal only, never rendered (site-credit-noinst v1.0)
 }
 
 export interface LoanPlan {

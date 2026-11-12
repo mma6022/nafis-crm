@@ -1,0 +1,37 @@
+---
+/**
+ * site-credit-noinst v1.1 §8.4 (Mohammad t338u): the slots that held the «درخواست مشاوره‌ی رایگان» callback form
+ * (home, contact, keyword landings, fast-plan lists) now hold ONE entry into the 8-step /request/ wizard — same endpoint,
+ * same body (type:'apply'). `src` keeps the entry context (e.g. home-callback, contact-callback, vam-fori-callback),
+ * which the wizard shows as «منبع: مشاوره‌ی رایگان». Label is always «ثبت درخواست».
+ */
+import I from './ui/I.astro';
+interface Props {
+  src: string;
+  title?: string;
+  lead?: string;
+  titleTag?: 'h2' | 'h3';
+  primary?: boolean;
+}
+const {
+  src,
+  title = 'مشاوره‌ی رایگان',
+  lead = 'نام و شماره‌تان را بنویسید؛ کارشناس نفیس وام تماس می‌گیرد و رایگان راهنمایی‌تان می‌کند.',
+  titleTag = 'h2',
+  primary = true,
+} = Astro.props;
+const H = titleTag;
+---
+
+<div class="cb cb--section rq-cta" data-request-cta={src}>
+  <div class="cb-body">
+    <div class="cb-intro">
+      <H class="cb-h">{title}</H>
+      <p>{lead}</p>
+    </div>
+    <div class="cb-card rq-cta-card">
+      <p class="rq-cta-note"><I name="lock" size={18} /><span>فقط نام و شماره‌ی موبایل لازم است؛ بقیه‌ی سؤال‌ها اختیاری است. کد پیامکی نمی‌خواهد.</span></p>
+      <a class={`nf-btn ${primary ? 'nf-btn--primary' : 'nf-btn--secondary'} nf-btn--block`} href={`/request/?src=${encodeURIComponent(src)}`}>ثبت درخواست <I name="arrow" size={20} /></a>
+    </div>
+  </div>
+</div>

@@ -1,65 +1,17 @@
 /**
- * Website lead → CRM POST /api/public/leads (contract: nafis-crm artifacts/api-server/src/lib/public-leads.ts,
- * branch feat/public-leads). Success is shown ONLY on a 2xx response; anything else is an error the UI must show.
+ * Website lead → CRM POST /api/public/leads (contract: nafis-crm artifacts/api-server/src/lib/public-leads.ts +
+ * site-apply.ts). Success is shown ONLY on a 2xx response; anything else is an error the UI must show.
+ * site-credit-noinst v1.1: the only body the site sends is the /request/ wizard's `type:'apply'` (lib/apply.ts). The simple
+ * form payload (no type, need/amountBand/contactTime) and the callback body (kind:'callback') are gone.
  */
-import { normalizeIranMobile } from './format';
-import type { AmountBand } from './plans';
-
-/**
- * CRM `need` vocabulary. Legal 2026-10-24: the site never asks the customer a request type (cash / goods), so every
- * lead is sent as 'help'. The value is still sent because CRM releases before legal/no-request-type require it.
- */
-export type Need = 'cash' | 'goods' | 'help';
-export const LEAD_NEED: Need = 'help';
-export type ContactTime = 'morning' | 'evening' | 'any';
 export const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'] as const;
 export type Utm = Partial<Record<(typeof UTM_KEYS)[number], string>>;
-
-export interface LeadInput {
-  name: string;
-  phone: string;
-  amountBand: AmountBand | 'unsure';
-  planId?: number | null;
-  term?: number | null;
-  contactTime: ContactTime;
-  src?: string | null;
-  consent: boolean;
-  /** honeypot value (must stay "") */
-  website: string;
-  startedAt: number;
-  utm?: Utm;
-}
 
 const SRC_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 export const cleanSrc = (v: string | null | undefined) => {
   const s = (v ?? '').toLowerCase().trim();
   return SRC_RE.test(s) ? s : undefined;
 };
-
-/** Exact CRM payload: only allowed keys, unknown keys would be rejected with 400. */
-export function buildLeadPayload(i: LeadInput): Record<string, unknown> {
-  const phone = normalizeIranMobile(i.phone);
-  if (!phone) throw new LeadError('invalid_phone');
-  const out: Record<string, unknown> = {
-    name: i.name.trim().slice(0, 80),
-    phone,
-    need: LEAD_NEED,
-    amountBand: i.amountBand,
-    contactTime: i.contactTime,
-    consent: i.consent === true,
-    website: i.website,
-    startedAt: i.startedAt,
-  };
-  if (i.planId) out.planId = i.planId;
-  if (i.planId && i.term) out.term = i.term;
-  const src = cleanSrc(i.src);
-  if (src) out.src = src;
-  for (const k of UTM_KEYS) {
-    const v = i.utm?.[k]?.trim();
-    if (v) out[k] = v.slice(0, 100);
-  }
-  return out;
-}
 
 export class LeadError extends Error {
   code: string;
@@ -85,12 +37,7 @@ export function readTrackingCode(body: unknown): string | undefined {
   return typeof v === 'string' && TRACKING_RE.test(v.trim()) ? v.trim() : undefined;
 }
 
-/** Resolves only on 2xx. Missing endpoint, network failure and non-2xx all reject with LeadError. */
-export async function submitLead(i: LeadInput, endpoint = leadEndpoint(), fetchImpl: typeof fetch = fetch): Promise<LeadResult> {
-  return postPublicLead(buildLeadPayload(i), endpoint, fetchImpl);
-}
-
-/** Shared POST for every public form (request wizard, callback form): same endpoint, same error handling. */
+/** The one public POST (the /request/ wizard): resolves only on 2xx; missing endpoint, network failure and non-2xx reject with LeadError. */
 export async function postPublicLead(payload: Record<string, unknown>, endpoint = leadEndpoint(), fetchImpl: typeof fetch = fetch): Promise<LeadResult> {
   if (!endpoint) throw new LeadError('no_endpoint');
   const body = JSON.stringify(payload);

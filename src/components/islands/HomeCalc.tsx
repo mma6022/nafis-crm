@@ -1,10 +1,12 @@
 /**
  * Compact home calculator (designer home.html inline script, UX-SPEC §4.6): pick a received-amount band and a term;
- * shows the closest active plan (band match first, then nearest term, then lowest installment).
+ * shows the closest active plan (band match first, then nearest term; internal tie-break unchanged) with ONLY مبلغ واریزی
+ * and مدت بازپرداخت (site-credit-noinst v1.0). The request link carries ?amount= so /request/ can prefill amount_range.
  */
 import { useMemo, useState } from 'react';
 import type { LoanPlan } from '../../lib/loan-plans';
 import { FINDER_LABEL, bandOf, combos, fa, millionsFa, type FinderBand } from '../../lib/plans';
+import { amountParam } from '../../lib/apply';
 import { useLoanPlans } from './useLoanPlans';
 import { I } from '../ui/I';
 
@@ -30,8 +32,8 @@ export default function HomeCalc({ snapshot }: { snapshot: LoanPlan[] }) {
       <div>
         <div className="sec-head">
           <div>
-            <h2 id="calc-h">قسط ماهانه‌تان را از همین حالا بدانید</h2>
-            <p>مبلغ و مدت را انتخاب کنید؛ نزدیک‌ترین طرح فعال را نشان می‌دهیم.</p>
+            <h2 id="calc-h">مبلغ و مدت را انتخاب کنید</h2>
+            <p>نزدیک‌ترین طرح فعال را با مبلغ واریزی و مدت بازپرداخت نشان می‌دهیم.</p>
           </div>
         </div>
         <div className="calc">
@@ -65,29 +67,24 @@ export default function HomeCalc({ snapshot }: { snapshot: LoanPlan[] }) {
                 نزدیک‌ترین طرح فعال: <b>{c.name}</b>
                 {c.term !== term ? ` (این طرح ${fa(c.term)} ماهه است)` : ''}
               </p>
-              <dl className="money money--3" style={{ marginBottom: 16 }}>
+              <dl className="money" style={{ marginBottom: 16 }}>
                 <div>
                   <dt className="lbl">مبلغ واریزی</dt>
                   <dd className="val">حدود {millionsFa(c.payout)}</dd>
                   <dd className="unit">میلیون تومان</dd>
                 </div>
                 <div>
-                  <dt className="lbl">مبلغ هر قسط</dt>
-                  <dd className="val sm">حدود {millionsFa(c.inst)}</dd>
-                  <dd className="unit">میلیون تومان</dd>
-                </div>
-                <div>
-                  <dt className="lbl">تعداد اقساط</dt>
+                  <dt className="lbl">مدت بازپرداخت</dt>
                   <dd className="val sm">{fa(c.term)}</dd>
-                  <dd className="unit">قسط ماهانه</dd>
+                  <dd className="unit">ماهه</dd>
                 </div>
               </dl>
-              <a className="nf-btn nf-btn--primary nf-btn--block" href={`/request/?plan=${c.id}&term=${c.term}&src=home-calc`}>
+              <a className="nf-btn nf-btn--primary nf-btn--block" href={`/request/?plan=${c.id}&term=${c.term}&amount=${amountParam(c.payout)}&src=home-calc`}>
                 درخواست این طرح <I name="arrow" />
               </a>
               <div style={{ textAlign: 'center' }}>
                 <a className="nf-btn nf-btn--text" href="/calculator/">
-                  محاسبه دقیق‌تر
+                  همه‌ی مبلغ‌ها و مدت‌ها
                 </a>
               </div>
             </>

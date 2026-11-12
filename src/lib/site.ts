@@ -5,7 +5,7 @@ export const SITE = {
   url: 'https://nafisvam.com',
   tagline: 'مسیر شفاف دریافت تسهیلات و وام',
   description:
-    'نفیس وام، همراه شما برای شناخت گزینه‌های تسهیلات، وام فوری، وام بدون ضامن و انتخاب اقساط متناسب با شرایط واقعی زندگی.',
+    'نفیس وام، همراه شما برای شناخت گزینه‌های تسهیلات، وام فوری، وام بدون ضامن و انتخاب مبلغ و مدت بازپرداخت متناسب با شرایط واقعی زندگی.',
   /**
    * NO phone number anywhere (Mohammad 2026-10-23 + HANDOFF §0 v1.2 #13): no tel:/sms:/messenger links and no numbers;
    * the only contact path is the «درخواست مشاوره‌ی رایگان» callback form (/contact/#callback) or /request/.
@@ -80,7 +80,7 @@ export type NavItem = { href: string; label: string };
 
 export const MAIN_NAV: NavItem[] = [
   { href: '/plans/', label: 'طرح‌ها' },
-  { href: '/calculator/', label: 'محاسبه قسط' },
+  { href: '/calculator/', label: 'مبلغ و مدت' },
   { href: '/how-it-works/', label: 'مراحل دریافت' },
   { href: '/blog/', label: 'مجله' },
   { href: '/about/', label: 'درباره ما' },
@@ -88,7 +88,7 @@ export const MAIN_NAV: NavItem[] = [
 ];
 
 export const GUIDE_NAV: NavItem[] = [
-  { href: '/calculator/', label: 'محاسبه قسط' },
+  { href: '/calculator/', label: 'مبلغ و مدت' },
   { href: '/how-it-works/', label: 'مراحل دریافت' },
   { href: '/faq/', label: 'سؤالات متداول' },
   { href: '/blog/', label: 'مجله نفیس' },

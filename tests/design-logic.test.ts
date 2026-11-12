@@ -13,7 +13,7 @@ import {
   FINDER_BANDS, FINDER_PRIOS, REQ_BAND_KEYS, type Combo,
 } from '../src/lib/plans.ts';
 import { toEnDigits, mobileDigits, isValidMobile } from '../src/lib/format.ts';
-import { readTrackingCode, submitLead, type LeadInput } from '../src/lib/lead.ts';
+import { readTrackingCode, postPublicLead } from '../src/lib/lead.ts';
 import { designer } from './fixtures/designer-site-logic.mjs';
 import { PLAN_GUARANTEES } from '../src/data/plan-guarantees.ts';
 
@@ -66,14 +66,16 @@ test('payout = the published term payout, same combos as the designer', () => {
 test('recommend: same ranking and exact flag as site.js (type «any») for all 9 answers (ties: ANSWERS-1 §4)', () => {
   // site.js leaves full ties to array order; ANSWERS-1 §4 fixes them (payout ↓, installment ↑, id ↑).
   // So each position must match site.js on score and on the primary metric; only true ties may differ.
+  // site-credit-noinst v1.0 §3: «cheap» is now «مدت بازپرداخت کوتاه‌تر» (cards no longer show a per-payment figure),
+  // so it deliberately leaves site.js; it is checked on its own below.
   let identical = 0;
   for (const band of FINDER_BANDS)
-    for (const prio of FINDER_PRIOS) {
+    for (const prio of FINDER_PRIOS.filter((p) => p !== 'cheap')) {
         const ours = recommend(all, { band, prio });
         const ref = DR.recommend({ band, prio, type: 'any' }); // 'any' = the designer's no-type scoring
         const k = `${band},${prio}`;
         const key = (c: Combo) => `${c.id}/${c.term}`;
-        const metric = (c: Combo) => Math.round(prio === 'cheap' ? c.inst : c.payout);
+        const metric = (c: Combo) => Math.round(c.payout);
         assert.equal(ours.cards.length, ref.cards.length, k);
         ours.cards.forEach((c, i) => {
           const r = ref.cards[i]!;
@@ -85,10 +87,23 @@ test('recommend: same ranking and exact flag as site.js (type «any») for all 9
         assert.ok(ours.cards.length >= 1 && ours.cards.length <= 3);
         assert.equal(new Set(ours.cards.map((c) => c.name)).size, ours.cards.length, `${k}: names deduped`);
       }
-  assert.ok(identical >= 6, `most answers identical to site.js (${identical}/9)`);
-  // the tie itself: equal installment → higher payout first, then smaller id
-  const [, x, y] = recommend(all, { band: 1, prio: 'cheap' }).cards;
-  assert.ok(x!.inst < y!.inst || (x!.inst === y!.inst && (x!.payout > y!.payout || (x!.payout === y!.payout && x!.id < y!.id))));
+  assert.ok(identical >= 4, `most answers identical to site.js (${identical}/6)`);
+});
+
+test('recommend «مدت بازپرداخت کوتاه‌تر» (cheap): same score as site.js; within a score, shorter term first, then higher payout', () => {
+  for (const band of FINDER_BANDS) {
+    const ours = recommend(all, { band, prio: 'cheap' });
+    const ref = DR.recommend({ band, prio: 'cheap', type: 'any' });
+    assert.equal(ours.cards.length, ref.cards.length, `${band}`);
+    assert.ok(ours.cards.length >= 1 && ours.cards.length <= 3);
+    assert.equal(ours.cards[0]!.score, ref.cards[0]!.s, `${band} best score`);
+    for (let i = 1; i < ours.cards.length; i++) {
+      const [x, y] = [ours.cards[i - 1]!, ours.cards[i]!];
+      if (x.score !== y.score) assert.ok(x.score > y.score, `${band}#${i} score order`);
+      else assert.ok(x.term < y.term || (x.term === y.term && x.payout >= y.payout), `${band}#${i} ${x.id}/${x.term} before ${y.id}/${y.term}`);
+    }
+    assert.equal(new Set(ours.cards.map((c) => c.name)).size, ours.cards.length, `${band}: names deduped`);
+  }
 });
 
 test('recommend online: processMode=both ranks above in-person; deterministic id tie-break', () => {
@@ -222,13 +237,10 @@ test('tracking code: shown only when the CRM returns a well-formed trackingCode'
   assert.equal(readTrackingCode({ trackingCode: 12345 }), undefined);
   assert.equal(readTrackingCode({ trackingCode: '<img src=x>' }), undefined);
   assert.equal(readTrackingCode(null), undefined);
-  const lead: LeadInput = {
-    name: 'مریم', phone: '09123456789', amountBand: '100-200', contactTime: 'any',
-    consent: true, website: '', startedAt: 1,
-  };
+  const lead = { type: 'apply', name: 'مریم', phone: '09123456789', consent: true, website: '', startedAt: 1, fillMs: 4000 };
   const reply = (status: number, body: string | null) => (async () => new Response(body, { status })) as typeof fetch;
-  assert.deepEqual(await submitLead(lead, 'https://x/api', reply(201, '{"ok":true,"trackingCode":"NV-7K3M-Q9TX"}')), { trackingCode: 'NV-7K3M-Q9TX' });
-  assert.deepEqual(await submitLead(lead, 'https://x/api', reply(200, '{"ok":true}')), {}, 'duplicate → no code');
-  assert.deepEqual(await submitLead(lead, 'https://x/api', reply(204, null)), {});
-  assert.deepEqual(await submitLead(lead, 'https://x/api', reply(201, 'not json')), {});
+  assert.deepEqual(await postPublicLead(lead, 'https://x/api', reply(201, '{"ok":true,"trackingCode":"NV-7K3M-Q9TX"}')), { trackingCode: 'NV-7K3M-Q9TX' });
+  assert.deepEqual(await postPublicLead(lead, 'https://x/api', reply(200, '{"ok":true}')), {}, 'duplicate → no code');
+  assert.deepEqual(await postPublicLead(lead, 'https://x/api', reply(204, null)), {});
+  assert.deepEqual(await postPublicLead(lead, 'https://x/api', reply(201, 'not json')), {});
 });

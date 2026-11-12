@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "build": "node scripts/refresh-plans.mjs && astro check && astro build && node scripts/check-markers.mjs --strict && node scripts/check-jsonld.mjs && node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-messengers.mjs && node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-guarantees.mjs && node scripts/check-copy.mjs && node scripts/check-plans-live.mjs",
-    "build:preview": "astro check && astro build && node scripts/check-markers.mjs && node scripts/check-jsonld.mjs && node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-messengers.mjs && node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-guarantees.mjs && node scripts/check-copy.mjs",
+    "build": "node scripts/refresh-plans.mjs && astro check && astro build && node scripts/check-markers.mjs --strict && node scripts/check-jsonld.mjs && node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-messengers.mjs && node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-guarantees.mjs && node scripts/check-copy.mjs && node scripts/check-installment.mjs && node scripts/check-plans-live.mjs",
+    "build:preview": "astro check && astro build && node scripts/check-markers.mjs && node scripts/check-jsonld.mjs && node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-messengers.mjs && node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-guarantees.mjs && node scripts/check-copy.mjs && node scripts/check-installment.mjs",
     "build:fast": "astro build",
     "preview": "astro preview",
     "check": "astro check",
@@ -20,7 +20,8 @@
     "import:post": "node scripts/import-post.mjs",
     "check:messengers": "node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-messengers.mjs",
     "plans:refresh": "node scripts/refresh-plans.mjs",
-    "check:plans": "node scripts/check-plans-live.mjs"
+    "check:plans": "node scripts/check-plans-live.mjs",
+    "check:installment": "node scripts/check-installment.mjs"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.12",

@@ -6,20 +6,22 @@
 //  2. Plan 17 only on /vam-bedun-zamen and always with its credit-score phrase; retiree-only plans carry their tag.
 //  3. «سپرده» appears nowhere in dist (blog included).
 //  4. /calculator FAQ answer is verbatim in the page AND its FAQPage JSON-LD, and the page never says «مبلغ اسمی».
-//  5. Every lead/callback form in dist shows the exact consent text.
+//  5. The /request/ wizard (the only form since site-credit-noinst v1.1) shows the exact consent text; no callback form
+//     (cb-card form / kind:'callback') is left anywhere.
 //  6. Fast sections (PM 2026-10-23): never empty; the fastest ≤3 plans meeting the base condition, ordered by real
-//     grantDays (ties by id), retiree tag kept, no time promise on /vam-bedun-chek, /vam-bedun-zamen and the two fast pages, callback form below.
+//     grantDays (ties by id), retiree tag kept, no time promise on /vam-bedun-chek, /vam-bedun-zamen and the two fast pages, «ثبت درخواست» entry below (v1.1).
 //     Fast pages (copy A2/A3 2026-10-28): /vam-fori-bedun-chek/ (fast-no-cheque: by grantDays, ties by id) and
 //     /vam-fori-bedun-zamen/ (fast-no-guarantor: by grantDays, ties by the highest مبلغ واریزی obtainable WITHOUT a
 //     guarantor — no-guarantor caps respected (plan 9: share 0.6) — then id; no repeated plan base name).
 //     Page-restricted plans (17, pages ['no-guarantor']) stay out of the fast sections.
 //     Every fast section fails the build if two rows show the same plan name.
-//  7. Plan cards everywhere: only مبلغ واریزی / مبلغ هر قسط / تعداد اقساط (no rate, %, principal: Mohammad 2026-10-28) + one «درخواست این طرح» button.
+//  7. Plan cards everywhere: only مبلغ واریزی / مدت بازپرداخت (site-credit-noinst v1.0: no per-payment figure; no rate, %,
+//     principal: Mohammad 2026-10-28) + one «درخواست این طرح» button.
 // Run: node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-guarantees.mjs
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { parseLoanPlans } from '../src/lib/loan-plans.ts';
-import { CONSENT_TEXT } from '../src/lib/callback.ts';
+import { APPLY_CONSENT_TEXT as CONSENT_TEXT } from '../src/lib/apply.ts';
 
 const ROOT = new URL('../', import.meta.url).pathname;
 const DIST = join(ROOT, 'dist');
@@ -142,7 +144,7 @@ for (const [page, def] of Object.entries(PAGES)) {
   if (def.fast) {
     if (ids.length === 0 || ids.length > 3) errors.push(`${def.file} [${page}]: fast section must list 1–3 plans (has ${ids.length})`);
     if (/gplans-empty/.test(b)) errors.push(`${def.file} [${page}]: fast section ships an empty state`);
-    if (!/class="cb-card"/.test(b) && !/درخواست مشاوره‌ی رایگان/.test(b)) errors.push(`${def.file} [${page}]: no callback form below the fast list`);
+    if (!/data-request-cta="[^"]*-fastest-callback"/.test(b)) errors.push(`${def.file} [${page}]: no «ثبت درخواست» entry below the fast list`);
     // no plan name twice in a fast section (rendered name, «(bank / platform)» and other notes ignored)
     const shown = [...b.matchAll(/<b class="gp-name"[^>]*>([\s\S]*?)<\/b>/g)].map((m) => baseName(m[1].replace(/<span[\s\S]*?<\/span>/g, '').replace(/<[^>]+>/g, '')));
     if (shown.length !== ids.length) errors.push(`${def.file} [${page}]: ${ids.length} rows but ${shown.length} plan names`);
@@ -172,13 +174,14 @@ for (const f of files) {
   const rel = relative(DIST, f);
   // PM rule: «سپرده» is a forbidden word everywhere, the blog included
   if (h.includes('سپرده')) errors.push(`${rel}: contains forbidden word «سپرده»`);
-  // lead/callback forms: CallbackForm (cb-card form) and RequestWizard (#rq-submit)
-  const forms = (h.match(/class="cb-card"/g) ?? []).length + (h.match(/id="rq-submit"/g) ?? []).length;
+  // v1.1: the /request/ wizard is the only form (#apply-form); the callback form / simple wizard must not come back
+  if (/<form[^>]*class="cb-form|id="rq-submit"|data-callback=|kind:\s*['"]callback/.test(h)) errors.push(`${rel}: an old callback / simple form is back (v1.1: one form, /request/)`);
+  const forms = (h.match(/id="apply-form"/g) ?? []).length;
   const consent = h.split(CONSENT_TEXT).length - 1;
-  if (forms > 0 && consent < forms) errors.push(`${rel}: ${forms} lead/callback form(s) but ${consent} consent text(s)`);
+  if (forms > 0 && consent < forms) errors.push(`${rel}: ${forms} lead form(s) but ${consent} consent text(s)`);
 }
 
- // plan cards (PlanCard, data-plan-card) and blog mini cards: only the 3 figures + one «درخواست این طرح» button
+ // plan cards (PlanCard, data-plan-card) and blog mini cards: only the 2 figures + one «درخواست این طرح» button
 let cardCount = 0;
 for (const f of files) {
   const h = readFileSync(f, 'utf8');
@@ -190,14 +193,16 @@ for (const f of files) {
     if (m[1] && m[1].includes('data-plan-soon="1"')) {
       for (const bad of ['سود', 'نرخ', '٪', 'اصل وام', 'کارمزد', 'میلیون', 'تومان'])
         if (card.includes(bad)) errors.push(`${rel}: a «به‌زودی» plan card shows «${bad}»`);
-      if ((card.split('به‌زودی').length - 1) < 2) errors.push(`${rel}: a «به‌زودی» plan card must show «به‌زودی» for مبلغ واریزی and مبلغ هر قسط`);
+      if (!card.includes('به‌زودی') || !card.includes('مدت بازپرداخت')) errors.push(`${rel}: a «به‌زودی» plan card must show «به‌زودی» for مبلغ واریزی and its مدت بازپرداخت`);
+      if (/قسط|اقساط/.test(card)) errors.push(`${rel}: a «به‌زودی» plan card shows a per-payment label`);
       if (/<a [^>]*nf-btn/.test(card) || card.includes('درخواست این طرح')) errors.push(`${rel}: a «به‌زودی» plan card must not offer a request button`);
       continue;
     }
     for (const bad of ['زمان بررسی', 'روش', 'جزئیات بیشتر', 'مبلغ اسمی', 'مبلغ دریافتی', 'قابل دریافت', 'پیش‌پرداخت', 'سود', 'نرخ', '٪', 'آخرین به‌روزرسانی', 'اصل وام', 'کارمزد'])
       if (card.includes(bad)) errors.push(`${rel}: a plan card shows «${bad}»`);
-    for (const need of ['مبلغ واریزی', 'مبلغ هر قسط', 'تعداد اقساط'])
+    for (const need of ['مبلغ واریزی', 'مدت بازپرداخت'])
       if (!card.includes(need)) errors.push(`${rel}: a plan card lacks «${need}»`);
+    if (/قسط|اقساط/.test(card)) errors.push(`${rel}: a plan card shows a per-payment label («قسط»/«اقساط»)`);
     const btns = (card.match(/<a [^>]*nf-btn/g) ?? []).length;
     if (btns !== 1 || !card.includes('درخواست این طرح')) errors.push(`${rel}: a plan card must have exactly one «درخواست این طرح» button (has ${btns})`);
   }
@@ -335,5 +340,5 @@ console.log(
     Object.entries(seen)
       .map(([p, ids]) => `${p} [${ids.join(',') || '—'}]`)
       .join(' · ') +
-    ` · no «سپرده» anywhere (${files.length} pages) · consent text on every form · calculator FAQ exact · no landline in any format (${landlineScanned} dist+src files) · address + PostalAddress · home canonical = sitemap · canonical/og:url/sitemap locs end with / · 404 noindex + no canonical · no method/time/prepay/nominal-on-card claim · /vam-fori singular/plural from data · fast pages: no-guarantor = fastest ≤3 by grantDays then max مبلغ واریزی without a guarantor (caps from data), no-cheque = fastest ≤3, no repeated name, + callback, no time promise · ${cardCount} plan cards = 3 figures + one button · no rate/profit/%/principal/fee word or CRM rate field in ${noRatesScanned} dist files`,
+    ` · no «سپرده» anywhere (${files.length} pages) · consent text on the /request/ form, no callback form · calculator FAQ exact · no landline in any format (${landlineScanned} dist+src files) · address + PostalAddress · home canonical = sitemap · canonical/og:url/sitemap locs end with / · 404 noindex + no canonical · no method/time/prepay/nominal-on-card claim · /vam-fori singular/plural from data · fast pages: no-guarantor = fastest ≤3 by grantDays then max مبلغ واریزی without a guarantor (caps from data), no-cheque = fastest ≤3, no repeated name, + «ثبت درخواست» entry, no time promise · ${cardCount} plan cards = 2 figures (مبلغ واریزی + مدت بازپرداخت) + one button · no rate/profit/%/principal/fee word or CRM rate field in ${noRatesScanned} dist files`,
 );

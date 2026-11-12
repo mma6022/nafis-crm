@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // No call / messenger entry point anywhere (HANDOFF §0 v1.2 #13, Mohammad 2026-10-28: «شماره نمایش داده نشه، فقط فرم
-// درخواست»). The only contact paths are the «درخواست مشاوره‌ی رایگان» callback form (/contact/#callback) and /request/.
+// درخواست»). The only contact path is the /request/ wizard (v1.1; /contact/#callback holds its «ثبت درخواست» entry).
 // Fails on, in dist/ (html/js/css/xml/json/txt) and src/ + public/:
 // - tel: / sms: / whatsapp: / tg: / bale: links, wa.me / api.whatsapp.com / t.me / telegram.me / ble.ir URLs;
 // - the old expert picker (<dialog id="xp">, data-experts, /contact/#experts, <section id="experts">);
@@ -57,7 +57,7 @@ if (!textFiles.some((f) => relative(DIST, f) === 'contact/index.html')) errors.p
 const home = readFileSync(join(DIST, 'index.html'), 'utf8');
 if (!home.includes(`href="${INSTAGRAM}"`)) errors.push(`home: footer Instagram ${INSTAGRAM} missing`);
 const contact = readFileSync(join(DIST, 'contact/index.html'), 'utf8');
-if (!/id="callback"/.test(contact)) errors.push('contact: #callback form missing');
+if (!/id="callback"[\s\S]*?data-request-cta="contact-callback"/.test(contact)) errors.push('contact: #callback «ثبت درخواست» entry missing');
 
 // source: no messenger URL / call link outside comments
 const srcFiles = [...walk(join(ROOT, 'src')), ...walk(join(ROOT, 'public'))].filter((f) => /\.(astro|tsx?|jsx?|mdx?|json|ya?ml|xml|txt|html|css)$/.test(f));
