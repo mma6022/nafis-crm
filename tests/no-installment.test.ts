@@ -8,14 +8,14 @@ import { join, relative } from 'node:path';
 const ROOT = new URL('../', import.meta.url).pathname;
 const J = '[\\u200c\\u200d\\u0640]?';
 const WORD = new RegExp(`ق${J}س${J}ط|ا${J}ق${J}س${J}ا${J}ط`, 'g');
-const strip = (t: string) => t.replace(/اقساطی/g, '').replace(/قسطیو/g, '');
+const strip = (t: string) => t.replace(/(?:خرید|پرداخت)[ \u200c-]قسطی(?![\u0600-\u06FF\u200c])/g, '').replace(/اقساطی/g, '').replace(/قسطیو/g, '');
 const walk = (d: string): string[] =>
   readdirSync(d).flatMap((n) => (statSync(join(d, n)).isDirectory() ? walk(join(d, n)) : [join(d, n)]));
 
-test('matcher: flags every قسط form, allows «اقساطی» and «قسطیو»', () => {
-  for (const bad of ['قسط', 'قسطی', 'قسط‌ها', 'اقساط', 'تعداد اقساط', 'مبلغ هر قسط', 'محاسبه قسط'])
+test('matcher: flags every قسط form, allows «اقساطی», «قسطیو», «خرید قسطی», «پرداخت قسطی»', () => {
+  for (const bad of ['قسط', 'قسطی', 'خرید قسطی‌ها', 'وام قسطی', 'قسط‌ها', 'اقساط', 'تعداد اقساط', 'مبلغ هر قسط', 'محاسبه قسط'])
     assert.ok(strip(bad).match(WORD), bad);
-  for (const ok of ['خرید اقساطی', 'تسهیلات اقساطی', 'قسطیو', 'مدت بازپرداخت', 'مبلغ واریزی']) assert.equal(strip(ok).match(WORD), null, ok);
+  for (const ok of ['خرید اقساطی', 'تسهیلات اقساطی', 'قسطیو', 'خرید قسطی', 'پرداخت قسطی', 'مدت بازپرداخت', 'مبلغ واریزی']) assert.equal(strip(ok).match(WORD), null, ok);
 });
 
 test('src: no «قسط»/«اقساط» and no PlanFact field="installment"', () => {

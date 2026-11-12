@@ -20,16 +20,17 @@ const unesc = (t) => t.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromChar
 // ق س ط with optional ZWNJ/ZWJ/tatweel between letters, and the plural ا ق س ا ط
 const J = '[\\u200c\\u200d\\u0640]?';
 export const WORD = new RegExp(`ق${J}س${J}ط|ا${J}ق${J}س${J}ا${J}ط`, 'g');
-/** allowed forms: the category adjective «اقساطی» and the lender name «قسطیو» */
-export const ALLOWED = [/اقساطی/g, /قسطیو/g];
+/** allowed forms: the category adjective «اقساطی», the lender name «قسطیو», and the SEO keywords
+ *  «خرید قسطی» / «پرداخت قسطی» (Mohammad t343s1243 «کلیدواژه‌ها برگردن», 2026-11-12) — exact phrases only, bare «قسطی» still fails */
+export const ALLOWED = [/(?:خرید|پرداخت)[ \u200c-]قسطی(?![\u0600-\u06FF\u200c])/g, /اقساطی/g, /قسطیو/g];
 export const strip = (t) => ALLOWED.reduce((s, re) => s.replace(re, ''), t);
 export const hitsIn = (t) => [...strip(t).matchAll(WORD)];
 
 const errors = [];
 // self-test of the matcher
-for (const bad of ['قسط', 'قسطی', 'قسط‌ها', 'اقساط', 'تعداد اقساط', 'مبلغ هر قسط', 'محاسبه قسط', 'ق\u200cسط', 'اقساط ماهانه'])
+for (const bad of ['قسط', 'قسطی', 'خرید قسطی‌ها', 'وام قسطی', 'قسط‌ها', 'اقساط', 'تعداد اقساط', 'مبلغ هر قسط', 'محاسبه قسط', 'ق\u200cسط', 'اقساط ماهانه'])
   if (!hitsIn(bad).length) errors.push(`matcher misses ${JSON.stringify(bad)}`);
-for (const ok of ['خرید اقساطی', 'تسهیلات اقساطی', 'قسطیو', 'مدت بازپرداخت', 'مبلغ واریزی', 'بازپرداخت ۱۲ تا ۴۸ ماهه'])
+for (const ok of ['خرید اقساطی', 'تسهیلات اقساطی', 'قسطیو', 'خرید قسطی', 'پرداخت قسطی', 'راهنمای ساده پرداخت قسطی', 'مدت بازپرداخت', 'مبلغ واریزی', 'بازپرداخت ۱۲ تا ۴۸ ماهه'])
   if (hitsIn(ok).length) errors.push(`matcher wrongly flags ${JSON.stringify(ok)}`);
 
 const ctx = (t, i) => t.slice(Math.max(0, i - 40), i + 30).replace(/\s+/g, ' ');
@@ -54,4 +55,4 @@ if (errors.length) {
   console.error(`installment: ${errors.length} problem(s)\n  ` + errors.slice(0, 80).join('\n  '));
   process.exit(1);
 }
-console.log(`installment: OK — no «قسط»/«اقساط» in ${distN} dist files or ${srcN} src files (allowed: «اقساطی» category words, lender name «قسطیو») · no PlanFact installment figure`);
+console.log(`installment: OK — no «قسط»/«اقساط» in ${distN} dist files or ${srcN} src files (allowed: «اقساطی» category words, lender name «قسطیو», keywords «خرید قسطی»/«پرداخت قسطی») · no PlanFact installment figure`);
