@@ -7,7 +7,7 @@ import raw from './fixtures/loan-plans.2026-10-28.json' with { type: 'json' };
 import { parseComingSoonPlans, parseLoanPlans } from '../src/lib/loan-plans.ts';
 import {
   combos, recommend, planFacts, bankNames, reqBands, bandOf, millionsFa,
-  FINDER_BANDS, FINDER_PRIOS, comboQualifies, guaranteePagePlans, fastestGuaranteePlans, topPlanPerType, planMaxPayout, planNoGuarantorPayout, planBaseName, type Combo,
+  FINDER_BANDS, FINDER_PRIOS, comboQualifies, guaranteePagePlans, fastestGuaranteePlans, topPlanPerType, planMaxPayout, planNoGuarantorPayout, planBaseName, planDisplayName, type Combo,
 } from '../src/lib/plans.ts';
 import type { GuaranteePage } from '../src/data/plan-guarantees.ts';
 
@@ -181,4 +181,19 @@ test('no-guarantor share from data: a capped plan loses to a lower-payout plan w
   const list = [mk(201, 'الف', 250e6, 0.4), mk(202, 'ب', 150e6)];
   assert.deepEqual(topPlanPerType(list, 'no-guarantor').map((p) => p.id), [202]);
   assert.deepEqual(topPlanPerType([mk(201, 'الف', 500e6)], 'no-guarantor').map((p) => p.id), [201]);
+});
+
+test('duplicate plan names (ستاره آبی 169M / 110M) get a bank/platform display name, raw names unchanged', () => {
+  const twins = plans.filter((p) => p.name.replace(/^طرح\s+/, '') === 'ستاره آبی' || p.name === 'ستاره آبی');
+  assert.ok(twins.length >= 2, 'fixture has at least two ستاره آبی rows');
+  const labels = twins.map((p) => planDisplayName(p, plans));
+  assert.equal(new Set(labels).size, labels.length, String(labels));
+  for (const [p, label] of twins.map((p, i) => [p, labels[i]] as const)) {
+    assert.ok(label.includes('طرح ستاره آبی'), label);
+    assert.ok(label.includes(p.bankName.replace(/\s+/g, ' ').trim()), label);
+    assert.notEqual(label, 'طرح ستاره آبی');
+  }
+  const combo = all.filter((c) => c.id === twins[0]!.id);
+  assert.equal(combo[0]!.name, 'طرح ستاره آبی');
+  assert.equal(combo[0]!.displayName, planDisplayName(twins[0]!, plans));
 });

@@ -70,7 +70,11 @@ export default defineConfig({
   output: 'static',
   // internal links end with `/` (src/lib/site.ts href()); pages are <path>/index.html and nginx 301s `/x` → `/x/`
   trailingSlash: 'always',
-  redirects: { '/loan-plans': '/plans/' },
+  redirects: {
+    '/loan-plans': '/plans/',
+    // old installment-tag URL (removed from the magazine); 301 to the blog index, not a 404
+    '/blog/tag/محاسبه-قسط': { status: 301, destination: '/blog/' },
+  },
   build: { format: 'directory', inlineStylesheets: 'auto' },
   integrations: [
     react(),

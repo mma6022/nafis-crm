@@ -108,7 +108,7 @@ test('recommend «مدت بازپرداخت کوتاه‌تر» (cheap): same sc
 
 test('recommend online: processMode=both ranks above in-person; deterministic id tie-break', () => {
   const mk = (id: number, o: Partial<Combo>): Combo => ({
-    id, name: `طرح ${id}`, type: 'score', mode: 'in_person', days: '10_to_15', bank: 'ملی', platform: 'x',
+    id, name: `طرح ${id}`, displayName: `طرح ${id}`, type: 'score', mode: 'in_person', days: '10_to_15', bank: 'ملی', platform: 'x',
     term: 12, payout: 150e6, inst: 14e6, ...o,
   });
   const list = [mk(9, {}), mk(7, { mode: 'both' }), mk(5, { mode: 'both' })];
@@ -118,7 +118,7 @@ test('recommend online: processMode=both ranks above in-person; deterministic id
 
 test('recommend on synthetic data: band > priority, plan type ignored; alternatives within 30 points', () => {
   const mk = (id: number, o: Partial<Combo>): Combo => ({
-    id, name: `طرح ${id}`, type: 'score', mode: 'in_person', days: '10_to_15', bank: 'ملی', platform: 'x',
+    id, name: `طرح ${id}`, displayName: `طرح ${id}`, type: 'score', mode: 'in_person', days: '10_to_15', bank: 'ملی', platform: 'x',
     term: 12, payout: 150e6, inst: 14e6, ...o,
   });
   const list = [

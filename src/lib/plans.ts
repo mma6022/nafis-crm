@@ -30,6 +30,22 @@ export function cleanPlanName(n: string) {
   return s.startsWith('طرح') ? s : `طرح ${s}`;
 }
 
+/** Bank / platform note used when two plans share a name (e.g. ستاره آبی at ملت and اقتصاد نوین). Real loan_plans fields only. */
+export function planVia(p: { bankName?: string; platformName?: string }): string {
+  return [p.bankName, p.platformName].map((s) => String(s || '').replace(/\s+/g, ' ').trim()).filter(Boolean).join(' / ');
+}
+
+/** cleanPlanName, plus « (bank / platform) » when that cleaned name appears more than once in `peers`. */
+export function planDisplayName(
+  p: { name: string; bankName?: string; platformName?: string },
+  peers: { name: string }[],
+): string {
+  const base = cleanPlanName(p.name);
+  const dup = peers.filter((x) => cleanPlanName(x.name) === base).length > 1;
+  const via = planVia(p);
+  return dup && via ? `${base} (${via})` : base;
+}
+
 /* ---------------- facts (no hand-typed numbers anywhere) ---------------- */
 
 /** Annuity installment (designer site.js `installment`): r = annual/100/12; r = 0 → P/n. */
@@ -87,6 +103,8 @@ export type Guarantee = GuaranteeType;
 export interface Combo {
   id: number;
   name: string;
+  /** cleanPlanName, plus « (bank / platform) » when another plan shares that name */
+  displayName: string;
   type: string;
   mode: string;
   days: string;
@@ -107,6 +125,7 @@ export function combos(plans: LoanPlan[]): Combo[] {
     p.installmentTerms.map((t) => ({
       id: p.id,
       name: cleanPlanName(p.name),
+      displayName: planDisplayName(p, plans),
       type: p.loanType,
       mode: p.processMode,
       days: p.grantDays,

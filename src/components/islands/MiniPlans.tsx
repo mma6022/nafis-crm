@@ -14,7 +14,7 @@ export default function MiniPlans({ snapshot, ids, src }: { snapshot: LoanPlan[]
     <div className="mini-plans">
       {list.map((c) => (
         <div className="nf-card mini" key={c.id}>
-          <h3>{c.name}</h3>
+          <h3>{c.displayName ?? c.name}</h3>
           {c.retirees && <span className="nf-badge nf-badge--brand plan-tag">ویژه‌ی بازنشستگان</span>}
           <div className="row">
             <span>مبلغ واریزی</span>

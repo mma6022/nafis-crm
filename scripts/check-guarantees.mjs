@@ -22,6 +22,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { parseLoanPlans } from '../src/lib/loan-plans.ts';
 import { APPLY_CONSENT_TEXT as CONSENT_TEXT } from '../src/lib/apply.ts';
+import { stripAllowedContact } from './allowed-contact.mjs';
 
 const ROOT = new URL('../', import.meta.url).pathname;
 const DIST = join(ROOT, 'dist');
@@ -226,10 +227,9 @@ if (calc) {
   if (/مبلغ اسمی/.test(body)) errors.push('calculator: still mentions «مبلغ اسمی»');
 }
 
-// LANDLINE REMOVED (Mohammad 2026-10-23): the company landline is not in service. The build FAILS if it appears anywhere
-// in dist/ or src/ — any format: Latin, Persian or Arabic-Indic digits, with or without 021 / +9821 / 009821, with spaces,
-// dashes, dots, ZWNJ or NBSP between digits (021-91303819, ۰۲۱-۹۱۳۰۳۸۱۹, tel:+982191303819, 9130 3819 …). The old number
-// 91090380 and unnormalised tel:0… links stay banned. HANDOFF §0 v1.2: no call / messenger entry point at all (callback form only).
+// LANDLINE: only the exact v1.2 company values are allowed (tel:02191303819, extensions ,210/,211/,212,
+// visible ۰۲۱-۹۱۳۰۳۸۱۹, JSON-LD +982191303819). Any other format, the old number 91090380, unnormalised tel:0…, and
+// other 91303819 spellings still fail the build.
 // Plan and result cards never show the nominal amount (only مبلغ واریزی / مبلغ هر قسط / تعداد اقساط).
 const DIGIT = { 0: '0۰٠', 1: '1۱١', 2: '2۲٢', 3: '3۳٣', 4: '4۴٤', 5: '5۵٥', 6: '6۶٦', 7: '7۷٧', 8: '8۸٨', 9: '9۹٩' };
 const SEP = '[\\s\\-.\u200c\u200f\u200e\u00a0()/]{0,3}';
@@ -238,9 +238,10 @@ const LANDLINE = phoneRe('91303819');
 const OLD_LANDLINE = phoneRe('91090380');
 const UNNORMALISED_TEL = /tel:0(?!9)\d/;
 const phoneProblems = (t) => {
+  const s = stripAllowedContact(t);
   const out = [];
-  for (const [re, what] of [[LANDLINE, 'removed landline'], [OLD_LANDLINE, 'old landline'], [UNNORMALISED_TEL, 'unnormalised tel: link']]) {
-    const m = t.match(re);
+  for (const [re, what] of [[LANDLINE, 'unexpected landline'], [OLD_LANDLINE, 'old landline'], [UNNORMALISED_TEL, 'unnormalised tel: link']]) {
+    const m = s.match(re);
     if (m) out.push(`${what} (${JSON.stringify(m[0])})`);
   }
   return out;

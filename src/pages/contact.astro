@@ -1,17 +1,15 @@
 ---
 /**
- * «ارتباط با ما» (UX-SPEC §7; HANDOFF §0 v1.2 #11, Mohammad: «شماره نمایش داده نشه، فقط فرم درخواست»): no call card,
- * no picker, no messengers, no sales-expert list. Order: 1) «درخواست مشاوره‌ی رایگان» callback form (#callback,
- * src=contact-callback) 2) «ترجیح می‌دهید مستقیم درخواست وام ثبت کنید؟» 3) email, hours (+ Friday/holiday line),
- * Instagram, portal, legal name, address.
+ * «ارتباط با ما» (Armita HANDOFF site-credit-noinst v1.2; Mohammad t340u / t342u):
+ * company landline, one Bale handle, sales-expert extensions, then email / hours / Instagram / portal / legal / address.
+ * Header and sticky bar stay without phone or Bale. CTA is «ثبت درخواست» → /request/?src=contact.
  */
 import BaseLayout from '../layouts/BaseLayout.astro';
 import PageHeader from '../components/PageHeader.astro';
 import Icon from '../components/ui/Icon.astro';
 import I from '../components/ui/I.astro';
 import { buttonClass } from '../components/ui/styles';
-import RequestCTA from '../components/RequestCTA.astro';
-import { SITE, SOCIAL, WORK_HOURS } from '../lib/site';
+import { CONTACT, SITE, SOCIAL, WORK_HOURS, contactTelHref } from '../lib/site';
 import { breadcrumbLd } from '../lib/seo';
 const crumbs = [
   { name: 'خانه', path: '/' },
@@ -22,38 +20,62 @@ const card = 'rounded-card border border-line bg-white p-5';
 
 <BaseLayout
   title="ارتباط با نفیس وام"
-  description="درخواست‌تان را ثبت کنید؛ کارشناس نفیس وام در ساعت کاری با شما تماس می‌گیرد. ساعت کاری، نشانی و ایمیل."
+  description={`با تلفن شرکت ${CONTACT.phoneDisplay} تماس بگیرید، در بله به @${CONTACT.baleHandle} پیام بگذارید، یا درخواست ثبت کنید.`}
   jsonLd={[breadcrumbLd(crumbs)]}
 >
-  <PageHeader title="ارتباط با ما" lead="یک کارشناس رایگان راهنمایی‌تان می‌کند." crumbs={crumbs} />
-  <div class="container-nf grid gap-3 pt-8 sm:grid-cols-2 lg:grid-cols-3">
-    <section class="sm:col-span-2 lg:col-span-3" id="callback" aria-label="مشاوره‌ی رایگان">
-      <RequestCTA src="contact-callback" />
-    </section>
-    <div class={card}>
-      <p class="text-ink-muted text-small">ایمیل</p>
-      <a href={`mailto:${SITE.email}`} class="text-ink mt-1 block font-extrabold break-all"><span class="ltr">{SITE.email}</span></a>
+  <PageHeader title="ارتباط با ما" lead="با تلفن شرکت تماس بگیرید، در بله پیام بگذارید، یا درخواست ثبت کنید." crumbs={crumbs} />
+  <div class="container-nf ct-page">
+    <div class="ct-grid">
+      <section class={`${card} ct-phone`}>
+        <p class="ct-lbl"><I name="phone" size={18} /> تلفن</p>
+        <a class="ct-tel" href={contactTelHref()} dir="ltr">{CONTACT.phoneDisplay}</a>
+      </section>
+      <section class={`${card} ct-bale`}>
+        <p class="ct-lbl"><I name="bale" size={18} /> پیام در بله</p>
+        <a class="ct-bale-link" href={CONTACT.baleUrl} target="_blank" rel="noopener" dir="ltr">@{CONTACT.baleHandle}</a>
+      </section>
+      <section class={`${card} ct-ext`} aria-labelledby="ext-h">
+        <h2 id="ext-h" class="ct-ext-h">داخلی کارشناسان فروش</h2>
+        <ul class="ct-ext-list">
+          {CONTACT.extensions.map((e) => (
+            <li>
+              <a href={contactTelHref(e.ext)}
+                ><span class="nm">{e.name}</span><span class="ext" dir="ltr">داخلی {e.extFa}</span></a
+              >
+            </li>
+          ))}
+        </ul>
+      </section>
     </div>
-    <div class={card}>
-      <p class="text-ink-muted flex items-center gap-2 text-small"><Icon name="clock" size={18} /> ساعت کاری</p>
-      <p class="text-ink mt-2 font-extrabold">{WORK_HOURS.daysFa}، {WORK_HOURS.fa}</p>
-      <p class="text-ink-muted mt-1 text-small">جمعه و تعطیلات رسمی تعطیل است.</p>
+    <div class="ct-cta-row">
+      <a class:list={[buttonClass('primary', 'lg'), 'ct-cta']} href="/request/?src=contact">ثبت درخواست</a>
     </div>
-    <div class={card}>
-      <p class="text-ink-muted flex items-center gap-2 text-small"><I name="ig" size={18} /> اینستاگرام</p>
-      <a href={SOCIAL.instagram.href} target="_blank" rel="noopener" class="text-ink mt-1 block font-extrabold"><span class="ltr">@{SOCIAL.instagram.handle}</span></a>
-    </div>
-    <div class={card}>
-      <p class="text-ink-muted flex items-center gap-2 text-small"><Icon name="user" size={18} /> مشتری هستید؟</p>
-      <a href={SITE.portal} class={buttonClass('secondary', 'md', 'mt-2 w-full')}>ورود مشتریان</a>
-    </div>
-    <div class={card}>
-      <p class="text-ink-muted text-small">نام حقوقی</p>
-      <p class="text-ink mt-1 font-extrabold">{SITE.legalName}</p>
-    </div>
-    <div class={card}>
-      <p class="text-ink-muted text-small">نشانی</p>
-      <address class="text-ink mt-1 font-extrabold not-italic" data-address>{SITE.address}</address>
+    <div class="ct-grid ct-meta">
+      <div class={card}>
+        <p class="text-ink-muted text-small">ایمیل</p>
+        <a href={`mailto:${SITE.email}`} class="ct-meta-val"><span class="ltr">{SITE.email}</span></a>
+      </div>
+      <div class={card}>
+        <p class="text-ink-muted flex items-center gap-2 text-small"><Icon name="clock" size={18} /> ساعت کاری</p>
+        <p class="ct-meta-val">{WORK_HOURS.daysFa}، {WORK_HOURS.fa}</p>
+        <p class="text-ink-muted mt-1 text-small">جمعه و تعطیلات رسمی تعطیل است.</p>
+      </div>
+      <div class={card}>
+        <p class="text-ink-muted flex items-center gap-2 text-small"><I name="ig" size={18} /> اینستاگرام</p>
+        <a href={SOCIAL.instagram.href} target="_blank" rel="noopener" class="ct-meta-val"><span class="ltr">@{SOCIAL.instagram.handle}</span></a>
+      </div>
+      <div class={card}>
+        <p class="text-ink-muted flex items-center gap-2 text-small"><Icon name="user" size={18} /> مشتری هستید؟</p>
+        <a href={SITE.portal} class={buttonClass('secondary', 'md', 'mt-2 w-full')}>ورود مشتریان</a>
+      </div>
+      <div class={card}>
+        <p class="text-ink-muted text-small">نام حقوقی</p>
+        <p class="ct-meta-val">{SITE.legalName}</p>
+      </div>
+      <div class={card}>
+        <p class="text-ink-muted text-small">نشانی</p>
+        <address class="ct-meta-val not-italic" data-address>{SITE.address}</address>
+      </div>
     </div>
   </div>
 </BaseLayout>

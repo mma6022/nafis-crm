@@ -1,12 +1,11 @@
 /** JSON-LD builders. Output is injected with <JsonLd> in the <head>. */
-import { SITE, WORK_HOURS, absoluteUrl } from './site';
+import { CONTACT, SITE, WORK_HOURS, absoluteUrl } from './site';
 import { stripMarkers } from './markers';
 
 export type Crumb = { name: string; path: string };
 
 const pad = (h: number) => `${String(h).padStart(2, '0')}:00`;
-/** Sat–Thu 09:00–18:00 (Mohammad 2026-10-23). No telephone in the schema: the landline is not in service (2026-10-23)
- *  and the expert mobiles are personal lines, so ContactPoint carries email + the /contact URL. */
+/** Sat–Thu 09:00–18:00 (Mohammad 2026-10-23). ContactPoint carries the company landline (v1.2) + email + /contact. */
 export const openingHoursLd = () => ({
   '@type': 'OpeningHoursSpecification',
   dayOfWeek: [...WORK_HOURS.schemaDays],
@@ -22,7 +21,7 @@ export const organizationLd = () => ({
   alternateName: SITE.nameEn,
   legalName: SITE.legalName,
   url: SITE.url,
-  sameAs: [SITE.instagram],
+  sameAs: [SITE.instagram, CONTACT.baleUrl],
   logo: { '@type': 'ImageObject', url: absoluteUrl(SITE.logoPng), width: 2000, height: 364 },
   image: absoluteUrl(SITE.ogImage),
   email: SITE.email,
@@ -30,6 +29,7 @@ export const organizationLd = () => ({
   contactPoint: [
     {
       '@type': 'ContactPoint',
+      telephone: CONTACT.phoneE164,
       email: SITE.email,
       url: absoluteUrl('/contact/'),
       contactType: 'customer service',

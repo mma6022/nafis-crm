@@ -28,7 +28,11 @@ const lead =
     : page === 'vam-fori'
       ? 'سریع‌ترین طرح متناسب با شما را کارشناس ما پیشنهاد می‌دهد.'
       : 'طرح متناسب با شما را کارشناس ما پیشنهاد می‌دهد.');
-const blocked = (h: string) => /^(tel|sms|whatsapp|tg|bale):|wa\.me|t\.me|ble\.ir|#experts/.test(h);
+const blocked = (h: string) => {
+  const s = h.replace(/\/+$/, '');
+  if (/^tel:02191303819(?:,21[0-2])?$/.test(s) || s === 'https://ble.ir/nafisvambot') return false;
+  return /^(tel|sms|whatsapp|tg|bale):|wa\.me|t\.me|ble\.ir|#experts/.test(h);
+};
 const sec = !noContact && secondary && secondaryHref && !blocked(secondaryHref) ? { href: secondaryHref, text: secondary } : null;
 ---
 

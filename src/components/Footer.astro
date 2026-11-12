@@ -1,8 +1,8 @@
 ---
-/** Navy site footer (mockup src/footer.html; HANDOFF §0 v1.2 #8: no call / messenger row, column «ارتباط با ما»). Columns are <details>: collapsed on mobile, opened on ≥1024px by scripts/chrome.ts. */
+/** Navy site footer. «ارتباط با ما» carries the company landline, @nafisvambot, and sales extensions (v1.2). Columns are <details>: collapsed on mobile, opened on ≥1024px by scripts/chrome.ts. */
 import I from './ui/I.astro';
 import Logo from './Logo.astro';
-import { GUIDE_NAV, KEYWORD_PAGES, SITE, SOCIAL, WORK_HOURS, jalaliYear } from '../lib/site';
+import { CONTACT, GUIDE_NAV, KEYWORD_PAGES, SITE, SOCIAL, WORK_HOURS, contactTelHref, jalaliYear } from '../lib/site';
 import { fa, planFacts } from '../lib/plans';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 const facts = planFacts(LOAN_PLANS_SNAPSHOT);
@@ -27,6 +27,12 @@ const facts = planFacts(LOAN_PLANS_SNAPSHOT);
       <details data-foot>
         <summary>ارتباط با ما <I name="down" size={20} /></summary>
         <ul>
+          <li><a class="ft-tel" href={contactTelHref()} dir="ltr"><I name="phone" size={18} /><span class="ltr">{CONTACT.phoneDisplay}</span></a></li>
+          <li><a class="ft-bale" href={CONTACT.baleUrl} target="_blank" rel="noopener"><I name="bale" size={18} /><span>پیام در بله <span class="ltr">@{CONTACT.baleHandle}</span></span></a></li>
+          <li class="ft-ext-title">داخلی کارشناسان فروش</li>
+          {CONTACT.extensions.map((e) => (
+            <li><a class="ft-ext" href={contactTelHref(e.ext)}><span>{e.name}</span><span class="ext ltr" dir="ltr">داخلی {e.extFa}</span></a></li>
+          ))}
           <li><a href="/request/?src=footer"><I name="callback" size={18} /><span>ثبت درخواست</span></a></li>
           <li><I name="clock" size={18} /><span>{WORK_HOURS.daysFa}، {WORK_HOURS.fa}</span></li>
           <li><address class="not-italic" data-address>{SITE.address}</address></li>

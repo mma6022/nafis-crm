@@ -7,9 +7,8 @@ export const SITE = {
   description:
     'نفیس وام، همراه شما برای شناخت گزینه‌های تسهیلات، وام فوری، وام بدون ضامن و انتخاب مبلغ و مدت بازپرداخت متناسب با شرایط واقعی زندگی.',
   /**
-   * NO phone number anywhere (Mohammad 2026-10-23 + HANDOFF §0 v1.2 #13): no tel:/sms:/messenger links and no numbers;
-   * the only contact path is the «درخواست مشاوره‌ی رایگان» callback form (/contact/#callback) or /request/.
-   * scripts/check-messengers.mjs + check-guarantees.mjs fail the build otherwise.
+   * Company landline + one Bale handle (site-credit-noinst v1.2, Mohammad t340u/t342u): shown on /contact/ and in the
+   * footer only. Guards allow exactly these values and still reject mobiles, WhatsApp, Telegram, and any other tel:/ble.ir.
    */
   /** the .com MX is live (webmail.nafisvam.com) */
   email: 'info@nafisvam.com',
@@ -32,10 +31,30 @@ export const SITE = {
   locale: 'fa_IR',
 } as const;
 
-/** Public social profile (Mohammad 2026-10-23). No messenger links anywhere (HANDOFF §0 v1.2). */
+/** Public social profile (Mohammad 2026-10-23). WhatsApp and Telegram stay off the site. */
 export const SOCIAL = {
   instagram: { label: 'اینستاگرام', href: 'https://instagram.com/nafisvamm', handle: 'nafisvamm' },
 } as const;
+
+/**
+ * Company contact (Armita HANDOFF site-credit-noinst v1.2; Mohammad t342u).
+ * Display uses Persian digits; tel: and JSON-LD use the Latin / E.164 forms. Extensions use a comma pause.
+ */
+export const CONTACT = {
+  phoneDisplay: '۰۲۱-۹۱۳۰۳۸۱۹',
+  phoneTel: '02191303819',
+  phoneE164: '+982191303819',
+  baleUrl: 'https://ble.ir/nafisvambot',
+  baleHandle: 'nafisvambot',
+  extensions: [
+    { name: 'خانم حسنی', ext: '210', extFa: '۲۱۰' },
+    { name: 'خانم قاسمی', ext: '211', extFa: '۲۱۱' },
+    { name: 'آقای کاظمی', ext: '212', extFa: '۲۱۲' },
+  ],
+} as const;
+
+export const contactTelHref = (ext?: string) =>
+  ext ? `tel:${CONTACT.phoneTel},${ext}` : `tel:${CONTACT.phoneTel}`;
 
 /**
  * Callback / contact hours (PM-confirmed 2026-10-23): 09:00–18:00 Asia/Tehran; «صبح» = 9–13, «عصر» = 13–18.

@@ -225,3 +225,35 @@ a.enamad:hover,a.enamad:focus-visible{text-decoration:none;box-shadow:0 0 0 3px 
 .rq-cta-note svg{flex:none;margin-top:3px;color:var(--nf-brand-600)}
 .rq-cta-inline{display:grid;gap:8px}
 .rq-cta-inline .cb-sub{margin:0;font-size:14px;line-height:1.7;color:var(--nf-ink-soft)}
+
+/* contact page + footer (site-credit-noinst v1.2) */
+.ct-page{display:grid;gap:20px;padding-top:32px}
+.ct-grid{display:grid;gap:12px}
+/* Mobile sticky bar is 72px; keep the last extension row above it on a 390×844 first screen. */
+@media (max-width:1023px){
+  .ct-page{padding-top:8px}
+  .ct-grid{gap:8px}
+}
+@media (min-width:640px){.ct-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (min-width:1024px){.ct-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.ct-ext{grid-column:1/-1}
+@media (min-width:1024px){.ct-phone,.ct-bale{grid-column:auto}.ct-ext{grid-column:auto}}
+.ct-lbl{display:flex;align-items:center;gap:8px;margin:0;font-size:14px;font-weight:600;color:var(--nf-ink-muted)}
+.ct-tel{display:inline-flex;align-items:center;min-height:44px;min-width:44px;margin-top:8px;padding:0 2px;font-size:28px;font-weight:800;color:var(--nf-brand-700);text-decoration:none;letter-spacing:.02em;unicode-bidi:isolate}
+.ct-bale-link{display:inline-flex;align-items:center;min-height:44px;min-width:44px;margin-top:8px;padding:0 2px;font-size:22px;font-weight:800;color:var(--nf-brand-700);text-decoration:none;unicode-bidi:isolate}
+.ct-ext-h{font-size:16px;font-weight:800;margin:0 0 8px;color:var(--nf-ink)}
+.ct-ext-list{list-style:none;margin:0;padding:0;display:grid}
+.ct-ext-list li{border-top:1px solid var(--nf-line)}
+.ct-ext-list li:first-child{border-top:0}
+.ct-ext-list a{display:flex;justify-content:space-between;align-items:center;gap:8px;min-height:44px;min-width:44px;padding:0 2px;font-size:15px;font-weight:600;color:var(--nf-ink);text-decoration:none;border-radius:8px}
+.ct-ext-list a:hover{background:var(--nf-brand-50);color:var(--nf-brand-700)}
+.ct-ext-list .ext{color:var(--nf-brand-700);font-weight:800;unicode-bidi:isolate}
+.ct-cta-row{display:flex}
+.ct-cta{min-width:160px}
+.ct-meta-val{display:flex;align-items:center;min-height:44px;margin-top:4px;font-weight:800;color:var(--nf-ink);text-decoration:none}
+.ct-done-contact a{font-weight:800;color:var(--nf-brand-700);text-decoration:none}
+.ct-done-contact a:hover{text-decoration:underline;text-underline-offset:4px}
+.site-foot .ft-tel{font-weight:800;font-size:16px}
+.site-foot .ft-ext{display:flex;justify-content:space-between;align-items:center;gap:8px;min-height:44px;width:100%}
+.site-foot .ft-ext .ext{color:#F8D58A;font-weight:800;unicode-bidi:isolate}
+.site-foot li.ft-ext-title{min-height:auto;padding-top:8px;font-weight:700;color:#C9CEE8}

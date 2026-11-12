@@ -49,7 +49,7 @@ const crumbs = [
       </div>
       {one.map((c) => (
         <div class="pt-r" role="row">
-          <b class="pt-nm" role="rowheader">{c.name}{c.retirees && <small>ویژه‌ی بازنشستگان</small>}</b>
+          <b class="pt-nm" role="rowheader">{c.displayName}{c.retirees && <small>ویژه‌ی بازنشستگان</small>}</b>
           <span role="cell">{MODE_LABEL[c.mode] && <span class={`mode mode--${c.mode}`}><I name={MODE_ICON[c.mode] ?? 'online'} size={18} /><span><span class="sr">روش: </span>{MODE_LABEL[c.mode]}</span></span>}</span>
           <span role="cell"><b class="pt-n">حدود {millionsFa(c.payout)}</b><small>میلیون تومان</small></span>
           <span role="cell"><b class="pt-n">{fa(c.term)}</b><small>ماهه</small></span>

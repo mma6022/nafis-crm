@@ -5,6 +5,7 @@
 // Refuses post.v1.mdx (superseded). Exits 1 on any rule hit; then run `npm run build && npm test`.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { basename } from 'node:path';
+import { stripAllowedContact } from './allowed-contact.mjs';
 
 const args = process.argv.slice(2);
 const checkOnly = args.includes('--check-only');
@@ -29,7 +30,11 @@ const banned = [
   ['phone number', /(\+98|0098|۰۰۹۸|\+۹۸)|(^|[^\d۰-۹])(0|۰)(9|۹)[\d۰-۹]{2}[\s-]?[\d۰-۹]{3}[\s-]?[\d۰-۹]{4}|(^|[^\d۰-۹])(0|۰)[1-8۱-۸][\d۰-۹]{1,2}[\s-]?[\d۰-۹]{7,8}/],
   ['signature provider name', /امضامی|ساینو|امضا\s*نوین|سیگنو/],
 ];
-for (const [n, re] of banned) { const hit = all.match(re); if (hit) errors.push(`banned: ${n} → «${all.slice(Math.max(0, hit.index - 20), hit.index + 30).replace(/\n/g, ' ')}»`); }
+for (const [n, re] of banned) {
+  const src = n === 'tel:/sms:/messenger' || n === 'phone number' ? stripAllowedContact(all) : all;
+  const hit = src.match(re);
+  if (hit) errors.push(`banned: ${n} → «${src.slice(Math.max(0, hit.index - 20), hit.index + 30).replace(/\n/g, ' ')}»`);
+}
 // plan cards show only مبلغ واریزی / مبلغ هر قسط / تعداد اقساط (check-guarantees CARD_CLAIM); method, time, guarantee type live elsewhere
 const cardClaim = body.match(/(روش|زمان|پیش‌پرداخت|مبلغ اسمی|ضمانت)[^.؟!«»"<\n]{0,60}روی کارت|روی کارت[^.؟!"<\n]{0,40}(روش|زمان بررسی|پیش‌پرداخت|مبلغ اسمی|ضمانت)/);
 if (cardClaim) errors.push(`card claim (cards show only مبلغ واریزی، مبلغ هر قسط، تعداد اقساط; say «روش انجام هر طرح (حضوری یا غیرحضوری) در فهرست طرح‌ها آمده است»): «${cardClaim[0]}»`);

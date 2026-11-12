@@ -18,6 +18,7 @@ import { I, type SpriteIcon } from '../ui/I';
 import { useLoanPlans } from './useLoanPlans';
 import type { LoanPlan } from '../../lib/loan-plans';
 import { combos, fa } from '../../lib/plans';
+import { CONTACT, contactTelHref } from '../../lib/site';
 import { LeadError, readUtm } from '../../lib/lead';
 import {
   AMOUNT_RANGES, APPLY_CONSENT_TEXT, APPLY_STEPS, CREDIT_RANKS, DOCUMENTS, JOB_STATUSES, LOAN_PURPOSES, MILITARY,
@@ -460,6 +461,12 @@ export default function ApplyWizard({ snapshot }: { snapshot: LoanPlan[] }) {
           <h1>درخواست‌تان ثبت شد</h1>
           <p className="lead">
             یکی از کارشناس‌های نفیس وام با شماره‌ی <bdi dir="ltr">{masked}</bdi> تماس می‌گیرد و طرح‌های مناسب شما را بررسی می‌کند.
+          </p>
+          <p className="lead ct-done-contact">
+            برای پیگیری، با <a href={contactTelHref()} dir="ltr">{CONTACT.phoneDisplay}</a>
+            {' '}تماس بگیرید یا{' '}
+            <a href={CONTACT.baleUrl} target="_blank" rel="noopener">پیام در بله</a>
+            {' '}بگذارید.
           </p>
           <ul className="wz-next">
             <li>

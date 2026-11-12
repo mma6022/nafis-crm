@@ -98,7 +98,14 @@ a{text-decoration:none}
 (function () {
   var main = document.getElementById('lp');
   var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
-  var safeUrl = function (u) { return /^(https:\/\/|tel:|sms:|mailto:)/i.test(String(u)) ? String(u) : null; };
+  var safeUrl = function (u) {
+    var s = String(u);
+    if (/wa\.me|api\.whatsapp\.com|t\.me|telegram\.me|whatsapp:/i.test(s)) return null;
+    if (/ble\.ir/i.test(s)) return /^https:\/\/ble\.ir\/nafisvambot\/?$/i.test(s) ? s : null;
+    if (/^tel:/i.test(s)) return /^tel:02191303819(?:,21[0-2])?$/.test(s) ? s : null;
+    if (/^sms:/i.test(s)) return null;
+    return /^(https:\/\/|mailto:)/i.test(s) ? s : null;
+  };
   var chev = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true">' + D.chev + '</svg>';
   var mark = '<svg viewBox="' + D.markVb + '" aria-hidden="true">' + D.mark + '</svg>';
   var logoUrl = function (id) { return D.api + '/api/public/link-page/logo/' + Number(id); };

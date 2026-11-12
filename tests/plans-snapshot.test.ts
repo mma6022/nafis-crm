@@ -36,3 +36,17 @@ test('finder acceptance on the live snapshot: every band × priority → 1..3 ca
       assert.ok(r.cards.length >= 1 && r.cards.length <= 3, `${band},${prio}: ${r.cards.length}`);
     }
 });
+
+test('live /plans/ display names are unique (ستاره آبی distinguished by bank / platform)', () => {
+  const all = combos(parseLoanPlans(raw));
+  const byId = [...new Map(all.map((c) => [c.id, c])).values()];
+  const names = byId.map((c) => c.displayName);
+  assert.equal(new Set(names).size, names.length, `duplicate display names: ${names.filter((n, i) => names.indexOf(n) !== i).join(', ')}`);
+  const blue = byId.filter((c) => c.name === 'طرح ستاره آبی');
+  if (blue.length > 1) {
+    for (const c of blue) {
+      assert.ok(c.displayName.includes(c.bank) || c.displayName.includes(c.platform), c.displayName);
+      assert.notEqual(c.displayName, 'طرح ستاره آبی');
+    }
+  }
+});

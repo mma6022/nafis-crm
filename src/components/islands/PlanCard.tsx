@@ -40,7 +40,7 @@ export function PlanCard({
     <article className={`nf-card plan plan--result${featured ? ' nf-card--featured' : ''}`} data-plan-card={c.id}>
       {featured && <span className="nf-badge nf-badge--gold">{badge}</span>}
       <h3>
-        <span className="nm">{name ?? c.name}</span>
+        <span className="nm">{name ?? c.displayName ?? c.name}</span>
       </h3>
       {c.retirees && <span className="nf-badge nf-badge--brand plan-tag">ویژه‌ی بازنشستگان</span>}
       {note && <p className="plan-note">{note}</p>}

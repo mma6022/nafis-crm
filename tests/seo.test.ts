@@ -30,3 +30,23 @@ test('absoluteUrl: pages end with / (the form nginx serves), files keep their na
   assert.equal(absoluteUrl('/og-image.png'), 'https://nafisvam.com/og-image.png');
   assert.equal(absoluteUrl('/rss.xml'), 'https://nafisvam.com/rss.xml');
 });
+
+test('organization JSON-LD has the company landline and Bale sameAs', async () => {
+  const { organizationLd } = await import('../src/lib/seo.ts');
+  const { CONTACT, SITE } = await import('../src/lib/site.ts');
+  const ld = organizationLd();
+  assert.deepEqual(ld.sameAs, [SITE.instagram, CONTACT.baleUrl]);
+  assert.equal(ld.contactPoint[0].telephone, CONTACT.phoneE164);
+});
+
+test('CONTACT constants are the approved company values only', async () => {
+  const { CONTACT, contactTelHref } = await import('../src/lib/site.ts');
+  assert.equal(CONTACT.phoneTel, '02191303819');
+  assert.equal(CONTACT.phoneE164, '+982191303819');
+  assert.equal(CONTACT.phoneDisplay, '۰۲۱-۹۱۳۰۳۸۱۹');
+  assert.equal(CONTACT.baleUrl, 'https://ble.ir/nafisvambot');
+  assert.equal(CONTACT.baleHandle, 'nafisvambot');
+  assert.deepEqual(CONTACT.extensions.map((e) => e.ext), ['210', '211', '212']);
+  assert.equal(contactTelHref(), 'tel:02191303819');
+  assert.equal(contactTelHref('210'), 'tel:02191303819,210');
+});
