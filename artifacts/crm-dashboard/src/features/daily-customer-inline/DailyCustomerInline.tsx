@@ -21,6 +21,7 @@ import "./dci.css";
 import "./today-layout.css";
 import { getListRemindersQueryKey, useListReminders, useUpdateReminder } from "@workspace/api-client-react";
 import { mergeQueue, queueKindClass, queueKindLabel, type QueueTask } from "./queue";
+import { DQ_KEY, DqEarlyBar, DqFileActCard, DqIntBanner, DqPayCard, DqStrip, DqUnknownBoard, KIND_FA, dqApi, dqCurText, useDqArrivals, useDqQueue, type DqItem, type DqKind } from "./queue-v21";
 
 const FD = "۰۱۲۳۴۵۶۷۸۹";
 /** Existing catalog labels (customer_tag_catalog). Fallback if the catalog has not loaded yet. */
@@ -245,12 +246,14 @@ function InBoundBlock({ rows, ext, onCall }: { rows: DciInbound[]; ext: boolean;
   </>;
 }
 
-function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting, promo, remBar, userId, wizard }: {
+function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting, promo, remBar, userId, wizard, dq }: {
   m: DciBoard; ext: boolean; narrow: boolean; onCopy: (v: string) => void; onCall: () => void; onResult: () => void;
   onPromote: () => void; promoting: boolean;
   promo?: { open: boolean; reason: string; setReason: (v: string) => void; onSave: () => void; onClose: () => void };
-  remBar?: { text: string } | null;
+  remBar?: { text: string; hint?: string } | null;
   userId: number | undefined;
+  /** DCI-QUEUE 440000 (flag.dci_queue_v21): early bar, interrupt banner, payment / file-action card. Absent → v2.0 markup. */
+  dq?: { top?: ReactNode; cur?: ReactNode; card?: ReactNode } | null;
   wizard: { open: boolean; onOpen: (mode: "new" | "edit") => void; onClose: () => void };
 }) {
   const tagCatalog = useListCustomerTags({ query: { queryKey: getListCustomerTagsQueryKey() } });
@@ -394,8 +397,9 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
   </div>;
   const shownName = nameOv ?? m.customer.name;
   return <section className="dci-col dci-mid" aria-label="اطلاعات تماس و پرونده‌ها">
+    {dq?.top ?? null}
     <div className="dci-head">
-    <p className="dci-cur">{m.call}</p>
+    {dq?.cur ?? <p className="dci-cur">{m.call}</p>}
     <div className="dci-head-main">
       <div className="dci-who-row">
         <div className="dci-who">
@@ -427,7 +431,8 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
       </div>
     </div>, document.body) : null}
     </div>
-    {remBar ? <div className="dci-rembar" data-testid="dci-rembar" role="status"><p>{remBar.text}</p><span className="dci-hint">با ثبت نتیجه، این یادآور تمام می‌شود.</span></div> : null}
+    {remBar ? <div className="dci-rembar" data-testid="dci-rembar" role="status"><p>{remBar.text}</p><span className="dci-hint">{remBar.hint || "با ثبت نتیجه، این یادآور تمام می‌شود."}</span></div> : null}
+    {dq?.card ?? null}
     {tags.length ? <div className="dci-tags" data-testid="dci-tags">{tags}</div> : null}
     <section className="dci-filecard" id="dci-filecard" aria-label="پرونده‌ی مشتری" data-testid="dci-filecard">
       <FileBox customerId={m.customer.id} onOpen={wizard.onOpen}
@@ -508,14 +513,31 @@ export default function DailyCustomerInline() {
     () => mergeQueue(todayQ.data?.tasks ?? [], remQ.data).filter((t) => !droppedIds.includes(t.customerId)),
     [todayQ.data?.tasks, remQ.data, droppedIds],
   );
+  // DCI-QUEUE 440000: GET /queue 404 (flag.dci_queue_v21 off) → null → everything below stays v2.0.
+  const dqQ = useDqQueue(true);
+  const dq = dqQ.data ?? null;
+  const dqTasks = useMemo<QueueTask[] | null>(() => dq ? dq.items.map((it) => ({
+    id: it.id, kind: it.itemId ? "plan" : "inbound", itemId: it.itemId, customerId: it.customer_id ?? 0, name: it.name,
+    typ: KIND_FA[it.kind], ic: "i-phone", tm: it.tm, at: it.due_at, status: it.dpStatus, turn: it.turn, overdue: it.overdue,
+    remText: it.remText ?? undefined, reminderId: it.reminderId ?? undefined, types: it.kinds.map((k) => KIND_FA[k]),
+  })) : null, [dq]);
+  // While GET /queue is in flight nothing is picked, so the v2.0 list never rewrites ?customer= before the queue decides (Q: current first).
+  const allTasks = dqTasks ?? (dqQ.isLoading ? [] : tasks);
   const qCust = Number(queryParam(search, "customer") || "");
   const selectedTask = useMemo(() => {
     const id = queryParam(search, "task");
-    if (id && tasks.some((t) => t.id === id)) return tasks.find((t) => t.id === id)!;
-    if (qCust) return tasks.find((t) => t.customerId === qCust) ?? null;
-    return tasks[0] ?? null;
-  }, [tasks, search, qCust]);
-  const customerId = selectedTask?.customerId ?? (Number.isFinite(qCust) && qCust > 0 ? qCust : null);
+    if (id && allTasks.some((t) => t.id === id)) return allTasks.find((t) => t.id === id)!;
+    if (qCust) return allTasks.find((t) => t.customerId === qCust) ?? null;
+    if (dq) return allTasks.find((t) => t.id === dq.currentId) ?? allTasks.find((t, i) => !dq.items[i].done) ?? null;
+    return allTasks[0] ?? null;
+  }, [allTasks, search, qCust, dq]);
+  const dqItem: DqItem | null = dq && selectedTask ? dq.items.find((x) => x.id === selectedTask.id) ?? null : null;
+  const dqCur: DqItem | null = dq ? dq.items.find((x) => x.current) ?? null : null;
+  const dqEarly = Boolean(dqItem && dqCur && dqItem.id !== dqCur.id && !dqItem.done && !dqItem.urgent);
+  const [dqFlt, setDqFlt] = useState<DqKind | "">("");
+  const [dqToast, setDqToast] = useState<DqItem | null>(null);
+  useDqArrivals(dq, (it) => { setDqToast(it); window.setTimeout(() => setDqToast((t) => (t && t.id === it.id ? null : t)), 8000); });
+  const customerId = (selectedTask?.customerId || null) ?? (Number.isFinite(qCust) && qCust > 0 ? qCust : null);
   const boardQ = useDciBoard(customerId, customerId != null, selectedTask?.id ?? null);
   const [toast, setToast] = useState("");
   const [promoting, setPromoting] = useState(false);
@@ -539,6 +561,15 @@ export default function DailyCustomerInline() {
     window.setTimeout(() => setToast(""), 1600);
   };
   const setSel = (t: DciTask) => setLoc(`/today?customer=${t.customerId}&task=${encodeURIComponent(t.id)}`, { replace: true } as any);
+  const pickDq = (it: DqItem) => setLoc(it.customer_id ? `/today?customer=${it.customer_id}&task=${encodeURIComponent(it.id)}` : `/today?task=${encodeURIComponent(it.id)}`, { replace: true } as any);
+  const flash = (msg: string, ms = 3000) => { setToast(msg); window.setTimeout(() => setToast((t) => (t === msg ? "" : t)), ms); };
+  /** Q14: a customer opened/called outside today's queue becomes an «تماس خروجی» task (or the existing task is reused). */
+  const dqEnsure = async (cid: number): Promise<string | null> => {
+    if (!dq) return null;
+    const hit = dq.items.find((x) => x.customer_id === cid);
+    if (hit) return hit.id;
+    try { const r = await dqApi.outgoing(cid); void vcQc.invalidateQueries({ queryKey: DQ_KEY }); return r.taskId; } catch { return null; }
+  };
   useEffect(() => {
     if (customerId && !queryParam(search, "customer")) {
       const t = selectedTask;
@@ -568,6 +599,7 @@ export default function DailyCustomerInline() {
     const cid = typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? id : customerId;
     if (!cid || !ext || callBusy.current) return;
     callBusy.current = true;
+    void dqEnsure(cid);
     vcApi.start({ customerId: cid })
       .then((r) => { vcQc.setQueryData<VcMe>(VC_ME_KEY, (o) => ({ ...(o ?? { on: true }), on: true, call: r.call })); })
       .catch((e) => {
@@ -629,8 +661,21 @@ export default function DailyCustomerInline() {
         try { await new Promise<void>((resolve, reject) => updateRem.mutate({ data: { id: selectedTask.reminderId!, done: true } }, { onSuccess: () => resolve(), onError: (e) => reject(e) })); }
         catch { /* result already saved; reminder list will refresh */ }
       }
+      // DCI-QUEUE 440000: record done_at / done_early (side table only; dp item + reminder were closed above as in 410000).
+      let backTo: DqItem | null = null;
+      if (dq) {
+        const taskId = dqItem?.id ?? await dqEnsure(customerId);
+        if (taskId) {
+          try {
+            const r = await dqApi.done(taskId, dqItem?.due_ref ?? null, resultVal.manual || null);
+            if (dqEarly && dqCur) { backTo = dqCur; flash("زودتر از نوبت انجام شد و در جای خودش علامت خورد. برگشت به کار جاری…", 3500); }
+            else if (r.done_early) flash("زودتر از نوبت انجام شد و در جای خودش علامت خورد.", 3000);
+          } catch { /* the call result is saved; the mark is cosmetic */ }
+        }
+      }
       setResultOpen(false); setResultVal(emptyCqResult()); setResultShow(false);
-      await Promise.all([boardQ.refetch(), todayQ.refetch(), remQ.refetch()]);
+      await Promise.all([boardQ.refetch(), todayQ.refetch(), remQ.refetch(), dq ? dqQ.refetch() : Promise.resolve()]);
+      if (backTo) pickDq(backTo);
     } catch (e) {
       setResultErr(e instanceof Error && /[\u0600-\u06FF]/.test(e.message) ? e.message : "ثبت نشد. دوباره تلاش کنید.");
     } finally { setResultBusy(false); }
@@ -678,7 +723,12 @@ export default function DailyCustomerInline() {
   }, [resultOpen, reasonOpen]);
 
   let boardEl: ReactNode;
-  if (todayQ.isLoading && !todayQ.data) {
+  const dqBanner = dqItem && ["incoming_call", "outgoing_call", "payment_order", "file_action"].includes(dqItem.kind) && !dqItem.done
+    ? <DqIntBanner it={dqItem} text={dqCurText(dqItem) || board?.call || ""} /> : null;
+  if (dq && dqItem && dqItem.customer_id == null) {
+    boardEl = <DqUnknownBoard key={dqItem.id} it={dqItem} banner={dqBanner}
+      onNamed={(cid, taskId, name) => { flash(`نام «${name}» ثبت شد.`, 2500); void dqQ.refetch(); setLoc(`/today?customer=${cid}&task=${encodeURIComponent(taskId)}`, { replace: true } as any); }} />;
+  } else if ((todayQ.isLoading && !todayQ.data) || dqQ.isLoading) {
     boardEl = <div className="dci-board"><div className="dci-side"><SkCol cls="dci-right" title="تاریخچه‌ی تماس‌ها" /><SkCol cls="dci-left" title="اعتبارسنجی فوری" /></div><SkCol cls="dci-mid" title="اطلاعات مشتری" /></div>;
   } else if (errorBoard) {
     boardEl = <div className="dci-board"><section className="dci-col dci-mid" style={{ gridColumn: "1 / -1" }}><div className="dci-err"><p>اطلاعات مشتری الآن در دسترس نیست.</p>
@@ -695,7 +745,13 @@ export default function DailyCustomerInline() {
   } else {
     const show = tab === "talk" ? " show-talk" : tab === "file" ? " show-file" : (openFile ? " show-file" : openTalk ? " show-talk" : "");
     const remBar = selectedTask && (selectedTask.reminderId || selectedTask.types.includes("یادآور"))
-      ? { text: selectedTask.remText || "یادآور سررسید" } : null;
+      ? { text: selectedTask.remText || "یادآور سررسید", hint: dqItem && !dqItem.due && !dqItem.done ? "ثبت نتیجه، این یادآور را زودتر از ساعتش تمام می‌کند و ساعت انجام ثبت می‌شود." : undefined } : null;
+    const dqMid = dq && dqItem ? {
+      top: dqEarly && dq ? <DqEarlyBar q={dq} it={dqItem} cur={dqCur} onBack={() => dqCur && pickDq(dqCur)} /> : null,
+      cur: dqBanner,
+      card: dqItem.pay && !dqItem.done ? <DqPayCard it={dqItem} customerId={board.customer.id} onDone={(msg) => { flash(msg); void dqQ.refetch(); }} />
+        : dqItem.fileAct && !dqItem.done ? <DqFileActCard it={dqItem} customerId={board.customer.id} /> : null,
+    } : null;
     boardEl = <div className={`dci-board${show}`} id="dci-board">
       <div className="dci-side">
         <RightCol m={board} ext={ext} onCall={startCall} sumOpen={queryParam(search, "shot") === "sum"}
@@ -704,7 +760,7 @@ export default function DailyCustomerInline() {
       </div>
       <MidCol m={board} ext={ext} narrow={narrow} onCopy={copy} onCall={startCall} onResult={() => void startResult()} onPromote={() => setReasonOpen(true)} promoting={promoting}
         promo={{ open: reasonOpen, reason, setReason, onSave: () => void doPromote(), onClose: () => setReasonOpen(false) }}
-        remBar={remBar} userId={userId} wizard={{ open: fcOpen, onOpen: openWizard, onClose: () => setFcOpen(false) }} />
+        remBar={remBar} userId={userId} wizard={{ open: fcOpen, onOpen: openWizard, onClose: () => setFcOpen(false) }} dq={dqMid} />
       <div className="dci-tabs" role="tablist" aria-label="بخش‌های دیگر">
         <button type="button" role="tab" id="tab-talk" aria-selected={tab === "talk" ? "true" : "false"} data-pane="talk"
           onClick={() => setTab((t) => t === "talk" ? "" : "talk")}>گفت‌وگو</button>
@@ -717,9 +773,13 @@ export default function DailyCustomerInline() {
   return <div className="dci" data-testid="dci-page">
     <DciSprites />
     <main className="pg dci-page">
-      <Timeline tasks={tasks} selected={selectedTask?.id ?? null} onPick={setSel} />
+      {dq ? <DqStrip q={dq} openId={selectedTask?.id ?? null} flt={dqFlt} setFlt={setDqFlt} onPick={pickDq} />
+        : dqQ.isLoading ? <div className="dci-tlw" aria-busy="true" /> : <Timeline tasks={tasks} selected={selectedTask?.id ?? null} onPick={setSel} />}
       {boardEl}
     </main>
     <div className={`toast dci-toast${toast ? " on" : ""}`} id="ph-toast" role="status" aria-live="polite">{toast}</div>
+    {dqToast ? <div className="toast dci-toast on k-in dq-arrive" role="status" aria-live="polite" data-testid="dq-arrive">
+      <span>تماس ورودی تازه: {fd(dqToast.name)}</span>
+      <button type="button" className="btn gh" onClick={() => { pickDq(dqToast); setDqToast(null); }}>باز کردن</button></div> : null}
   </div>;
 }

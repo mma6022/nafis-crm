@@ -660,3 +660,191 @@ body:has([data-testid="dci-page"]) .app-shell.ssv2 .topbar.ss-top{margin-bottom:
   font-size:13px;font-weight:800;overflow-wrap:anywhere;
 }
 .dci-ctime-tag{font-weight:700;color:var(--nf-ink-muted)}
+
+/* DCI-QUEUE 440000 — handoff today-layout.css v2.1–v2.3.1 (lines 735–916), appended verbatim. */
+/* ——— v2.1 (t332u): شش نوع کار با رنگ و برچسب، بازه‌های کاری روز ——— */
+:root{
+  --k-in:#C2185B;   /* تماس ورودی */
+  --k-lead:#1565C0; /* لید تازه */
+  --k-fu:#00727F;   /* پیگیری */
+  --k-rem:#7B1FA2;  /* یادآور */
+  --k-file:#455A64; /* اقدام پرونده */
+  --k-pay:#6D4C41;  /* دستور پرداخت */
+}
+.k-in{--dot:var(--k-in)}
+.k-lead{--dot:var(--k-lead)}
+.k-fu{--dot:var(--k-fu)}
+.k-rem{--dot:var(--k-rem)}
+.k-file{--dot:var(--k-file)}
+.k-pay{--dot:var(--k-pay)}
+.dci-node.is-done .dci-dot{background:#fff;box-shadow:0 0 0 2px var(--dot)}
+.dci-node.is-done b{color:var(--nf-ink-muted);font-weight:600}
+.dci-node.is-urgent:not([aria-current=true]) .dci-dot{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--dot)}
+.dci-node .dci-nord{color:var(--nf-ink-muted)}
+/* جداکنندهٔ بازه در نوار صف */
+.dci-blk{
+  flex:0 0 auto;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2px;
+  min-width:64px;padding:0 10px;margin:4px 4px;border-inline-start:2px dashed var(--nf-line-strong);
+  font-size:11px;font-weight:700;color:var(--nf-ink-muted);line-height:1.3;white-space:nowrap;
+}
+.dci-blk b{font-size:12px;font-weight:800;color:var(--nf-ink)}
+.dci-blk.is-now{border-inline-start:3px solid var(--nf-brand-600);background:var(--nf-brand-50);border-radius:10px}
+.dci-blk.is-now b{color:var(--nf-brand-800,#2f3e8f)}
+/* سرصف: بازهٔ جاری و راهنمای رنگ */
+.dci-qhead{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin:0 0 6px;min-width:0}
+.dci-blknow{
+  display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:0;min-height:32px;padding:4px 12px;border-radius:99px;
+  background:var(--nf-brand-50);border:1px solid #D5DAF3;font-size:13px;font-weight:600;color:var(--nf-ink);
+}
+.dci-blknow b{font-weight:800;color:var(--nf-brand-800,#2f3e8f)}
+.dci-blk-k{font-size:12px;font-weight:800;color:#fff;background:var(--nf-brand-600);border-radius:99px;padding:1px 8px}
+.dci-blk-nx{color:var(--nf-ink-muted);font-weight:600}
+.dci-lg{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin:0;padding:0;list-style:none;font-size:12px;font-weight:700;color:var(--nf-ink)}
+.dci-lg li{display:inline-flex;align-items:center;gap:6px;min-height:24px}
+.dci-ldot{width:10px;height:10px;border-radius:99px;background:var(--dot);flex:none;box-shadow:0 0 0 2px #fff,0 0 0 3px var(--dot)}
+.dci-lg-btn{display:none;min-height:44px;min-width:44px;padding:0 12px;border-radius:12px;border:1px solid var(--nf-line-strong);background:#fff;font:inherit;font-size:13px;font-weight:700;color:var(--nf-ink);cursor:pointer}
+.dci-lg-btn:focus-visible{box-shadow:0 0 0 3px #fff,0 0 0 6px var(--nf-brand-600);outline:none}
+@media (min-width:1024px){ .dci-lg{margin-inline-start:auto} }
+@media (max-width:1023.98px){
+  .dci-lg-btn{display:inline-flex;align-items:center;margin-inline-start:auto}
+  .dci-lg{display:none;width:100%}
+  .dci-qhead.lg-open .dci-lg{display:flex}
+  .dci-blknow{font-size:12px}
+  .dci-blk-nx{display:none}
+}
+/* بنر کار وقفه‌ای بالای کارت وسط */
+.dci-cur-int{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:8px 12px;border-radius:12px;
+  background:#fff;border:1px solid var(--nf-line);border-inline-start:4px solid var(--dot);color:var(--nf-ink);font-weight:700}
+.dci-kchip{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:2px 10px;border-radius:99px;
+  border:1px solid var(--dot);color:var(--dot);font-size:13px;font-weight:800;background:#fff}
+.dci-kchip .dci-ldot{box-shadow:none}
+/* فرم نام اول برای شماره‌ی ناشناس */
+.ed-intro{display:flex;align-items:flex-start;gap:6px;margin:0;padding:8px 12px;border-radius:12px;background:#FCE4EC;border:1px solid var(--k-in);color:#7A0E37;font-size:14px;font-weight:700;line-height:1.7}
+.ed-intro .i{width:18px;height:18px;margin-top:3px;flex:none}
+#dci-file-open:disabled{opacity:.45;cursor:not-allowed}
+/* کارت دستور پرداخت و اقدام پرونده در ستون وسط */
+.dci-pay,.dci-fact{margin:0 0 16px;padding:14px 16px;border-radius:16px;background:#fff;border:1px solid var(--nf-line);border-inline-start:4px solid var(--dot)}
+.dci-pay{--dot:var(--k-pay)}
+.dci-fact{--dot:var(--k-file)}
+.dci-payhd{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin:0 0 10px}
+.dci-payhd h2{margin:0;font-size:18px;font-weight:800;color:var(--nf-ink)}
+.dci-paytag,.dci-nocall{display:inline-flex;align-items:center;min-height:28px;padding:2px 10px;border-radius:99px;font-size:13px;font-weight:800;border:1px solid var(--dot);color:var(--dot);background:#fff}
+.dci-acct{margin:4px 0 8px;padding:0;border:0;display:flex;flex-direction:column;gap:8px}
+.dci-acct legend{font-size:14px;font-weight:700;color:var(--nf-ink);margin:0 0 6px;padding:0}
+.dci-acct-row{display:flex;align-items:center;gap:10px;min-height:48px;padding:6px 12px;border-radius:12px;border:1px solid var(--nf-line-strong);cursor:pointer}
+.dci-acct-row:has(input:checked){border-color:var(--nf-brand-600);background:var(--nf-brand-50)}
+.dci-acct-row input{width:20px;height:20px;flex:none;accent-color:var(--nf-brand-600)}
+.dci-acct-row>span{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;min-width:0}
+.dci-iban{font-weight:700;unicode-bidi:isolate;letter-spacing:.02em}
+.dci-own{color:var(--nf-ink-muted);font-size:13px;font-weight:600}
+.dci-pay .dci-acts,.dci-fact .dci-acts{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0}
+.dci-pay .dci-acts .btn,.dci-fact .dci-acts .btn{min-height:48px}
+.dci-fact-do{padding:8px 12px;border-radius:12px;background:#F1F3F5;margin:0 0 8px}
+.dci-fact-do p{margin:0;line-height:1.7;font-weight:600}
+
+
+/* ——— v2.2 (t333u): نوع هفتم «تماس خروجی» و راهنمای رنگ به‌عنوان فیلتر ——— */
+:root{ --k-out:#6200EA; /* تماس خروجی */ }
+.k-out{--dot:var(--k-out)}
+.dci-node.k-out .dci-kind,.dci-node .dci-kind{color:var(--dot)}
+.dci-lg{gap:6px}
+.dci-fchip{
+  display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 10px;border-radius:99px;
+  border:1px solid var(--nf-line-strong);background:#fff;color:var(--nf-ink);font:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap
+}
+.dci-fchip .dci-ldot{box-shadow:none}
+.dci-fn{min-width:20px;height:20px;padding:0 6px;border-radius:99px;background:#F1F3F5;color:var(--nf-ink);font-size:11px;font-weight:800;display:inline-flex;align-items:center;justify-content:center}
+.dci-fchip:hover{border-color:var(--dot,var(--nf-brand-600))}
+.dci-fchip[aria-pressed=true]{border-color:var(--dot,var(--nf-brand-600));box-shadow:inset 0 0 0 1px var(--dot,var(--nf-brand-600));background:#fff}
+.dci-fchip[aria-pressed=true]:not(.is-all){background:var(--dot);color:#fff}
+.dci-fchip[aria-pressed=true]:not(.is-all) .dci-ldot{background:#fff}
+.dci-fchip[aria-pressed=true]:not(.is-all) .dci-fn{background:#fff;color:var(--dot)}
+.dci-fchip.is-all[aria-pressed=true]{background:var(--nf-brand-50);border-color:var(--nf-brand-600);color:var(--nf-brand-800,#2f3e8f)}
+.dci-fchip:focus-visible,.dci-fclear:focus-visible{outline:none;box-shadow:0 0 0 3px #fff,0 0 0 6px var(--nf-brand-600)}
+#dci-fst{flex-basis:100%}
+#dci-fst:empty{display:none}
+.dci-fstate{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin:0;font-size:13px;font-weight:600;color:var(--nf-ink)}
+.dci-fstate b{color:var(--dot);font-weight:800}
+.dci-furg{display:inline-flex;align-items:center;min-height:28px;padding:2px 10px;border-radius:99px;background:#FFF8E8;border:1px solid #E8D7A8;color:#6B4E12;font-size:12px;font-weight:700}
+.dci-fclear{min-height:44px;padding:0 12px;border-radius:12px;border:1px solid var(--nf-line-strong);background:#fff;font:inherit;font-size:13px;font-weight:700;color:var(--nf-brand-600);cursor:pointer}
+.dci-tl-empty{display:flex;align-items:center;gap:12px;margin:0;padding:8px 12px;font-size:14px;font-weight:600;color:var(--nf-ink-muted);white-space:nowrap}
+.dci-lg-btn{gap:6px}
+.dci-lg-btn .i{width:18px;height:18px}
+.dci-lg-btn.is-on{border-color:var(--dot);color:var(--dot)}
+.dci-detect{display:inline-flex;align-items:center;min-height:28px;padding:2px 10px;border-radius:99px;background:#F1F3F5;font-size:13px;font-weight:700;color:var(--nf-ink)}
+.dci-incall.k-out{--dot:var(--k-out);border-color:var(--k-out);color:var(--k-out)}
+/* برگهٔ فیلتر موبایل */
+.dci-fscrim{display:none;position:fixed;inset:0;z-index:55;background:rgba(11,20,80,.42)}
+.dci-fsheet{position:fixed;z-index:60;left:0;right:0;bottom:0;background:#fff;border-radius:24px 24px 0 0;box-shadow:0 8px 24px rgba(0,0,0,.18);
+  padding:10px 16px calc(16px + env(safe-area-inset-bottom,0px));max-height:min(92vh,600px);overflow:auto}
+.dci-fsheet[hidden]{display:none}
+.dci-fsheet .grab{width:40px;height:4px;border-radius:4px;background:var(--nf-line-strong);margin:0 auto 8px}
+.dci-fsheet h3{margin:0 0 4px;text-align:center;font-size:18px;font-weight:800;color:var(--nf-ink)}
+.dci-fs-sub{margin:0 0 12px;text-align:center;font-size:13px;color:var(--nf-ink-muted)}
+.dci-fs-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dci-fs-grid .dci-fchip{min-height:48px;font-size:14px;justify-content:flex-start;border-radius:14px}
+.dci-fs-grid .dci-fchip .dci-fn{margin-inline-start:auto}
+.dci-fs-grid .is-all{grid-column:1/-1}
+.dci-fs-x{width:100%;min-height:52px;margin-top:12px}
+body.fs-open .dci-fscrim{display:block}
+@media (min-width:1024px){ body.fs-open .dci-fscrim,.dci-fsheet{display:none !important} }
+.dci-node.is-done,.dci-node.is-urgent,.dci-node.is-early{max-width:136px}
+
+/* ——— v2.3 (t334u): انجام کار آینده زودتر از نوبت ——— */
+.dci-early{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 8px;padding:8px 12px;border-radius:14px;
+  background:#F4F5FB;border:1px dashed var(--nf-brand-600);color:var(--nf-ink)}
+.dci-early p{margin:0;flex:1 1 260px;font-size:14px;font-weight:600;line-height:1.8}
+.dci-early p b{font-weight:800}
+.dci-early-chip{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:2px 10px;border-radius:99px;
+  background:var(--nf-brand-600);color:#fff;font-size:13px;font-weight:800;white-space:nowrap}
+.dci-early-chip .i{width:16px;height:16px}
+.dci-back{min-height:44px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.dci-back .i{width:18px;height:18px}
+/* نقطهٔ کار جاری وقتی کار دیگری باز است */
+.dci-node.is-cur .dci-dot{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--nf-brand-600)}
+.dci-node.is-cur .dci-nord{color:var(--nf-brand-600);font-weight:800}
+.dci-node.is-early .dci-nord{color:var(--dot);font-weight:800}
+@media (max-width:1023.98px){
+  .dci-early{padding:8px 10px}
+  .dci-early .dci-back{width:100%;justify-content:center}
+}
+
+/* ——— v2.3.1 (t335u): تراشه‌های فیلتر در همان ردیف «اکنون» ——— */
+@media (min-width:1024px){
+  .dci-qhead{flex-wrap:nowrap;gap:8px;min-height:44px}
+  .dci-blknow{flex:0 0 auto;white-space:nowrap}
+  .dci-lg{
+    flex:1 1 auto;min-width:0;margin-inline-start:auto;
+    flex-wrap:nowrap;gap:2px;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:none;
+    justify-content:flex-end
+  }
+  .dci-lg::-webkit-scrollbar{display:none}
+  /* تراشهٔ فشرده: ناحیهٔ لمس ۴۴ پیکسل، قرص دیداری ۳۰ پیکسل */
+  .dci-lg .dci-fchip{
+    position:relative;flex:0 0 auto;min-height:44px;padding:0 9px;gap:5px;
+    border:0;background:transparent !important;box-shadow:none !important;border-radius:0;font-size:12px
+  }
+  .dci-lg .dci-fchip::before{
+    content:"";position:absolute;inset:7px 0;border-radius:99px;border:1px solid var(--nf-line-strong);background:#fff;z-index:0
+  }
+  .dci-lg .dci-fchip>*{position:relative;z-index:1}
+  .dci-lg .dci-fchip:hover::before{border-color:var(--dot,var(--nf-brand-600))}
+  .dci-lg .dci-fchip[aria-pressed=true]:not(.is-all)::before{background:var(--dot);border-color:var(--dot)}
+  .dci-lg .dci-fchip.is-all[aria-pressed=true]::before{background:var(--nf-brand-50);border-color:var(--nf-brand-600)}
+  .dci-lg .dci-fchip:focus-visible{box-shadow:none !important}
+  .dci-lg .dci-fchip:focus-visible::before{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--nf-brand-600)}
+  .dci-lg .dci-fn{min-width:18px;height:18px;font-size:11px;padding:0 5px}
+  /* خط کوتاه فیلتر فعال، بدون ردیف بلند */
+  #dci-fst{flex-basis:auto}
+  .dci-qhead:has(#dci-fst:not(:empty)){flex-wrap:wrap;row-gap:0}
+  .dci-qhead #dci-fst:not(:empty){flex:1 0 100%;order:3}
+  .dci-fstate{min-height:28px;font-size:12px;gap:4px 10px}
+  .dci-fstate .dci-furg{min-height:22px;padding:0 8px;font-size:11px}
+  .dci-fstate .dci-fclear{min-height:44px;margin-block:-8px;padding:0 8px;border:0;background:transparent;text-decoration:underline;text-underline-offset:3px}
+}
+@media (min-width:1024px) and (max-width:1439.98px){ .dci-blk-nx{display:none} }
+.dci-back-i{width:18px;height:18px}
+/* DCI-QUEUE 440000 glue (not in handoff): arrival toast with «باز کردن», name-first form spacing. */
+.dq-arrive{display:flex;align-items:center;gap:10px;bottom:72px}
+.dq-arrive .btn{min-height:32px;padding:0 12px}
+.dq-nameform{margin:10px 0}
