@@ -896,7 +896,7 @@ function CustomerDetailFull() {
         <span className="mc-success-line">پرونده <bdi>#{mcCreated.id.toLocaleString("fa-IR", { useGrouping: false })}</bdi> ایجاد شد{mcCreated.previousId ? "؛" : ""}</span>
         {mcCreated.previousId ? <span className="mc-success-line">پرونده <bdi>#{mcCreated.previousId.toLocaleString("fa-IR", { useGrouping: false })}</bdi> همچنان باز است</span> : null}
       </p> : null}
-      <McFlagPage customer={customer} loans={loans} cases={caseCtx.data?.cases ?? []} sample={isSampleCustomer(customer)} registrar={role === "registrar"} otherOwner={otherOwner} canNew={canNewLoan} canCall={canCallsCreate || isAdmin} onNew={startNewCase} onCall={startCall} onOpen={(caseId) => setLocation(`/loan-applications/${caseId}`)} />
+      <McFlagPage customer={customer} loans={loans} cases={caseCtx.data?.cases ?? []} sample={isSampleCustomer(customer)} registrar={role === "registrar"} otherOwner={otherOwner} canNew={canNewLoan} canCall={canCallsCreate || isAdmin} onNew={startNewCase} onCall={startCall} onOpen={(caseId) => setLocation(`/loan-applications/${caseId}`)} toast={setToast} onNameSaved={() => { void customerQuery.refetch(); void queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() }); }} />
     </> : <>
     <nav className="csx-crumb" aria-label="مسیر"><Link href="/customers" data-testid="link-back-customers"><ArrowRight size={16} /> مشتریان</Link><ChevronLeft size={14} aria-hidden="true" /><span aria-current="page">{customerNameText(customer.name, customer.id)}</span></nav>
     {hero}

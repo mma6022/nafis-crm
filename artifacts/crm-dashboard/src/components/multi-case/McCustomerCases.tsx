@@ -3,6 +3,7 @@ import { loanBusinessStatus } from "@/lib/loan-labels";
 import type { LoanApplication } from "@workspace/api-client-react";
 import type { MultiCaseRow } from "./types";
 import { CidChip, faCaseStage, faId, PhoneChip } from "./CaseContextPicker";
+import { CustomerNameEdit } from "@/features/customer-name-edit/CustomerNameEdit";
 
 const toman = (value: string | null | undefined) => { try { return BigInt(value || "0").toLocaleString("fa-IR"); } catch { return value || "—"; } };
 
@@ -59,9 +60,9 @@ export function McCustomerCases({
 }
 
 export function McFlagPage({
-  customer, loans, cases, sample, registrar, otherOwner, canNew, canCall, onNew, onCall, onOpen,
+  customer, loans, cases, sample, registrar, otherOwner, canNew, canCall, onNew, onCall, onOpen, onNameSaved, toast,
 }: {
-  customer: { id: number; name: string; phone?: string | null; salespersonName?: string | null };
+  customer: { id: number; name: string; phone?: string | null; salespersonName?: string | null; firstName?: string | null; lastName?: string | null };
   loans: LoanApplication[];
   cases: MultiCaseRow[];
   sample?: boolean;
@@ -72,6 +73,8 @@ export function McFlagPage({
   onNew: () => void;
   onCall: () => void;
   onOpen: (id: number) => void;
+  onNameSaved?: (name: string) => void;
+  toast?: (msg: string) => void;
 }) {
   const owner = customer.salespersonName || "بدون تخصیص";
   if (otherOwner && !registrar) {
@@ -108,7 +111,11 @@ export function McFlagPage({
       <section className="card fhd" data-testid="mc-hero">
         <span className="eyb">مشتری؛ اطلاعات هویتی و تماس مشترک</span>
         <div className="mc-row">
-          <h2 data-testid="text-customer-name">{customer.name}</h2>
+          {/* NAME-EDIT-420000: pencil only when the server says this user may edit (own unverified customer, or admin). */}
+          <CustomerNameEdit customerId={customer.id} name={customer.name} firstName={customer.firstName ?? undefined} lastName={customer.lastName ?? undefined}
+            toast={toast ?? (() => {})} rowClassName="nmr ed-view mc-nmr" onSaved={(n) => onNameSaved?.(n)}>
+            <h2 data-testid="text-customer-name">{customer.name}</h2>
+          </CustomerNameEdit>
           <CidChip id={customer.id} />
           {sample ? <span className="smp">نمونه</span> : null}
         </div>
