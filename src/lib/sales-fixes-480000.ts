@@ -4,6 +4,7 @@
  *   flag.sf480_owner_priority = '0' → P1 set by «ارتقا» can again be lowered only by an admin (HISTORY-A, old rule).
  *   flag.sf480_owner_status   = '0' → a cancelled customer leaves «لغوشده» again only through POST /customers/:id/reactivate (old rule).
  *   flag.sf480_open_lists     = '0' → «مشتریان من» / «پرونده‌های من» go back to the lockdown rule (CustLocked card, files lock, board turn).
+ *   flag.sf480_incoming_now   = '0' → a still-live incoming call is urgent only inside the urgent window (old rule).
  *   flag.sf480_no_popups      = '0' → the mandatory reminder popup (REMINDER-B) feed comes back for 8/2/3 (the client host stays removed).
  * Nothing here sends SMS / Bale / a bell, or touches user 29, contracts, templates, loan_plans, team_sales_config or notification_settings.
  */
@@ -18,6 +19,8 @@ export const sf480OwnerPriority = () => onByDefault("flag.sf480_owner_priority")
 export const sf480OwnerStatus = () => onByDefault("flag.sf480_owner_status");
 export const sf480OpenLists = () => onByDefault("flag.sf480_open_lists");
 export const sf480NoPopups = () => onByDefault("flag.sf480_no_popups");
+/** flag.sf480_incoming_now = '0' → a live incoming call leaves «اکنون» after the urgent window again (old rule). */
+export const sf480IncomingNow = () => onByDefault("flag.sf480_incoming_now");
 
 type U = { id: number; role: string; salespersonId: number | null; customerScope?: string };
 const FD = "۰۱۲۳۴۵۶۷۸۹";
@@ -90,4 +93,23 @@ export function sf480MyCustomers(u: U, rawQ: unknown, rawOffset: unknown): { sta
      ORDER BY COALESCE(last_call, c.created_at) DESC, c.id DESC LIMIT 30 OFFSET ?`, [...args, offset]);
   return { status: 200, body: { total, offset, items: rows.map((r) => ({ id: Number(r.id), name: String(r.name ?? ""), phoneLast4: String(r.phone ?? "").slice(-4),
     priority: r.priority == null ? null : Number(r.priority), status: String(r.status ?? "in_progress"), lastCallAt: r.last_call ?? null, cases: Number(r.cases) })) } };
+}
+
+/** GET /sales-fixes/cases — «پرونده‌های من» kanban: the expert's own cases (customers they own), every open case plus cases closed in the last 30 days.
+ *  The client puts each card in its status column (FB_COLUMNS). Read-only; no turn / lock state. */
+export function sf480Cases(u: U, now = new Date()): { status: number; body: any } {
+  const sc = scopeSql(u);
+  if (!sc) return { status: 403, body: { error: "forbidden", message: "این فهرست برای این حساب باز نیست." } };
+  if (u.role === "admin" || u.role === "manager") return { status: 200, body: { total: 0, cases: [], note: "admin_uses_full_list" } };
+  const since = new Date(now.getTime() - 30 * 86400_000).toISOString();
+  const rows = queryRows<any>(
+    `SELECT la.id, la.customer_id, la.stage, la.status, la.requested_amount, la.created_at, COALESCE(la.updated_at, la.created_at) act, p.name plan_name,
+            c.name cname, c.priority
+     FROM loan_applications la JOIN customers c ON c.id=la.customer_id LEFT JOIN loan_plans p ON p.id=la.plan_id
+     WHERE la.deleted_at IS NULL AND ${sc.sql}
+       AND (NOT (la.status='rejected' OR la.stage='completed') OR COALESCE(la.updated_at, la.created_at) >= ?)
+     ORDER BY CASE WHEN c.priority IS NULL THEN 9 ELSE c.priority END, act DESC LIMIT 500`, [...sc.args, since]);
+  return { status: 200, body: { total: rows.length, cases: rows.map((x) => ({ id: Number(x.id), customerId: Number(x.customer_id), customerName: String(x.cname ?? ""),
+    priority: x.priority == null ? null : Number(x.priority), stage: String(x.stage ?? ""), status: String(x.status ?? ""), life: LIFE(x.status, x.stage),
+    planName: x.plan_name ? String(x.plan_name) : null, amount: x.requested_amount == null ? null : String(x.requested_amount), createdAt: x.created_at ?? null, lastActivityAt: x.act ?? null })) } };
 }

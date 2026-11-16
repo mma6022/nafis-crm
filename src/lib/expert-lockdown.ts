@@ -135,7 +135,7 @@ const ALLOW: RegExp[] = [
   // sales-performance v1: own report only (handlers re-check; other experts stay 403).
   /^\/sales-performance(\/|$)/,
   // SALES-FIXES 480000: centred search + «مشتریان من» (handlers scope to the caller's own customers).
-  /^\/sales-fixes\/(search|my-customers|me)$/,
+  /^\/sales-fixes\/(search|my-customers|cases|me)$/,
 ];
 /** REMINDER-68: the expert's own (not merged) customer — opens READ of the file/history/notes, «ثبت یادآور» and «ارتقا به اولویت ۱»
  *  for every own customer (not only today's list). The customers list/menu stays closed; other experts' customers stay 403/404. */

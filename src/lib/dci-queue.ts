@@ -12,6 +12,7 @@
  */
 import type { AuthUser } from "./auth";
 import { crmDb, execute, executeChanges, queryRow, queryRows } from "./crm-db";
+import { sf480IncomingNow } from "./sales-fixes-480000";
 import { dpToday } from "./daily-plan";
 import { FC_STAGE_LABELS, fcExpertStep } from "./files-carousel";
 import { paymentCustomer } from "./payment-orders";
@@ -253,7 +254,7 @@ export function dqQueue(user: AuthUser, now = new Date()) {
       const done = Boolean(m || (e.completed_at && e.completed_by_user_id != null) || later || back);
       const fresh = now.getTime() - Date.parse(String(e.started_at)) < urgentMs;
       const p: Part = { key, kind: inn ? "incoming_call" : "outgoing_call", done, doneAt: done ? (m?.done_at ?? e.completed_at ?? (back ? back.at : null)) : null, dueAt: e.started_at, timed: true,
-        arrivedAt: e.started_at, urgent: inn && !done && fresh, order: order++, eventId: Number(e.id), live: Number(e.is_live) === 1, direction: inn ? "in" : "out" };
+        arrivedAt: e.started_at, urgent: inn && !done && (fresh || (Number(e.is_live) === 1 && sf480IncomingNow())), order: order++, /* SALES-FIXES 480000: a live incoming call stays in «اکنون» */ eventId: Number(e.id), live: Number(e.is_live) === 1, direction: inn ? "in" : "out" };
       if (e.customer_id != null) add(Number(e.customer_id), p);
       else if (Number(e.expert_user_id) === user.id) {
         const ph = normalizePhone(String(e.phone || "")) ?? String(e.phone || "");
