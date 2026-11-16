@@ -51,6 +51,9 @@ import { bnv2Slots, bnv2Rest } from '@/features/bottom-nav-v2/layout';
 import '@/features/bottom-nav-v2/bottom-nav-v2.css';
 import { SalesShellNav, useDockHeight, useSsOverlay, type SsItem, type SsGroup } from '@/features/sales-shell/SalesShellNav';
 import { CustLocked, RemLocked } from '@/features/sales-shell/LockedPages';
+import { useSf480 } from '@/features/sales-fixes/api';
+import { MyCustomersPage } from '@/features/sales-fixes/MyCustomers';
+import { SfSearchButton, SfSearchHost } from '@/features/sales-fixes/SearchOverlay';
 import { useSiteNotifications } from '@/site-notifications/NotificationBell';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem } from './ui/dropdown-menu';
 import { useTabState } from '@/lib/tab-coordinator';
@@ -183,6 +186,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
     query: { queryKey: getGetAuthSessionQueryKey(), retry: false },
   });
   const user = session?.user;
+  // SALES-FIXES 480000 (t810u): sales experts get no screen-blocking popups and open «مشتریان من» / «پرونده‌های من» at any step.
+  const sf = useSf480(user?.role);
   // expert_lockdown (assistants54): users 2 / 3 / 8 only, while flag.expert_lockdown is ON (server decides; everyone else → locked:false, never fetched).
   // Ask /expert-lockdown/me for every signed-in user; the server decides who is locked
   // (EL_USERS + team members via flag.multi_team_v1). Trainee exclusion is unchanged on the server.
@@ -236,13 +241,14 @@ export function CrmShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     const next = dueReminders.data?.[0];
     // crm-call-queue: the blocking modal (flag.modal) replaces this popup; it neither shows nor acknowledges while active.
-    if (!next || dueReminder || cqModalActive || panelMode) return;
+    // SALES-FIXES 480000: no «زمان یادآور رسیده است» popup for sales experts (and no auto-acknowledge); reminders are done in order inside «کارهای امروز من».
+    if (!next || dueReminder || cqModalActive || panelMode || sf.noPopups) return;
     setDueReminder(next);
     acknowledgeReminder.mutate(
       { id: next.id },
       { onSuccess: () => queryClient.invalidateQueries({ queryKey: getListRemindersQueryKey(dueParams) }) },
     );
-  }, [dueReminders.data, dueReminder, acknowledgeReminder, queryClient, cqModalActive]);
+  }, [dueReminders.data, dueReminder, acknowledgeReminder, queryClient, cqModalActive, sf.noPopups]);
   const logoutMutation = useLogout({
     mutation: {
       onSuccess: () => {
@@ -496,7 +502,10 @@ export function CrmShell({ children }: { children: ReactNode }) {
     );
   });
 
-  const ssLockedPage = ssV2 && elLocked ? (location === '/customers' ? <CustLocked /> : location === '/reminders' ? <RemLocked /> : null) : null;
+  // SALES-FIXES 480000 (t810u «محدودیت مشتریان من و پرونده‌های من رو فعلا بردار»): with flag.sf480_open_lists on, a locked expert's /customers
+  // is «مشتریان من» (own customers only, server-scoped GET /sales-fixes/my-customers) at any step. Other locked pages are unchanged.
+  const sfMyCustomers = elLocked && sf.openLists && location === '/customers' ? <MyCustomersPage /> : null;
+  const ssLockedPage = sfMyCustomers ?? (ssV2 && elLocked ? (location === '/customers' ? <CustLocked /> : location === '/reminders' ? <RemLocked /> : null) : null);
   if (panelMode) return (
     <DiagnosticsProvider actorId={user?.id ?? 'anon'} isAdmin={user?.role === 'admin'}>
     <NotificationProvider user={user}>
@@ -528,6 +537,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
           <div className="ss-ttl"><h1>{pageTitle}</h1><p>امروز، تمرکز روی قدم بعدی مشتری است.</p></div>
           <ShellDate />
           <div className="top-actions">
+            {sf.openLists ? <SfSearchButton /> : null}
             <VcHeaderBadge />
             <VoipAnywhereFirstFormHost />
             {elLocked ? <span className="ss-lkchip" role="note" aria-label="پنل محدود" data-testid="ss-lkchip"><Lock size={16} aria-hidden="true" /><span className="lt" aria-hidden="true">پنل محدود</span></span> : null}
@@ -572,8 +582,9 @@ export function CrmShell({ children }: { children: ReactNode }) {
       {user ? <AssistantDock user={user as { id: number; role?: string | null; salespersonId?: number | null }} phone={ssMobile} shellV2 slot={null} bottomOffset={0} /> : null}
       {profileOpen && user ? <ProfileModal user={user} onClose={() => setProfileOpen(false)} /> : null}
       {headerReminder.node}
+      {sf.openLists ? <SfSearchHost /> : null}
       {user ? <CallQueueHost onModalActive={setCqModalActive} dailyPlan={dpOnForMe} /> : null}
-      {user && EL_UIDS.includes(Number(user.id)) && !(location === '/today' || location.startsWith('/today/')) ? <ReminderMustHost userId={Number(user.id)} /> : null}
+      {user && !sf.noPopups && EL_UIDS.includes(Number(user.id)) && !(location === '/today' || location.startsWith('/today/')) ? <ReminderMustHost userId={Number(user.id)} /> : null}
       {dueReminder && !cqModalActive && !(location === '/today' || location.startsWith('/today/')) ? (
         <Modal title={dueReminder.subject} eyebrow="زمان یادآور رسیده است" onClose={() => setDueReminder(null)} testId="due-reminder">
           <div className="due-reminder">
@@ -643,6 +654,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
           </div>
           <ShellDate />
           <div className="top-actions">
+            {sf.openLists ? <SfSearchButton /> : null}
             <VcHeaderBadge />
             <VoipAnywhereFirstFormHost />
             <DiagnosticsButton />
@@ -672,15 +684,16 @@ export function CrmShell({ children }: { children: ReactNode }) {
             </DropdownMenu>
           </div>
         </header>
-        <DiagnosticPageBoundary key={location}>{elPending ? <div className="el-page" role="status" aria-busy="true" data-testid="el-pending" /> : elLocked && !elPageAllowed(elMe, location) ? <LockdownNotice /> : cqRestricted && !cqAllowed(location) ? <div className="cq-page" data-testid="cq-restricted-guard"><div className="cq-restricted" role="alert"><b>پنل محدود شد</b> · {faNum(cqCfg?.restriction?.overdue ?? 0)} یادآور عقب‌افتاده داری. تا وقتی به {faNum(cqCfg?.restriction?.threshold ?? 0)} یا کمتر برسد فقط یادآورهای عقب‌افتاده باز است.</div><Link className="btn btn-primary" href={dpOnForMe ? '/today' : '/my-queue'}>{dpOnForMe ? 'رفتن به کارهای امروز' : 'رفتن به صف تماس من'}</Link></div> : children}</DiagnosticPageBoundary>
+        <DiagnosticPageBoundary key={location}>{elPending ? <div className="el-page" role="status" aria-busy="true" data-testid="el-pending" /> : sfMyCustomers ?? (elLocked && !elPageAllowed(elMe, location)) ? (sfMyCustomers ?? <LockdownNotice />) : cqRestricted && !cqAllowed(location) ? <div className="cq-page" data-testid="cq-restricted-guard"><div className="cq-restricted" role="alert"><b>پنل محدود شد</b> · {faNum(cqCfg?.restriction?.overdue ?? 0)} یادآور عقب‌افتاده داری. تا وقتی به {faNum(cqCfg?.restriction?.threshold ?? 0)} یا کمتر برسد فقط یادآورهای عقب‌افتاده باز است.</div><Link className="btn btn-primary" href={dpOnForMe ? '/today' : '/my-queue'}>{dpOnForMe ? 'رفتن به کارهای امروز' : 'رفتن به صف تماس من'}</Link></div> : children}</DiagnosticPageBoundary>
       </main>
       {user && (canChat || canTeam) && !onChatPage ? <FloatingChat key={phone ? 'phone' : 'wide'} bottomOffset={phone ? 84 : 20} actor={`staff:${user.id}`} items={[...(canChat ? [{ href: '/chat', label: 'گفتگو با مشتریان', count: unread.data?.count ?? 0 }] : []), ...(canTeam ? [{ href: '/internal-chat', label: 'گفتگوی داخلی', count: team.data?.unreadCount ?? 0 }] : [])]} /> : null}
       {/* «دستیار هوشمند» (HANDOFF §1): avatars portal into the sidebar-bottom slot (desktop) or the top-bar slot next to the bell (phone); renders nothing unless the server lists an assistant for this user. */}
       {user ? <AssistantDock user={user as { id: number; role?: string | null; salespersonId?: number | null }} phone={phone} slot={phone ? asTopSlot : asSideSlot} bottomOffset={(phone ? 84 : 20) + 66} /> : null}
       {profileOpen && user ? <ProfileModal user={user} onClose={() => setProfileOpen(false)} /> : null}
       {headerReminder.node}
+      {sf.openLists ? <SfSearchHost /> : null}
       {user ? <CallQueueHost onModalActive={setCqModalActive} dailyPlan={dpOnForMe} /> : null}
-      {user && EL_UIDS.includes(Number(user.id)) && !(location === '/today' || location.startsWith('/today/')) ? <ReminderMustHost userId={Number(user.id)} /> : null}
+      {user && !sf.noPopups && EL_UIDS.includes(Number(user.id)) && !(location === '/today' || location.startsWith('/today/')) ? <ReminderMustHost userId={Number(user.id)} /> : null}
       {dueReminder && !cqModalActive && !(location === '/today' || location.startsWith('/today/')) ? (
         <Modal title={dueReminder.subject} eyebrow="زمان یادآور رسیده است" onClose={() => setDueReminder(null)} testId="due-reminder">
           <div className="due-reminder">

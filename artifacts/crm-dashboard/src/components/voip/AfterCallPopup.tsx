@@ -1,3 +1,4 @@
+import { useSf480 } from '@/features/sales-fixes/api';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { PhoneCall, RefreshCw } from 'lucide-react';
@@ -30,7 +31,9 @@ export function AfterCallPopup() {
   const allowed = Boolean(user && (user.role === 'admin' || user.permissions?.includes('calls.view')));
   const isAdmin = user?.role === 'admin';
   // 2026-11-03 (Mohammad): no incoming/outgoing call popups for the plain admin role; «مدیر فروش» and experts keep them.
-  const noPopup = isAdmin && !user?.salesManager;
+  // SALES-FIXES 480000 (t810u «هیچ پاپ‌آپی»): no «نتیجه تماس / تماس ورودی، N مورد در صف» modal for sales experts; calls are reported in the right panel of «کارهای امروز من».
+  const sf = useSf480(user?.role);
+  const noPopup = (isAdmin && !user?.salesManager) || sf.noPopups;
   const key = getListPendingVoipAfterCallsQueryKey();
   // perf 2026-10-26: the change stream pushes every call event, so with it open a 15 s safety poll is enough (was 2 s per tab).
   // The stream and the poll run only while this tab is visible; showing the tab refetches at once.

@@ -184,11 +184,16 @@ check("priority row is full width so status can sit opposite the chips at 1280",
   && /\.dci-ps\{[^}]*min-width:0/.test(layCss)
   && !/min-width:min\(100%,16rem\)/.test(layCss));
 
-check("one history box: notes under the call, compact result, no popup, no-ext header scrolls to it",
+// SALES-FIXES 480000 (Mohammad t810u item 6) replaced «notes under the call» with three separate parts, top to bottom:
+// «گزارش تماس جدید» → «یادداشت‌های قبلی کارشناس» (date + note) → «سابقه‌ی تماس‌ها» (collapsed). Calls and notes are no longer mixed.
+check("one history box: new report, previous notes, collapsed call history (480000), no popup, no-ext header scrolls to it",
   dciTsx.includes("<HistFeed")
-  && feedTsx.includes("dci-call-note")
+  && feedTsx.includes("گزارش تماس جدید")
+  && feedTsx.includes("یادداشت‌های قبلی کارشناس")
+  && feedTsx.includes("سابقه‌ی تماس‌ها")
+  && feedTsx.includes("useState(false)")
+  && feedTsx.indexOf("<ResultBlock") < feedTsx.indexOf("sf-prev-notes") && feedTsx.indexOf("sf-prev-notes") < feedTsx.indexOf("sf-call-hist-toggle")
   && feedTsx.includes("خلاصه‌ی تماس")
-  && feedTsx.includes("ثبت نتیجه‌ی تماس")
   && !dciTsx.includes("CqResultFields")
   && !dciTsx.includes("SimpleCallForm")
   && dciTsx.includes('getElementById("dci-result")'));

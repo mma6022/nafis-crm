@@ -27,6 +27,7 @@ export const ROLE_MENUS: Record<MenuKind, RoleMenu> = {
   expertLocked: {
     main: [
       { href: '/today', label: 'کارهای امروز من' },
+      { href: '/customers', label: 'مشتریان من' }, // SALES-FIXES 480000: shown only while the server lists /customers in allowedPages (flag.sf480_open_lists)
       { href: '/loan-applications', label: 'پرونده‌های من' },
       { href: '/payment-orders' },
       { href: '/goods-purchases' },

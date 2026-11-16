@@ -4,6 +4,7 @@
  *  No server permission changed: the server still answers not_own_customer / expert lockdown / one_call / needs_result / no_extension.
  *  First call (SIMOTEL-132 first_call): the existing required first-call form opens by itself at pickup and again at first_form (VoipAnywhereFirstFormHost, = 47e9e2a);
  *  non-first calls open nothing — status from the Simotel CDR, note from the call summary. Calls start with fileId = null (no file task). */
+import { useSf480 } from '@/features/sales-fixes/api';
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -133,6 +134,7 @@ export function VoipAnywhereFirstFormHost() {
   const { data: s } = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false, staleTime: 60_000 } });
   const [form, setForm] = useState<{ callId: number; customer: { id: number; name: string; phone: string; priority: number | null } } | null>(null);
   const [saved, setSaved] = useState(false);
+  const asked = useRef<Set<number>>(new Set());
   const shown = useRef<Set<string>>(new Set()); const pending = useRef<string | null>(null); const [tick, setTick] = useState(0);
   const call = g.me?.call ?? null;
   const open = async (id: number, key: string) => {
@@ -147,11 +149,14 @@ export function VoipAnywhereFirstFormHost() {
   };
   useEffect(() => {
     // «فرم تماس اول» pressed in a box: allow this call's form again
-    const on = (e: Event) => { const id = Number((e as CustomEvent).detail); for (const k of [...shown.current]) if (k.startsWith(`${id}:`) && e.type === OPEN_EV) shown.current.delete(k); setTick((x) => x + 1); };
+    const on = (e: Event) => { const id = Number((e as CustomEvent).detail); if (e.type === OPEN_EV) asked.current.add(id); for (const k of [...shown.current]) if (k.startsWith(`${id}:`) && e.type === OPEN_EV) shown.current.delete(k); setTick((x) => x + 1); };
     window.addEventListener('vca:started', on); window.addEventListener(OPEN_EV, on);
     return () => { window.removeEventListener('vca:started', on); window.removeEventListener(OPEN_EV, on); };
   }, []);
-  const want = form ? null : vcaAutoOpen(g.me, g, started(), shown.current);
+  // SALES-FIXES 480000: for sales experts the first-call form no longer opens by itself (no popups); it opens only when the expert presses «فرم تماس اول».
+  const sfNoPop = useSf480(s?.user?.role).noPopups;
+  const autoWant = form ? null : vcaAutoOpen(g.me, g, started(), shown.current);
+  const want = autoWant && (!sfNoPop || asked.current.has(autoWant.id)) ? autoWant : null;
   useEffect(() => {
     if (!want) return;
     // after the page's own flow (TodayPage / customer page) had its chance; then every 1.5 s until the reminder popup is gone

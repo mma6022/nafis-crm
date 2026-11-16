@@ -11,10 +11,11 @@ import { ArrowLeft, ArrowRight, BellPlus, FileText, PhoneCall, Search, X } from 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { Modal } from '@/components/DataTools';
+import { sfApi } from '@/features/sales-fixes/api';
 import { defaultReminderJalali, formatJalaliValue, jalaliToIso, parseJalaliValue } from '@/lib/jalali';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { CallHistoryModal, CustomerCallHistory } from '@/components/CallHistory';
-import { getListCustomersQueryKey, getListRemindersQueryKey, useCreateReminder, useListCustomers, useListConsultOptions, getListConsultOptionsQueryKey, type CallInput, type CallRecord, type ConsultationInput } from '@workspace/api-client-react';
+import { useGetAuthSession, getGetAuthSessionQueryKey, getListCustomersQueryKey, getListRemindersQueryKey, useCreateReminder, useListCustomers, useListConsultOptions, getListConsultOptionsQueryKey, type CallInput, type CallRecord, type ConsultationInput } from '@workspace/api-client-react';
 import { CustomerConsultationStatus, isYesValue } from './CustomerConsultationStatus';
 import { CallCustomerSelect, type CallCustomer } from './CallCustomerSelect';
 import { normalizeDigits, validateIranianNationalCode } from '@/lib/customer-field-validation';
@@ -578,7 +579,13 @@ export function CreateConsultationForm({ customers: sourceCustomers, pending, in
   </Modal>;
 }
 
-export function CreateReminderForm({ onClose, initialCustomerId, lockedApplicationId, caseScope }: { onClose: () => void; initialCustomerId?: number; lockedApplicationId?: number | null; caseScope?: 'general' }) {
+/** SALES-FIXES 480000: the server's Persian reason instead of a generic line. */
+function serverMsg(e: unknown): string {
+  const x = e as { data?: { message?: string }; response?: { data?: { message?: string } }; message?: string } | null;
+  const m = x?.data?.message || x?.response?.data?.message || x?.message;
+  return typeof m === 'string' && /[\u0600-\u06FF]/.test(m) ? m : '';
+}
+export function CreateReminderForm({ onClose, initialCustomerId, initialCustomerName, lockedApplicationId, caseScope }: { onClose: () => void; initialCustomerId?: number; initialCustomerName?: string; lockedApplicationId?: number | null; caseScope?: 'general' }) {
   const queryClient = useQueryClient();
   const defaultReminder = defaultReminderJalali();
   const [search, setSearch] = useState('');
@@ -591,10 +598,15 @@ export function CreateReminderForm({ onClose, initialCustomerId, lockedApplicati
     minute: defaultReminder.minute,
   });
   const [formError, setFormError] = useState('');
+  // SALES-FIXES 480000 (bug 3): a sales expert searches only their own customers (GET /sales-fixes/search); GET /customers is 403 under
+  // expert_lockdown and 422 without purpose while the daily plan is on, so the select stayed empty and the reminder could not be attached.
+  const { data: rfSession } = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
+  const ownSearch = rfSession?.user?.role === 'salesperson';
   const customers = useListCustomers(
     { search: search || undefined, limit: 20, offset: 0 },
-    { query: { queryKey: getListCustomersQueryKey({ search: search || undefined, limit: 20, offset: 0 }), staleTime: 20_000 } },
+    { query: { queryKey: getListCustomersQueryKey({ search: search || undefined, limit: 20, offset: 0 }), staleTime: 20_000, enabled: !ownSearch && !initialCustomerId } },
   );
+  const ownHits = useQuery({ queryKey: ['sf480-rem-search', search.trim()], queryFn: () => sfApi.search(search.trim()), enabled: ownSearch && !initialCustomerId && search.trim().length >= 2, staleTime: 20_000, retry: false });
   const createReminder = useCreateReminder();
 
   const submit = (event: FormEvent) => {
@@ -643,24 +655,27 @@ export function CreateReminderForm({ onClose, initialCustomerId, lockedApplicati
   return (
     <Modal title="ثبت یادآور جدید" eyebrow="پیگیری شخصی" onClose={onClose} testId="header-reminder-form">
       <form onSubmit={submit}>
-        {formError || createReminder.isError ? <div className="profile-form-error" data-testid="error-header-reminder">{formError || 'ثبت یادآور انجام نشد. دوباره تلاش کنید.'}</div> : null}
+        {formError || createReminder.isError ? <div className="profile-form-error" data-testid="error-header-reminder">{formError || serverMsg(createReminder.error) || 'ثبت یادآور انجام نشد. دوباره تلاش کنید.'}</div> : null}
+        {initialCustomerId ? <p className="hint" data-testid="reminder-bound-customer">مشتری: <b>{initialCustomerName ? customerNameText(initialCustomerName, initialCustomerId) : `#${initialCustomerId.toLocaleString('fa-IR')}`}</b>{lockedApplicationId ? <> · پرونده {lockedApplicationId.toLocaleString('fa-IR')}</> : null}</p> : null}
+        {initialCustomerId ? null : <>
         <div className="field full">
           <label htmlFor="header-reminder-search">جست‌وجوی مشتری</label>
           <div className="searchbar compact">
             <Search size={15} />
             <input id="header-reminder-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)" data-testid="input-header-reminder-search" />
           </div>
-        </div>
+        </div></>}
         <div className="form-grid">
-          <div className="field full">
+          {initialCustomerId ? (caseScope === 'general' ? <p className="hint field full" data-testid="reminder-general">یادآور عمومی مشتری؛ به پرونده‌ای وصل نمی‌شود.</p> : null) : <div className="field full">
             <label htmlFor="header-reminder-customer">مشتری <span className="field-optional">(اختیاری)</span></label>
             {lockedApplicationId ? <p className="hint" data-testid="reminder-locked-case">این یادآور برای پرونده {lockedApplicationId.toLocaleString('fa-IR')} ثبت می‌شود.</p> : caseScope === 'general' ? <p className="hint" data-testid="reminder-general">یادآور عمومی مشتری؛ به پرونده‌ای وصل نمی‌شود.</p> : null}
             <select id="header-reminder-customer" value={form.customerId} onChange={(event) => setForm({ ...form, customerId: event.target.value })} data-testid="select-header-reminder-customer" disabled={Boolean(initialCustomerId)}>
               <option value="">بدون اتصال به مشتری</option>
-              {(customers.data?.items ?? []).map((customer) => <option key={customer.id} value={customer.id}>{customerNameText(customer.name, customer.id)} · {customer.phone} · کارشناس پرونده: {customer.salespersonName || 'بدون تخصیص'}</option>)}
+              {ownSearch ? (ownHits.data?.items ?? []).map((c) => <option key={c.id} value={c.id}>{customerNameText(c.name, c.id)} · •••{c.phoneLast4}</option>)
+                : (customers.data?.items ?? []).map((customer) => <option key={customer.id} value={customer.id}>{customerNameText(customer.name, customer.id)} · {customer.phone} · کارشناس پرونده: {customer.salespersonName || 'بدون تخصیص'}</option>)}
             </select>
-            <OtherOwnerResults page={customers.data} variant="inline" testId="other-owner-results-reminder" />
-          </div>
+            {ownSearch ? null : <OtherOwnerResults page={customers.data} variant="inline" testId="other-owner-results-reminder" />}
+          </div>}
           <div className="field full">
             <label htmlFor="header-reminder-subject">موضوع یادآور</label>
             <input id="header-reminder-subject" value={form.subject} maxLength={160} onChange={(event) => setForm({ ...form, subject: event.target.value })} data-testid="input-header-reminder-subject" />

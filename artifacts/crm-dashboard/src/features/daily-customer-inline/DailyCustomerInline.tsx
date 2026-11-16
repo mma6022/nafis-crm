@@ -15,13 +15,14 @@ import { CustomerNameEdit } from "@/features/customer-name-edit/CustomerNameEdit
 import { useVcMe, vcApi, VcError, VC_ME_KEY, type VcMe } from "@/features/voip-call/api";
 import { DciError, dciApi, useDciBoard, useDciToday, type DciBoard, type DciCase, type DciDenied, type DciInbound, type DciTask } from "./api";
 import { HistFeed } from "./today-feed";
+import { useSf480 } from "@/features/sales-fixes/api";
 import { FileBox, FileWizard } from "./file-wizard";
 import { DciIcon, DciSprites } from "./icons";
 import "./dci.css";
 import "./today-layout.css";
 import { getListRemindersQueryKey, useListReminders, useUpdateReminder } from "@workspace/api-client-react";
 import { mergeQueue, queueKindClass, queueKindLabel, type QueueTask } from "./queue";
-import { DQ_ATTEMPT_RESULTS, DQ_KEY, DqEarlyBar, DqFileActCard, DqIntBanner, DqPayCard, DqStrip, DqUnknownBoard, KIND_FA, dqApi, dqCurText, useDqArrivals, useDqQueue, type DqItem, type DqKind } from "./queue-v21";
+import { DQ_ATTEMPT_RESULTS, DQ_KEY, DqEarlyBar, DqFileActCard, DqIntBanner, DqPayCard, DqNowIncoming, DqStrip, DqUnknownBoard, KIND_FA, dqApi, dqCurText, useDqArrivals, useDqQueue, type DqItem, type DqKind } from "./queue-v21";
 
 const FD = "۰۱۲۳۴۵۶۷۸۹";
 /** Existing catalog labels (customer_tag_catalog). Fallback if the catalog has not loaded yet. */
@@ -46,7 +47,8 @@ function psErrMsg(error: unknown, kind: "status" | "priority" = "status"): strin
   const fallback = kind === "priority" ? prioFb : statusFb;
   const e = error as { message?: string; data?: { error?: string; message?: string }; response?: { data?: { error?: string; message?: string } } };
   const msg = e?.data?.message || e?.data?.error || e?.response?.data?.message || e?.response?.data?.error || e?.message;
-  if (kind === "priority") return fallback;
+  // SALES-FIXES 480000: show the server's Persian reason for priority too (was always the generic line, which hid e.g. p1_revert_admin_only).
+  if (kind === "priority") return typeof msg === "string" && /[\u0600-\u06FF]/.test(msg) ? msg : fallback;
   return typeof msg === "string" && /[\u0600-\u06FF]/.test(msg) && msg !== prioFb ? msg : fallback;
 }
 function useNarrow(q = "(max-width:1023.98px)") {
@@ -220,7 +222,7 @@ function CallActs({ ext, place, narrow, onCall, onResult }: { ext: boolean; plac
   return <div className="dci-acts">{pri}</div>;
 }
 
-function InBoundBlock({ rows, ext, onCall }: { rows: DciInbound[]; ext: boolean; onCall: () => void }) {
+export function InBoundBlock({ rows, ext, onCall }: { rows: DciInbound[]; ext: boolean; onCall: () => void }) {
   const [notes, setNotes] = useState<Record<number, string>>(() => Object.fromEntries(rows.map((x) => [x.id, x.note ?? ""])));
   const timers = useRef<Record<number, number>>({});
   useEffect(() => { setNotes((n) => ({ ...Object.fromEntries(rows.map((x) => [x.id, x.note ?? ""])), ...n })); }, [rows]);
@@ -476,8 +478,9 @@ function RightCol({ m, ext, onCall, result, sumOpen }: {
   sumOpen?: boolean;
 }) {
   return <section className="dci-col dci-right" aria-label="تاریخچه و یادداشت‌ها">
-    <InBoundBlock rows={m.inbounds} ext={ext} onCall={onCall} />
-    <HistFeed hist={m.hist} notes={m.notes} customerId={m.customer.id} result={result} sumOpen={sumOpen} />
+    {/* SALES-FIXES 480000: (a) new report, (b) previous notes, (c) call history. The old «تماس‌های ورودی» block (a call + a note box per row)
+        mixed calls and notes; its calls now sit in (c) and its notes in (b). */}
+    <HistFeed hist={m.hist} notes={m.notes} inbounds={m.inbounds} customerId={m.customer.id} result={result} sumOpen={sumOpen} />
   </section>;
 }
 
@@ -505,6 +508,7 @@ export default function DailyCustomerInline() {
   const todayQ = useDciToday(true);
   const sessionEarly = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   const remUserId = sessionEarly.data?.user?.id != null ? Number(sessionEarly.data.user.id) : undefined;
+  const sfDci = useSf480(sessionEarly.data?.user?.role);
   const remQ = useListReminders({ done: false }, {
     query: { queryKey: getListRemindersQueryKey({ done: false }), enabled: remUserId != null, retry: false, staleTime: 15_000, refetchInterval: 15_000 },
   });
@@ -704,6 +708,9 @@ export default function DailyCustomerInline() {
       setResultErr(e instanceof Error && /[\u0600-\u06FF]/.test(e.message) ? e.message : "ثبت نشد. دوباره تلاش کنید.");
     } finally { setResultBusy(false); }
   };
+  // SALES-FIXES 480000 (bug 4): a new number that was just named is treated like a first call — the «تماس اول» form opens once its page loads.
+  const firstAfterName = useRef<number | null>(null);
+  useEffect(() => { if (board && firstAfterName.current === board.customer.id) { firstAfterName.current = null; setFcOpen(true); } }, [board?.customer.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const openWizard = (_mode: "new" | "edit") => {
     setFcOpen(true);
   };
@@ -751,7 +758,7 @@ export default function DailyCustomerInline() {
     ? <DqIntBanner it={dqItem} text={dqCurText(dqItem) || board?.call || ""} /> : null;
   if (dq && dqItem && dqItem.customer_id == null) {
     boardEl = <DqUnknownBoard key={dqItem.id} it={dqItem} banner={dqBanner} onCopy={copy}
-      onNamed={(cid, taskId, name) => { flash(`نام «${name}» ثبت شد.`, 2500); void dqQ.refetch(); setLoc(`/today?customer=${cid}&task=${encodeURIComponent(taskId)}`, { replace: true } as any); }} />;
+      onNamed={(cid, taskId, name) => { flash(`نام «${name}» ثبت شد.`, 2500); firstAfterName.current = cid; void dqQ.refetch(); setLoc(`/today?customer=${cid}&task=${encodeURIComponent(taskId)}`, { replace: true } as any); }} />;
   } else if ((todayQ.isLoading && !todayQ.data) || dqQ.isLoading) {
     boardEl = <div className="dci-board"><div className="dci-side"><SkCol cls="dci-right" title="تاریخچه‌ی تماس‌ها" /><SkCol cls="dci-left" title="اعتبارسنجی فوری" /></div><SkCol cls="dci-mid" title="اطلاعات مشتری" /></div>;
   } else if (errorBoard) {
@@ -797,12 +804,14 @@ export default function DailyCustomerInline() {
   return <div className="dci" data-testid="dci-page">
     <DciSprites />
     <main className="pg dci-page">
+      {dq ? <DqNowIncoming q={dq} openId={selectedTask?.id ?? null} onPick={pickDq} /> : null}
       {dq ? <DqStrip q={dq} openId={selectedTask?.id ?? null} flt={dqFlt} setFlt={setDqFlt} onPick={pickDq} />
         : dqQ.isLoading ? <div className="dci-tlw" aria-busy="true" /> : <Timeline tasks={tasks} selected={selectedTask?.id ?? null} onPick={setSel} />}
       {boardEl}
     </main>
     <div className={`toast dci-toast${toast ? " on" : ""}`} id="ph-toast" role="status" aria-live="polite">{toast}</div>
-    {dqToast ? <div className="toast dci-toast on k-in dq-arrive" role="status" aria-live="polite" data-testid="dq-arrive">
+    {/* SALES-FIXES 480000: for sales experts the «اکنون» incoming row replaces this toast. */}
+    {dqToast && !sfDci.noPopups ? <div className="toast dci-toast on k-in dq-arrive" role="status" aria-live="polite" data-testid="dq-arrive">
       <span>تماس ورودی تازه: {fd(dqToast.name)}</span>
       <button type="button" className="btn gh" onClick={() => { pickDq(dqToast); setDqToast(null); }}>باز کردن</button></div> : null}
   </div>;

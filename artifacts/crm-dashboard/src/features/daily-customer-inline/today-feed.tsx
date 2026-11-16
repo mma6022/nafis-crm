@@ -4,13 +4,15 @@ import { useQuery } from "@tanstack/react-query";
 import { cqOutcomeFor, emptyCqResult, type CqResultValue, type ManualOutcome } from "@/features/call-queue/ResultFields";
 import { ctReq, durText, useCtConfig, useCustomerCtCalls, type CtCall, type CtSummary } from "@/features/call-transcripts/api";
 import { useVcHistory, useVcMe, vcApi, type VcHistItem } from "@/features/voip-call/api";
-import { type DciHist, type DciNote } from "./api";
+import { type DciHist, type DciInbound, type DciNote } from "./api";
 import { DciIcon } from "./icons";
+import "@/features/sales-fixes/sf480.css";
+import { openReminderFor } from "@/components/multi-case/HeaderReminder";
 
 const RES_OPTS: { key: ManualOutcome | "note_only"; label: string }[] = [
   { key: "answered", label: "جواب داد" },
   { key: "no_answer", label: "جواب نداد" },
-  { key: "off_or_busy", label: "خاموش یا اشغال" },
+  { key: "off_or_busy", label: "مشغول بود" }, // SALES-FIXES 480000 (t810u): جواب داد / جواب نداد / مشغول بود (same outcome key)
 ];
 
 function isInDir(raw: string | undefined): boolean {
@@ -116,7 +118,7 @@ export function ResultBlock({ val, onChange, onSave, busy, err, show, voipNote, 
   const showNote = needNote || optNote;
   const missing = (needNote && !val.oneLine.trim()) || (!voipNote && !val.manual);
   return <div className="dci-callres" id="dci-result" data-testid="dci-result">
-    <h3>{voipNote ? "ثبت نتیجه‌ی تماس" : "ثبت نتیجه‌ی تماس"}</h3>
+    <h3>گزارش تماس جدید</h3>
     {autoLabel ? <p className="dci-empty">نتیجه از ویپ ثبت شده است؛ فقط یادداشت تماس را بنویسید.</p> : null}
     {voipNote ? null : <div className="dci-res-chips" role="radiogroup" aria-label="نتیجه‌ی تماس">
       {RES_OPTS.map((o) => (
@@ -137,8 +139,12 @@ export function ResultBlock({ val, onChange, onSave, busy, err, show, voipNote, 
   </div>;
 }
 
-export function HistFeed({ hist, notes, customerId, result, sumOpen }: {
-  hist: DciHist[]; notes: DciNote[]; customerId: number;
+/** SALES-FIXES 480000 (t810u item 6): the right call panel, top to bottom —
+ *  (a) «گزارش تماس جدید»: جواب داد / جواب نداد / مشغول بود + یادداشت;
+ *  (b) «یادداشت‌های قبلی کارشناس»: only past calls that have a note (plus the expert's notes), each as date + note;
+ *  (c) «سابقه‌ی تماس‌ها»: every call (date, direction, duration, result), collapsible and collapsed by default. Calls and notes are not mixed. */
+export function HistFeed({ hist, notes, inbounds = [], customerId, result, sumOpen }: {
+  hist: DciHist[]; notes: DciNote[]; inbounds?: DciInbound[]; customerId: number;
   result: { val: CqResultValue; onChange: (v: CqResultValue) => void; onSave: () => void; busy: boolean; err: string; show: boolean; voipNote?: boolean };
   sumOpen?: boolean;
 }) {
@@ -146,38 +152,55 @@ export function HistFeed({ hist, notes, customerId, result, sumOpen }: {
   const voipQ = useVcHistory(customerId, Boolean(vme.data?.on));
   const ctCfg = useCtConfig(true);
   const ctQ = useCustomerCtCalls(customerId, Boolean(ctCfg.data?.enabled));
-  const enriched = useMemo(() => enrichCalls(hist, voipQ.data?.items, ctQ.data?.calls), [hist, voipQ.data, ctQ.data]);
-  const { calls, leftover } = useMemo(() => attachNotes(enriched, notes), [enriched, notes]);
-  const [prevOpen, setPrevOpen] = useState(false);
+  const calls = useMemo(() => {
+    const base = enrichCalls(hist, voipQ.data?.items, ctQ.data?.calls);
+    // inbound VoIP calls without their own call row (e.g. missed) are calls too: date, «ورودی», result — their notes go to (b)
+    const have = new Set(base.map((c) => c.id));
+    const extra: EnrichedCall[] = inbounds.filter((x) => x.callLogId == null || !have.has(x.callLogId)).map((x) => ({
+      id: -x.id, t: x.t, at: x.at, k: "incoming", r: x.r, rc: x.rc, note: "", dir: "ورودی" as const, duration: null, auto: true, eventId: x.id, hasSummary: false }));
+    return [...base, ...extra].sort((a, b) => parseWhen(b.at) - parseWhen(a.at));
+  }, [hist, inbounds, voipQ.data, ctQ.data]);
+  const noteRows = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { key: string; t: string; body: string; at: number }[] = [];
+    for (const c of calls) { const b = (c.note || "").trim(); if (!b) continue; seen.add(b); out.push({ key: `c${c.id}`, t: c.t, body: b, at: parseWhen(c.at) }); }
+    for (const n of notes) { const b = (n.body || "").trim(); if (!b || seen.has(b)) continue; seen.add(b); out.push({ key: `n${n.id}`, t: n.t, body: b, at: parseWhen((n as { at?: string }).at) }); }
+    for (const x of inbounds) { const b = (x.note || "").trim(); if (!b || seen.has(b)) continue; seen.add(b); out.push({ key: `i${x.id}`, t: x.t, body: b, at: parseWhen(x.at) }); }
+    return out.sort((a, b) => (b.at || 0) - (a.at || 0));
+  }, [calls, notes, inbounds]);
+  const [histOpen, setHistOpen] = useState(false);
+  useEffect(() => { setHistOpen(false); }, [customerId]);
   const pending = vme.data?.s132?.last;
   const voipPending = Boolean(pending && pending.customerId === customerId && pending.noteState === "pending" && pending.status === "answered");
-  return <section className="dci-hist-box" aria-label="تاریخچه و یادداشت‌ها">
-    <h2>تاریخچه و یادداشت‌ها</h2>
+  return <section className="dci-hist-box sf-rp" aria-label="گزارش تماس، یادداشت‌ها و سابقه">
     {voipPending && pending?.durationSeconds ? <p className="dci-empty"><span className="dci-vtag">ثبت خودکار ویپ</span> {durText(pending.durationSeconds)}</p> : null}
-    {calls.length ? <ul className="dci-hist">
-      {calls.map((c) => (
-        <li key={c.id} className="dci-hist-item" data-testid={`dci-hist-${c.id}`}>
-          <div className="dci-hist-meta">
-            <span>{c.t}</span>
-            <DirChip dir={c.dir} />
-            {c.duration ? <span className="dci-dur">{c.duration}</span> : null}
-            {c.auto ? <span className="dci-vtag">ثبت خودکار ویپ</span> : null}
-          </div>
-          {c.r ? <p className="dci-hist-res"><span className={`dci-res ${c.rc}`}>{c.r}</span></p> : null}
-          {c.note ? <div className="dci-call-note"><DciIcon id="i-copy" /><span>{c.note}</span></div> : null}
-          {c.notes.map((n) => <div key={n.id} className="dci-call-note"><span>{n.body}</span></div>)}
-          {c.hasSummary && c.eventId ? <CallSummary eventId={c.eventId} forceOpen={sumOpen} /> : null}
-        </li>
-      ))}
-    </ul> : <p className="dci-empty dci-hist-empty">سابقه‌ی تماسی ثبت نشده است.</p>}
-    {leftover.length ? <div className="dci-prev">
-      <button type="button" aria-expanded={prevOpen} onClick={() => setPrevOpen((o) => !o)} data-testid="dci-prev-notes">یادداشت‌های قبلی</button>
-      {prevOpen ? <ul className="dci-prev-list">{leftover.map((n) => <li key={n.id} className="dci-call-note">{n.body}</li>)}</ul> : null}
-    </div> : null}
     <ResultBlock val={result.val} onChange={result.onChange} onSave={result.onSave} busy={result.busy} err={result.err} show={result.show} voipNote={result.voipNote || voipPending} autoLabel={voipPending} />
+    <button type="button" className="btn gh sf-rp-rem" onClick={() => openReminderFor(customerId)} data-testid="sf-rem-open">ثبت یادآور برای این مشتری</button>
+    <div className="sf-rp-notes" data-testid="sf-prev-notes">
+      <h2>یادداشت‌های قبلی کارشناس</h2>
+      {noteRows.length ? <ul className="sf-rp-nl">{noteRows.map((n) => <li key={n.key} data-testid="sf-prev-note"><span className="sf-rp-d">{n.t}</span><p>{n.body}</p></li>)}</ul>
+        : <p className="dci-empty">هنوز یادداشتی ثبت نشده است.</p>}
+    </div>
+    <div className="dci-prev sf-rp-hist">
+      <button type="button" aria-expanded={histOpen} aria-controls="sf-rp-hl" onClick={() => setHistOpen((o) => !o)} data-testid="sf-call-hist-toggle">
+        <span>سابقه‌ی تماس‌ها <span className="sf-rp-n">{calls.length.toLocaleString("fa-IR")}</span></span><DciIcon id="i-chev-l" className={`i sf-rp-chev${histOpen ? " on" : ""}`} /></button>
+      {histOpen ? calls.length ? <ul className="dci-hist" id="sf-rp-hl" data-testid="sf-call-hist">
+        {calls.map((c) => (
+          <li key={c.id} className="dci-hist-item" data-testid={`dci-hist-${c.id}`}>
+            <div className="dci-hist-meta">
+              <span>{c.t}</span>
+              <DirChip dir={c.dir} />
+              {c.duration ? <span className="dci-dur">{c.duration}</span> : null}
+              {c.auto ? <span className="dci-vtag">ثبت خودکار ویپ</span> : null}
+              {c.r ? <span className={`dci-res ${c.rc}`}>{c.r}</span> : null}
+            </div>
+            {c.hasSummary && c.eventId ? <CallSummary eventId={c.eventId} forceOpen={sumOpen} /> : null}
+          </li>
+        ))}
+      </ul> : <p className="dci-empty dci-hist-empty" id="sf-rp-hl">سابقه‌ی تماسی ثبت نشده است.</p> : null}
+    </div>
   </section>;
 }
-
 
 export { FileBox, FileWizard } from "./file-wizard";
 export { fileComplete, filePartial, stateFromDossier as fileInitials, type FileState } from "./file-dossier";

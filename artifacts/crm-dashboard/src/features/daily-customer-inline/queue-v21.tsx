@@ -403,3 +403,23 @@ export function useDqArrivals(q: DqQueue | null | undefined, onArrive: (it: DqIt
   }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 export function useDqMemo(q: DqQueue | null | undefined) { return useMemo(() => q?.items ?? [], [q]); }
+
+/** SALES-FIXES 480000 (t810u bug 4): an open incoming call (live, or inside its urgent window) shows in «اکنون» as an alert row with ONE action:
+ *  own / registered customer → «باز کردن صفحه‌ی مشتری» (that customer's page in this list, like any other task);
+ *  new number → «ثبت نام و شروع تماس اول» (the name step, then the first-call form). No popup, no overlay. */
+export function DqNowIncoming({ q, openId, onPick }: { q: DqQueue; openId: string | null; onPick: (it: DqItem) => void }) {
+  const rows = q.items.filter((x) => x.kind === "incoming_call" && !x.done && (x.live || x.urgent))
+    .sort((a, b) => Number(b.live) - Number(a.live) || String(b.due_at ?? "").localeCompare(String(a.due_at ?? ""))).slice(0, 3);
+  if (!rows.length) return null;
+  const hm = (iso: string | null) => { if (!iso) return ""; const d = new Date(iso); return Number.isNaN(d.getTime()) ? "" : new Intl.DateTimeFormat("fa-IR", { timeZone: "Asia/Tehran", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d); };
+  return <section className="sf-now" aria-label="اکنون، تماس ورودی" data-testid="sf-now-incoming">
+    {rows.map((it) => { const unknown = it.customer_id == null; const open = openId === it.id;
+      return <div key={it.id} className={`sf-now-row${it.live ? " live" : ""}${open ? " open" : ""}`} data-testid="sf-now-row" data-unknown={unknown ? "1" : "0"}>
+        <span className="sf-now-k"><i className="sf-now-dot" aria-hidden="true" />اکنون</span>
+        <span className="sf-now-t"><b>{unknown ? "شماره‌ی ناشناس" : fd(it.name)}</b>
+          <span>تماس ورودی{it.live ? "، در حال تماس" : `، ساعت ${hm(it.due_at)}`}{unknown && it.phone_masked ? <> · <bdi dir="ltr">{fd(it.phone_masked)}</bdi></> : null}{!unknown && it.customer_id ? <> · #{fd(it.customer_id)}</> : null}</span></span>
+        {open ? <span className="sf-now-open" data-testid="sf-now-opened">{unknown ? "نام را پایین ثبت کن" : "صفحه‌ی مشتری باز است"}</span>
+          : <button type="button" className="btn pri sf-now-btn" onClick={() => onPick(it)} data-testid="sf-now-open">{unknown ? "ثبت نام و شروع تماس اول" : "باز کردن صفحه‌ی مشتری"}</button>}
+      </div>; })}
+  </section>;
+}
