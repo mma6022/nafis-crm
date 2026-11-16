@@ -42,6 +42,7 @@ import { useLeadAnnotatorMe } from '@/features/lead-annotator/api';
 import { useCtConfig } from '@/features/call-transcripts/api';
 import { useLinkPageMe } from '@/features/link-page/api';
 import { useSalesTeamsMe } from '@/features/sales-teams/api';
+import { useSmcMe } from '@/features/sales-manager-console/api';
 import { useSalesPerformanceMe } from '@/features/sales-performance/api';
 import { useBaleBotMe } from '@/features/bale-bot/api';
 import { useSalesShellV2, useNavBadges, ssRequestIncoming, tehranHm } from '@/features/sales-shell/api';
@@ -60,7 +61,7 @@ import { useTabState } from '@/lib/tab-coordinator';
 
 const nafissLogoUrl = `${import.meta.env.BASE_URL}nafiss-financial-logo.png`;
 
-type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin' | 'discipline'; dp?: 'today' | 'admin'; leadAnnotator?: boolean; ct?: boolean; lp?: boolean; mt?: boolean; spPerf?: boolean; bb?: 'inbox' | 'admin' };
+type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin' | 'discipline'; dp?: 'today' | 'admin'; leadAnnotator?: boolean; ct?: boolean; lp?: boolean; mt?: boolean; smc?: boolean; spPerf?: boolean; bb?: 'inbox' | 'admin' };
 
 // Routes and permission rules are unchanged; only grouping, order, labels of groups and icons are new.
 const allNavItems: NavItem[] = [
@@ -106,6 +107,7 @@ const allNavItems: NavItem[] = [
   { href: '/bale-bot/admin', label: 'ربات‌های بله', icon: Bot, bb: 'admin' },
   { href: '/settings/links', label: 'صفحه‌ی لینک‌ها', icon: Link2, lp: true }, // links v1.0: only while flag.links_page is ON, admin + sales_manager (server decides)
   { href: '/sales-teams', label: 'تیم‌های فروش', icon: UsersRound, mt: true },
+  { href: '/sales-team-admin', label: 'مدیریت تیم', icon: UsersRound, smc: true }, // «مدیریت تیم فروش» v1.1 (flag.sales_manager_console_v1)
   { href: '/call-center', label: 'گزارش مرکز تماس', icon: Headset, ct: true },
   { href: '/lead-annotator', label: 'یادداشت سرنخ (اینستاگرام)', icon: Instagram, leadAnnotator: true },
   { href: '/users', label: 'کاربران CRM', icon: UserCog, permission: 'users.view' },
@@ -128,7 +130,7 @@ const navGroups: NavGroup[] = [
   { id: 'finance', label: 'مالی و پرداخت', icon: Banknote, hrefs: ['/payment-orders', '/wallet-management', '/bank-accounts', '/accounting'] },
   { id: 'comms', label: 'پیام‌ها و تلفن', icon: Headset, hrefs: ['/chat', '/internal-chat', '/messengers', '/settings/bale', '/bale/autoreply', '/instagram-inbox', '/mobile-calls', '/phone', '/call-center'] },
   { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/sales-performance', '/social-monitor-reports', '/voice-notes-usage', '/call-queue-events', '/call-queue-discipline', '/daily-plans'] },
-  { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/sales-teams', '/settings/notifications', '/settings/assistants', '/settings/default-owner', '/settings/links', '/call-queue-events', '/settings/call-queue', '/settings/releases'] },
+  { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/sales-teams', '/sales-team-admin', '/settings/notifications', '/settings/assistants', '/settings/default-owner', '/settings/links', '/call-queue-events', '/settings/call-queue', '/settings/releases'] },
 ];
 
 const OPEN_GROUPS_KEY = 'nafis.nav.openGroups';
@@ -269,6 +271,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const ctCfg = useCtConfig(Boolean(user) && isAdminUser).data;
   const bbMe = useBaleBotMe().data; // bale v1.1
   const lpMe = useLinkPageMe(Boolean(user) && isAdminUser).data; // links v1.0
+  const smcMe = useSmcMe(Boolean(user && (user.role === 'admin' || user.role === 'sales_manager')) && !elLocked).data; // 404/403 → no item
   const mtMe = useSalesTeamsMe(Boolean(user) && !elLocked).data; // multi-team v1 — skip for locked experts (not an allowed shell endpoint)
   const spMe = useSalesPerformanceMe(Boolean(user)).data; // sales-performance v1
   const basePageTitle = isAdminUser && (location === '/my-wallet' || location.startsWith('/my-wallet/')) ? 'کیف پول کارشناس‌ها' : location === '/settings/links' && !lpMe?.enabled ? 'تنظیمات' /* links v1.0 off: same title as before */ : location === '/sales-teams' && mtMe?.readonly ? 'تیم من' : titleFor(location);
@@ -306,6 +309,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
     if (item.bb === 'admin') return Boolean(bbMe?.enabled && bbMe.canManage);
     if (item.lp) return Boolean(lpMe?.enabled && lpMe.canManage);
     if (item.mt) return Boolean(mtMe?.enabled && (mtMe.canManage || mtMe.canView));
+    if (item.smc) return Boolean(smcMe?.enabled && smcMe.canManage);
     if (item.spPerf) return Boolean(spMe?.canView);
     if (item.ct) return Boolean(ctCfg?.enabled && (ctCfg.manager || ctCfg.viewer)); // t742s2933: plain admin keeps the report (read-only)
     if (item.cq === 'discipline') return Boolean(cqCfg?.manager && cqCfg.flags.discipline);

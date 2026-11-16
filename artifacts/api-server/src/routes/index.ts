@@ -74,6 +74,7 @@ import fileDetailV1Router from "./file-detail-v1";
 import { ensureReminderFollowSchema } from "../lib/reminder-follow";
 import linkPageRouter from "./link-page";
 import salesTeamsRouter from "./sales-teams";
+import salesManagerConsoleRouter, { smcEnforceGuard, smcValidityRouter } from "./sales-manager-console";
 import salesPerformanceRouter from "./sales-performance";
 import baleBotRouter from "./bale-bot";
 import voipTaskHoldRouter from "./voip-task-hold";
@@ -111,6 +112,7 @@ router.use(registrarViewRouter);
 router.use(expertLockdownRouter);
 router.use(planRatesRouter);
 router.use(leadIntakeRouter);
+router.use(smcEnforceGuard); // «مدیریت تیم فروش» v1.1 (flag.sales_manager_console_v1, OFF → next())
 router.use(crmRouter);
 router.use(teamSalesRouter);
 router.use(salesAssistRouter);
@@ -162,6 +164,8 @@ router.use(glReportsRouter);
 router.use(instagramRouter);
 router.use(createSiteNotificationRouter());
 router.use(linkPageRouter); // links v1.0 (flag.links_page, OFF → falls through)
+router.use(salesManagerConsoleRouter); // «مدیریت تیم فروش» v1.1 (flag.sales_manager_console_v1, OFF → 404; sales manager + admin only)
+router.use(smcValidityRouter);
 router.use(salesTeamsRouter); // multi-team v1 (flag.multi_team_v1, OFF → falls through)
 router.use(salesPerformanceRouter); // sales-performance v1 (flag.sales_performance_v1, OFF → 404)
 router.use(baleBotRouter); // Bale bot inbox v1.0 (flag.bale_bot, OFF → falls through, no network)
