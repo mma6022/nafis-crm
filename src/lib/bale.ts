@@ -1,0 +1,1259 @@
+/**
+ * «حساب شخصی بله» — an expert's own Bale account inside the CRM.
+ *
+ * Piece 1a: connect (secure wizard), read-only «گفتگوی بله», switches, audit.
+ *  - Admin master switch (bale_settings.master_enabled, default OFF) and a per-expert mode off | approve_first | auto
+ *    (default off). Connecting needs the master switch ON; switching it OFF never deletes sessions.
+ *  - Who may connect: active sales experts only; trainees (salesperson 5/19/20), user 29 and every other role never.
+ *  - Login: API ↔ local sidecar (lib/bale-sidecar-client.ts). The sidecar keeps the Bale transaction_hash in memory;
+ *    the API keeps only an opaque flowId per user (memory, 5 min). The code / 2FA password are never stored, logged or
+ *    audited. The resulting session token is sealed with AES-256-GCM (lib/bale-crypto.ts, BALE_SESSION_KEY_FILE) and
+ *    is never returned by any endpoint. Max 3 login starts per expert per hour; max 5 code / password tries per flow.
+ *  - Disconnect (expert or admin): sidecar SignOut first, then the sealed session is deleted (also when SignOut fails —
+ *    the expert is told to end the session in Bale › دستگاه‌های فعال).
+ *  - «گفتگوی بله» tab: admin (not 29) every customer; sales expert only customers whose salesperson_id is theirs;
+ *    trainees, user 29 and every other role → 403. Out-of-scope customer → 404 (+ audit).
+ * Piece 1b (lib/bale-outbox.ts): messages to customers ONLY on the expert's own command, the expert's reminder «پیام به مشتری»
+ *  or the expert's own sales assistant (runner POST /bale/send); «اول تأیید من» drafts; caps / random gaps / quiet hours;
+ *  banned-word + «نقد/کالا/امتیاز» filter; auto-stop on Bale errors; inbound listener (own customers only) → tab, bell,
+ *  assistant event; sessions re-attached after a sidecar restart. Still no SMS; document intake / auto-reply = piece 2.
+ */
+import express, { Router, type Request, type Response, type NextFunction } from "express";
+import { randomUUID, timingSafeEqual } from "node:crypto";
+import type { DatabaseSync } from "node:sqlite";
+import { ensureSchemaObject } from "./schema-objects";
+import { createBaleTest, ensureBaleTestSchema } from "./bale-test";
+import { TRAINEE_SALESPERSON_IDS, EXCLUDED_USER_IDS, BANNED_WORDS } from "./assistants";
+import { baleHasKey, baleSessionAad, baleSidecarToken, openBaleSession, sealBaleSession, BaleKeyMissing, type KeyEnv } from "./bale-crypto";
+import { BaleSidecarError, type BaleSidecar } from "./bale-sidecar-client";
+import { createBaleOutbox, ensureBaleOutboxSchema, BLOCK_FA, baleTextProblem, withAmountDisclaimer } from "./bale-outbox";
+import { AR_DEFAULT_SETTINGS, arEscalation, arParseDays, arParseHm, arVoice, AR_TEXT_MAX, AR_OTHER_PAIRS_CONFIRM, AR_ASK_TIMEOUT_MIN } from "./bale-autoreply";
+import { listOfficialHolidays, addOfficialHoliday, deleteOfficialHoliday, replaceOfficialHolidays } from "./official-holidays";
+import multer from "multer";
+import { ensureCustomerBaleLinks, matchContacts, maskPhone, normMobile, peerTag, type BaleScanContact, type MatchRow } from "./bale-contact-links";
+import { createBalePlanFiles, ensureBalePlanFilesSchema, BALE_PLAN_FILE_MAX_BYTES, BALE_PLAN_FILE_TYPES } from "./bale-plan-files";
+import { roleSql } from "./sales-manager";
+
+type Db = DatabaseSync;
+export type BaleActor = { id: number } | null;
+/** AR30c: shown when the learned tick was on but the answer has an amount or a promise (sent, not saved). */
+export const LEARNED_SKIPPED_FA = "این جواب چون مبلغ یا قول داره ذخیره نشد";
+/** AR30b: «صبح ساعت ۸:۳۰ ارسال می‌شه» (the quiet window's end, Persian digits). */
+export function quietMorningFa(end: string | null | undefined): string {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(end ?? "")); const hm = m ? `${Number(m[1])}:${m[2]}` : "8:30";
+  return `صبح ساعت ${hm.replace(/\d/g, d => "۰۱۲۳۴۵۶۷۸۹"[Number(d)])} ارسال می‌شه`;
+}
+export type BaleDeps = { db: Db; env: () => KeyEnv; sidecar: BaleSidecar; now?: () => Date; actor: (res: Response) => BaleActor; random?: () => number;
+  /** Where plan files live (<data dir>/bale-plan-files). Absent → no plan files at all. */
+  planFilesDir?: string;
+  /** Tests only: auto-reply wake-webhook transport / sleep / log (production uses fetch, setTimeout, console). */
+  arWake?: { fetchImpl?: (url: string, init: any) => Promise<{ ok: boolean; status: number }>; sleep?: (ms: number) => Promise<void>; log?: (m: string, d: Record<string, unknown>) => void } };
+
+export const BALE_MODES = ["off", "approve_first", "auto"] as const;
+export type BaleMode = typeof BALE_MODES[number];
+export const BALE_LOGIN_STARTS_PER_HOUR = 3;
+export const BALE_FLOW_TTL_MS = 5 * 60_000;
+export const BALE_MAX_TRIES_PER_FLOW = 5;
+/** Send limits (read by lib/bale-outbox.ts on every enqueue and send). */
+export const BALE_DEFAULT_SETTINGS: Record<string, string> = {
+  master_enabled: "0", gap_min_s: "45", gap_max_s: "120", per_hour: "20", per_day: "80", new_chats_per_day: "15",
+  quiet_start: "21:30", quiet_end: "08:30", banned_words: JSON.stringify(BANNED_WORDS),
+  // PM decision (b): "one customer blocked the expert" is UNVERIFIED on real Bale → default stays the safe whole-account stop.
+  // conversation_pause (only that chat pauses) may be switched on by an admin only after the test-SIM check.
+  peer_block_mode: "account_stop",
+  // «حساب تستی» (system-owned spare SIM): its own switch, default OFF, independent of master_enabled.
+  test_enabled: "0",
+  // Plan files over Bale (PDF / image of a plan, always an expert-approved draft): its own switch, default OFF.
+  bale_attachments_enabled: "0",
+  // BALE-FIXB-66 «سکوت بله»: admin bell after N working hours with no inbound (Sat–Thu, holidays excluded). Default OFF.
+  bale_silence_alert: "0", bale_silence_hours: "3", bale_silence_from: "09:00", bale_silence_to: "20:00",
+};
+export const BALE_PEER_BLOCK_MODES = ["account_stop", "conversation_pause"] as const;
+
+export function ensureBaleSchema(db: Db, nowIso = new Date().toISOString()): void {
+  db.exec(`
+  CREATE TABLE IF NOT EXISTS bale_accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL UNIQUE, salesperson_id INTEGER, phone_masked TEXT,
+    bale_user_id TEXT, session_ct TEXT, session_key_id TEXT, device_hash TEXT NOT NULL, device_title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'disconnected' CHECK(status IN ('connected','disconnected','banned','error')),
+    mode TEXT NOT NULL DEFAULT 'off' CHECK(mode IN ('off','approve_first','auto')),
+    connected_at TEXT, last_seen_at TEXT, last_error TEXT, disconnected_at TEXT, disconnected_by INTEGER,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS bale_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by_user_id INTEGER);
+  CREATE TABLE IF NOT EXISTS bale_contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL REFERENCES bale_accounts(id), customer_id INTEGER NOT NULL,
+    peer_id TEXT, first_contact_at TEXT, has_prior_chat INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, UNIQUE(account_id, customer_id));
+  CREATE TABLE IF NOT EXISTS bale_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL REFERENCES bale_accounts(id), customer_id INTEGER NOT NULL, text TEXT NOT NULL,
+    source TEXT NOT NULL CHECK(source IN ('expert_command','reminder','assistant','auto_reply')), explicit_expert_command INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending_approval' CHECK(status IN ('pending_approval','queued','sending','sent','failed','blocked','cancelled')),
+    block_reason TEXT, approved_by INTEGER, scheduled_at TEXT, sent_at TEXT, bale_msg_id TEXT, error TEXT, created_by INTEGER,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS bale_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL REFERENCES bale_accounts(id), customer_id INTEGER NOT NULL,
+    direction TEXT NOT NULL CHECK(direction IN ('in','out')), text TEXT, file_ref TEXT, bale_msg_id TEXT, outbox_id INTEGER,
+    status TEXT, created_at TEXT NOT NULL, UNIQUE(account_id, bale_msg_id));
+  CREATE TABLE IF NOT EXISTS bale_conversation_state (
+    customer_id INTEGER NOT NULL, account_id INTEGER NOT NULL REFERENCES bale_accounts(id),
+    mode TEXT NOT NULL DEFAULT 'human' CHECK(mode IN ('assistant','human')), handed_off_reason TEXT, updated_at TEXT NOT NULL,
+    PRIMARY KEY(customer_id, account_id));
+  CREATE TABLE IF NOT EXISTS bale_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, user_id INTEGER, actor_label TEXT, account_id INTEGER, customer_id INTEGER,
+    action TEXT NOT NULL, outcome TEXT NOT NULL, ip TEXT, detail_json TEXT);
+  `);
+  ensureSchemaObject(db, "index", "idx_bale_messages_customer", "CREATE INDEX idx_bale_messages_customer ON bale_messages(customer_id, id)");
+  ensureSchemaObject(db, "index", "idx_bale_outbox_account", "CREATE INDEX idx_bale_outbox_account ON bale_outbox(account_id, status, id)");
+  ensureSchemaObject(db, "index", "idx_bale_audit_user", "CREATE INDEX idx_bale_audit_user ON bale_audit(user_id, action, id)");
+  ensureSchemaObject(db, "index", "idx_bale_contacts_customer", "CREATE INDEX idx_bale_contacts_customer ON bale_contacts(customer_id)");
+  ensureBaleOutboxSchema(db);
+  ensureBaleTestSchema(db);
+  ensureBalePlanFilesSchema(db);
+  ensureCustomerBaleLinks(db);
+  const ins = db.prepare("INSERT OR IGNORE INTO bale_settings(key,value,updated_at) VALUES(?,?,?)");
+  for (const [k, v] of Object.entries(BALE_DEFAULT_SETTINGS)) ins.run(k, v, nowIso);
+}
+
+/** Persian/Arabic digits → ASCII; +98 / 0098 / 98 → 0. Returns 09xxxxxxxxx or null. */
+export function normalizeIranMobile(raw: unknown): string | null {
+  let s = String(raw ?? "").replace(/[۰-۹]/g, d => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(/[\s\-()]/g, "");
+  if (s.startsWith("+98")) s = "0" + s.slice(3); else if (s.startsWith("0098")) s = "0" + s.slice(4); else if (/^98\d{10}$/.test(s)) s = "0" + s.slice(2);
+  return /^09\d{9}$/.test(s) ? s : null;
+}
+export const maskMobile = (p: string) => `${p.slice(0, 4)}•••${p.slice(-2)}`;
+const asciiDigits = (raw: unknown) => String(raw ?? "").replace(/[۰-۹]/g, d => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(/\s/g, "");
+
+/** Who may connect a personal Bale account: active, non-trainee sales experts; never user 29. */
+export function baleEligible(u: { id: number; role: string; salesperson_id: number | null; active?: number } | undefined | null): boolean {
+  if (!u || EXCLUDED_USER_IDS.includes(u.id) || u.active === 0) return false;
+  return u.role === "salesperson" && Boolean(u.salesperson_id) && !TRAINEE_SALESPERSON_IDS.includes(Number(u.salesperson_id));
+}
+/** Who may open the «گفتگوی بله» tab at all (customer scope checked separately). */
+export function baleChatViewer(u: { id: number; role: string; salesperson_id: number | null; active?: number } | undefined | null): "all" | "own" | null {
+  if (!u || EXCLUDED_USER_IDS.includes(u.id) || u.active === 0) return null;
+  if (u.role === "admin") return "all";
+  return baleEligible(u) ? "own" : null;
+}
+
+const ERR_FA: Record<string, string> = {
+  bale_disabled: "اتصال بله فعلاً از طرف مدیر خاموش است.",
+  not_eligible: "اتصال حساب بله فقط برای کارشناس‌های فروش فعال است.",
+  key_missing: "کلید رمزنگاری نشست بله روی سرور تنظیم نشده است. به مدیر خبر بدهید.",
+  sidecar_not_configured: "سرویس بله روی سرور راه‌اندازی نشده است. به مدیر خبر بدهید.",
+  sidecar_unavailable: "سرویس بله الان در دسترس نیست. چند دقیقه‌ی دیگر دوباره امتحان کنید.",
+  sidecar_bad_response: "پاسخ سرویس بله نامعتبر بود. دوباره امتحان کنید.",
+  phone_invalid: "شماره‌ی موبایل درست نیست. مثل ۰۹۱۲۱۲۳۴۵۶۷ وارد کنید.",
+  rate_limited: "بله فعلاً اجازه‌ی ارسال کد نمی‌دهد. کمی بعد دوباره امتحان کنید.",
+  too_many_starts: "در یک ساعت حداکثر ۳ بار می‌شود کد گرفت. کمی بعد دوباره امتحان کنید.",
+  number_banned: "این شماره در بله مسدود است.",
+  wrong_code: "کد درست نیست. دوباره نگاه کنید و وارد کنید.",
+  code_expired: "کد منقضی شده است. از اول شروع کنید.",
+  flow_expired: "زمان ورود تمام شد. از اول شروع کنید.",
+  no_flow: "ورودی در جریان نیست. از اول شروع کنید.",
+  too_many_tries: "تعداد تلاش زیاد شد. از اول شروع کنید.",
+  sign_up_needed: "این شماره حساب بله ندارد. اول در اپ بله ثبت‌نام کنید.",
+  wrong_password: "رمز دومرحله‌ای درست نیست.",
+  bad_code: "کد باید ۴ تا ۶ رقم باشد.",
+  bad_password: "رمز دومرحله‌ای را وارد کنید.",
+  not_connected: "حساب بله وصل نیست.",
+  bad_mode: "حالت نامعتبر است.",
+  already_connected: "حساب بله‌ی شما همین الان وصل است.",
+  unauthorized: "سرویس بله درخواست را نپذیرفت. به مدیر خبر بدهید.",
+  unknown: "خطای ناشناخته از بله. دوباره امتحان کنید.",
+  forbidden: "دسترسی ندارید.",
+  scan_too_soon: "اسکن بله هر ۵ دقیقه یک بار ممکن است. کمی بعد دوباره امتحان کنید.",
+  not_attached: "اتصال بله‌ی این حساب هنوز کامل نشده است. یک دقیقه‌ی دیگر دوباره امتحان کنید.",
+  session_invalid: "نشست بله منقضی شده است. حساب بله را دوباره وصل کنید.",
+  account_banned: "حساب بله مسدود است.",
+  timeout: "بله دیر جواب داد. کمی بعد دوباره امتحان کنید.",
+  client_error: "خواندن فهرست مخاطب‌ها از بله ممکن نشد. کمی بعد دوباره امتحان کنید.",
+  scan_expired: "نتیجه‌ی اسکن قدیمی شده است. دوباره اسکن کنید.",
+  bad_request: "درخواست نامعتبر است.",
+  not_found: "پیدا نشد.",
+  bad_hours: "تعداد ساعت باید عددی بین ۱ تا ۱۱ باشد.",
+  bad_time: "ساعت شروع و پایان باید به شکل ۰۹:۰۰ باشد و شروع قبل از پایان.",
+};
+
+export function createBale(deps: BaleDeps) {
+  const db = deps.db;
+  const now = deps.now ?? (() => new Date());
+  const iso = () => now().toISOString();
+  const row = <T = any>(sql: string, ...p: any[]) => db.prepare(sql).get(...p) as T | undefined;
+  const rows = <T = any>(sql: string, ...p: any[]) => db.prepare(sql).all(...p) as T[];
+  const run = (sql: string, ...p: any[]) => db.prepare(sql).run(...p);
+  const ip = (req: Request) => String((req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() || req.socket.remoteAddress || "").slice(0, 64);
+  const fail = (res: Response, status: number, error: string) => { if (!res.headersSent) res.status(status).json({ error, message: ERR_FA[error] ?? ERR_FA.unknown }); };
+  const setting = (k: string) => row<{ value: string }>("SELECT value FROM bale_settings WHERE key=?", k)?.value ?? BALE_DEFAULT_SETTINGS[k] ?? AR_DEFAULT_SETTINGS[k];
+  const masterOn = () => setting("master_enabled") === "1";
+  const userRow = (id: number) => row<any>(`SELECT id,${roleSql()} AS role,salesperson_id,active,full_name,username FROM users WHERE id=?`, id);
+  const nameOf = (u: any) => u ? (u.full_name || u.username || `کاربر ${u.id}`) : null;
+  const me = (res: Response) => { const a = deps.actor(res); return a ? userRow(a.id) : undefined; };
+  /** Audit detail is whitelisted: never a phone, code, password, token or message text. */
+  function audit(o: { req?: Request; u?: any; accountId?: number | null; customerId?: number | null; action: string; outcome: string; detail?: Record<string, string | number | boolean | null> }) {
+    run("INSERT INTO bale_audit(at,user_id,actor_label,account_id,customer_id,action,outcome,ip,detail_json) VALUES(?,?,?,?,?,?,?,?,?)",
+      iso(), o.u?.id ?? null, nameOf(o.u), o.accountId ?? null, o.customerId ?? null, o.action, o.outcome, o.req ? ip(o.req) : null,
+      o.detail ? JSON.stringify(o.detail) : null);
+  }
+  const accountOf = (userId: number) => row<any>("SELECT * FROM bale_accounts WHERE user_id=? AND kind<>'system_test'", userId);
+  const testOn = () => setting("test_enabled") === "1";
+  const attachmentsOn = () => setting("bale_attachments_enabled") === "1";
+  const planFiles = deps.planFilesDir ? createBalePlanFiles({ db, dir: deps.planFilesDir, now, nameOf: id => (id == null ? null : nameOf(userRow(id))) }) : undefined;
+  let test: ReturnType<typeof createBaleTest>;
+  const outbox = createBaleOutbox({ db, now, env: deps.env, sidecar: deps.sidecar, random: deps.random, setting, masterOn, userRow, nameOf, eligible: baleEligible,
+    audit: o => audit(o), testOn, testInbound: (a, evs) => test.inbound(a, evs), planFiles, attachmentsOn, ...(deps.arWake ?? {}) });
+  const ar = outbox.autoreply;
+  test = createBaleTest({ db, now, env: deps.env, sidecar: deps.sidecar, random: deps.random, setting, nameOf, userRow, audit: o => audit(o),
+    normalize: normalizeIranMobile, mask: maskMobile, asciiDigits, syncSessions: () => outbox.syncSessions(true) });
+
+  /* ------------- login flows: memory only (flowId is opaque; the Bale transaction_hash never leaves the sidecar) ------------- */
+  type Flow = { flowId: string; step: "code" | "password"; expiresAt: number; phoneMasked: string; deviceHash: string; deviceTitle: string; tries: number; codeType: string };
+  const flows = new Map<number, Flow>();
+  const liveFlow = (userId: number) => { const f = flows.get(userId); if (f && f.expiresAt <= now().getTime()) { flows.delete(userId); return undefined; } return f; };
+  const startsLastHour = (userId: number) => Number(row<any>("SELECT count(*) n FROM bale_audit WHERE user_id=? AND action='connect.start' AND at>?",
+    userId, new Date(now().getTime() - 3600_000).toISOString())?.n ?? 0);
+
+  function accountView(a: any) {
+    if (!a) return null;
+    const c = (sql: string) => Number(row<any>(sql, a.id)?.n ?? 0);
+    return { id: a.id, status: a.status, mode: a.mode, phoneMasked: a.phone_masked, connectedAt: a.connected_at, lastSeenAt: a.last_seen_at,
+      lastError: a.last_error, disconnectedAt: a.disconnected_at, hasSession: Boolean(a.session_ct),
+      stoppedReason: a.stopped_reason ?? null,
+      session: a.status === "connected" ? outbox.liveState(a) : null, // live | down («اتصال ناقص، در حال رفع») | unknown
+      pendingApproval: c("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status='pending_approval'"),
+      queued: c("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status IN ('queued','sending')"),
+      sentToday: Number(row<any>("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status='sent' AND sent_at>?", a.id, new Date(now().getTime() - 86_400_000).toISOString())?.n ?? 0),
+      inboundIgnored: Number(a.inbound_ignored ?? 0), unknownOpen: c("SELECT count(*) n FROM bale_unknown_chats WHERE account_id=? AND status='open'") };
+  }
+  function meView(u: any) {
+    const f = liveFlow(u.id);
+    return { eligible: baleEligible(u), masterEnabled: masterOn(), ready: baleHasKey(deps.env()) && deps.sidecar.configured(),
+      account: accountView(accountOf(u.id)), flow: f ? { step: f.step, expiresAt: new Date(f.expiresAt).toISOString(), phoneMasked: f.phoneMasked, codeType: f.codeType } : null,
+      startsLeft: Math.max(0, BALE_LOGIN_STARTS_PER_HOUR - startsLastHour(u.id)) };
+  }
+  const sidecarFail = (res: Response, e: unknown) => {
+    if (e instanceof BaleSidecarError) return fail(res, ["phone_invalid", "wrong_code", "wrong_password", "sign_up_needed"].includes(e.code) ? 422
+      : ["rate_limited"].includes(e.code) ? 429 : ["code_expired", "flow_expired"].includes(e.code) ? 410 : 502, e.code);
+    if (e instanceof BaleKeyMissing) return fail(res, 503, "key_missing");
+    console.error("bale error", (e as Error)?.name); return fail(res, 500, "unknown");
+  };
+
+  /** Seal the token onto the expert's row (insert or update) — the token is never returned or logged. */
+  function storeConnected(req: Request, u: any, f: Flow, c: { token: string; baleUserId: string | null }) {
+    const t = iso(); let a = accountOf(u.id);
+    if (!a) {
+      run(`INSERT INTO bale_accounts(user_id,salesperson_id,phone_masked,device_hash,device_title,status,mode,created_at,updated_at) VALUES(?,?,?,?,?,'disconnected','off',?,?)`,
+        u.id, u.salesperson_id, f.phoneMasked, f.deviceHash, f.deviceTitle, t, t);
+      a = accountOf(u.id);
+    }
+    const sealed = sealBaleSession(deps.env(), c.token, baleSessionAad(a.id, u.id));
+    run(`UPDATE bale_accounts SET salesperson_id=?, phone_masked=?, bale_user_id=?, session_ct=?, session_key_id=?, device_hash=?, device_title=?, status='connected',
+      connected_at=?, last_seen_at=?, last_error=NULL, disconnected_at=NULL, disconnected_by=NULL, updated_at=? WHERE id=?`,
+      u.salesperson_id, f.phoneMasked, c.baleUserId, sealed.value, sealed.keyId, f.deviceHash, f.deviceTitle, t, t, t, a.id);
+    flows.delete(u.id);
+    audit({ req, u, accountId: a.id, action: "connect.connected", outcome: "ok", detail: { keyId: sealed.keyId } });
+    void outbox.syncSessions(true).catch(() => undefined); // start the listener / sender client now
+  }
+
+  /** SignOut on Bale first, then delete the sealed session (also when SignOut fails). */
+  async function disconnect(req: Request, actorU: any, a: any, by: "expert" | "admin") {
+    let remote: "ok" | "failed" | "no_session" = "no_session";
+    if (a.session_ct) {
+      try {
+        const { plaintext } = openBaleSession(deps.env(), a.session_ct, baleSessionAad(a.id, a.user_id));
+        await deps.sidecar.signOut({ accountRef: `acc-${a.id}`, token: plaintext, deviceHash: a.device_hash });
+        remote = "ok";
+      } catch (e) { remote = "failed"; if (!(e instanceof BaleSidecarError) && !(e instanceof BaleKeyMissing)) console.error("bale signout", (e as Error)?.name); }
+    }
+    const t = iso();
+    run(`UPDATE bale_accounts SET session_ct=NULL, session_key_id=NULL, status='disconnected', mode='off', disconnected_at=?, disconnected_by=?,
+      last_error=?, updated_at=? WHERE id=?`, t, actorU.id, remote === "failed" ? "signout_failed" : null, t, a.id);
+    run("UPDATE bale_outbox SET status='blocked', block_reason='not_connected', updated_at=? WHERE account_id=? AND status IN ('pending_approval','queued')", t, a.id);
+    void deps.sidecar.detach({ accountRef: `acc-${a.id}` });
+    flows.delete(a.user_id);
+    audit({ req, u: actorU, accountId: a.id, action: `disconnect.${by}`, outcome: "ok", detail: { remoteSignOut: remote } });
+    return remote;
+  }
+
+  /* ================= staff router (session; mounted under /api) ================= */
+  const staff = Router();
+  staff.use(["/bale", "/admin/bale"], (_req, res, next) => { res.setHeader("Cache-Control", "no-store"); next(); });
+  const expert = (req: Request, res: Response, next: NextFunction) => {
+    const u = me(res); if (!u) return fail(res, 401, "unauthorized");
+    if (!baleEligible(u)) { audit({ req, u, action: `${req.method} ${req.path}`, outcome: "forbidden" }); return fail(res, 403, "not_eligible"); }
+    res.locals.baleUser = u; next();
+  };
+
+  staff.get("/bale/me", (_req, res) => {
+    const u = me(res); if (!u) return fail(res, 401, "unauthorized");
+    res.json(meView(u));
+  });
+
+  staff.post("/bale/connect/start", expert, async (req, res) => {
+    const u = res.locals.baleUser;
+    if (!masterOn()) { audit({ req, u, action: "connect.start", outcome: "disabled" }); return fail(res, 423, "bale_disabled"); }
+    if (!baleHasKey(deps.env())) return fail(res, 503, "key_missing");
+    if (!deps.sidecar.configured()) return fail(res, 503, "sidecar_not_configured");
+    const a = accountOf(u.id);
+    if (a?.status === "connected" && a.session_ct) return fail(res, 409, "already_connected");
+    const phone = normalizeIranMobile(req.body?.phone);
+    if (!phone) return fail(res, 422, "phone_invalid");
+    if (startsLastHour(u.id) >= BALE_LOGIN_STARTS_PER_HOUR) { audit({ req, u, action: "connect.start_limited", outcome: "rate_limited" }); return fail(res, 429, "too_many_starts"); }
+    const old = liveFlow(u.id); if (old) { flows.delete(u.id); void deps.sidecar.cancel({ flowId: old.flowId }); }
+    // Per-expert device id: stable for this expert (reused on reconnect), never the library's shared default.
+    const deviceHash = a?.device_hash ?? randomUUID();
+    const deviceTitle = "Nafis CRM, Linux";
+    const masked = maskMobile(phone);
+    try {
+      const r = await deps.sidecar.startAuth({ accountRef: `user-${u.id}`, phone, deviceHash, deviceTitle });
+      flows.set(u.id, { flowId: r.flowId, step: "code", expiresAt: now().getTime() + Math.min(BALE_FLOW_TTL_MS, r.expiresInS * 1000), phoneMasked: masked, deviceHash, deviceTitle, tries: 0, codeType: r.codeType });
+      audit({ req, u, accountId: a?.id ?? null, action: "connect.start", outcome: "ok", detail: { phone: masked, codeType: r.codeType } });
+      res.json(meView(u));
+    } catch (e) {
+      audit({ req, u, accountId: a?.id ?? null, action: "connect.start", outcome: e instanceof BaleSidecarError ? e.code : "error", detail: { phone: masked } });
+      sidecarFail(res, e);
+    }
+  });
+
+  async function step(req: Request, res: Response, kind: "code" | "password") {
+    const u = res.locals.baleUser;
+    if (!masterOn()) { flows.delete(u.id); return fail(res, 423, "bale_disabled"); }
+    const f = liveFlow(u.id);
+    if (!f) return fail(res, 410, "no_flow");
+    if (f.step !== kind) return fail(res, 409, "no_flow");
+    let secret: string;
+    if (kind === "code") { secret = asciiDigits(req.body?.code); if (!/^\d{4,6}$/.test(secret)) return fail(res, 422, "bad_code"); }
+    else { secret = String(req.body?.password ?? ""); if (!secret || secret.length > 256) return fail(res, 422, "bad_password"); }
+    if (f.tries >= BALE_MAX_TRIES_PER_FLOW) { flows.delete(u.id); void deps.sidecar.cancel({ flowId: f.flowId }); return fail(res, 429, "too_many_tries"); }
+    f.tries++;
+    try {
+      const r = kind === "code" ? await deps.sidecar.submitCode({ flowId: f.flowId, code: secret }) : await deps.sidecar.submitPassword({ flowId: f.flowId, password: secret });
+      if (r.status === "password_needed") {
+        f.step = "password"; f.tries = 0;
+        audit({ req, u, action: "connect.code", outcome: "password_needed" });
+        return res.json(meView(u));
+      }
+      storeConnected(req, u, f, r);
+      res.json(meView(u));
+    } catch (e) {
+      const code = e instanceof BaleSidecarError ? e.code : e instanceof BaleKeyMissing ? "key_missing" : "error";
+      audit({ req, u, action: `connect.${kind}`, outcome: code, detail: { tries: f.tries } });
+      if (code === "code_expired" || code === "flow_expired") flows.delete(u.id);
+      sidecarFail(res, e);
+    }
+  }
+  staff.post("/bale/connect/code", expert, (req, res) => step(req, res, "code"));
+  staff.post("/bale/connect/password", expert, (req, res) => step(req, res, "password"));
+  staff.post("/bale/connect/cancel", expert, (req, res) => {
+    const u = res.locals.baleUser; const f = liveFlow(u.id);
+    if (f) { flows.delete(u.id); void deps.sidecar.cancel({ flowId: f.flowId }); audit({ req, u, action: "connect.cancel", outcome: "ok" }); }
+    res.json(meView(u));
+  });
+  staff.put("/bale/me/mode", expert, (req, res) => {
+    const u = res.locals.baleUser; const mode = String(req.body?.mode ?? "") as BaleMode;
+    if (!BALE_MODES.includes(mode)) return fail(res, 422, "bad_mode");
+    const a = accountOf(u.id); if (!a || a.status !== "connected") return fail(res, 409, "not_connected");
+    run("UPDATE bale_accounts SET mode=?, stopped_reason=NULL, updated_at=? WHERE id=?", mode, iso(), a.id);
+    audit({ req, u, accountId: a.id, action: "mode.expert", outcome: "ok", detail: { from: a.mode, to: mode } });
+    res.json(meView(u));
+  });
+  staff.post("/bale/me/disconnect", expert, async (req, res) => {
+    const u = res.locals.baleUser; const a = accountOf(u.id);
+    if (!a || (!a.session_ct && a.status !== "connected")) return fail(res, 409, "not_connected");
+    const remote = await disconnect(req, u, a, "expert");
+    res.json({ ...meView(u), remoteSignOut: remote });
+  });
+
+  /* ---------------- «گفتگوی بله» (read-only) ---------------- */
+  staff.get("/bale/customers/:id/messages", (req, res) => {
+    const u = me(res); if (!u) return fail(res, 401, "unauthorized");
+    const scope = baleChatViewer(u); const cid = Number(req.params.id);
+    if (!scope) { audit({ req, u, customerId: Number.isSafeInteger(cid) ? cid : null, action: "chat.view", outcome: "forbidden" }); return fail(res, 403, "not_eligible"); }
+    const c = Number.isSafeInteger(cid) && cid > 0 ? row<any>("SELECT id,salesperson_id,merged_into_customer_id FROM customers WHERE id=?", cid) : undefined;
+    if (!c || (scope === "own" && (c.salesperson_id !== u.salesperson_id || c.merged_into_customer_id != null))) {
+      audit({ req, u, customerId: Number.isSafeInteger(cid) ? cid : null, action: "chat.view", outcome: "not_in_scope" });
+      return fail(res, 404, "not_found");
+    }
+    const msgs = rows<any>(`SELECT m.id,m.direction,m.text,m.file_ref,m.status,m.created_at,m.account_id,u.full_name,u.username,o.source AS o_source,o.ar_kind,o.assistant_id AS o_asst,o.ar_overlap_at,o.ar_source FROM bale_messages m
+      JOIN bale_accounts a ON a.id=m.account_id LEFT JOIN users u ON u.id=a.user_id LEFT JOIN bale_outbox o ON o.id=m.outbox_id WHERE m.customer_id=? ORDER BY m.id DESC LIMIT 200`, cid).reverse();
+    const autoName = (id: number | null) => { const s = id ? row<any>("SELECT display_name FROM assistants WHERE id=?", id) : undefined; return `${s?.display_name ?? "مسعود"} (خودکار)`; };
+    const owner = c.salesperson_id ? row<any>("SELECT u.id,u.full_name,u.username,a.status,a.mode FROM users u LEFT JOIN bale_accounts a ON a.user_id=u.id WHERE u.salesperson_id=? AND u.role='salesperson' ORDER BY u.id LIMIT 1", c.salesperson_id) : undefined;
+    const st = owner ? row<any>("SELECT s.mode, s.paused_reason, s.paused_at FROM bale_conversation_state s JOIN bale_accounts a ON a.id=s.account_id WHERE s.customer_id=? AND a.user_id=?", cid, owner.id) : undefined;
+    const ownerAcc = owner ? accountOf(owner.id) : undefined;
+    const isOwner = Boolean(owner && owner.id === u.id);
+    const notLive = Boolean(ownerAcc && outbox.liveState(ownerAcc) === "down");
+    const canSend = isOwner && masterOn() && ownerAcc?.status === "connected" && Boolean(ownerAcc?.session_ct) && ownerAcc?.mode !== "off" && !notLive;
+    res.json({
+      customerId: cid, masterEnabled: masterOn(), readOnly: !isOwner,
+      canSend, sendBlockedMessage: isOwner && !canSend ? BLOCK_FA[!masterOn() ? "bale_disabled" : ownerAcc?.status !== "connected" || !ownerAcc?.session_ct ? "not_connected" : ownerAcc?.mode === "off" ? "mode_off" : "session_not_live"] : null,
+      outbox: ownerAcc ? outbox.tabItems(ownerAcc.id, cid).map(o => outbox.itemView(o, isOwner)) : [],
+      sendState: ownerAcc && isOwner ? outbox.sendState(ownerAcc, cid) : null,
+      expert: owner ? { name: nameOf(owner), connected: owner.status === "connected", session: ownerAcc && ownerAcc.status === "connected" ? outbox.liveState(ownerAcc) : null, mode: owner.mode ?? "off" } : null,
+      conversationMode: st?.mode ?? null,
+      paused: st?.paused_reason ? { reason: st.paused_reason, at: st.paused_at, message: BLOCK_FA.conversation_paused, unverified: true } : null,
+      autoReply: ownerAcc && ar.pairOfAccount(ownerAcc) ? (() => { const pr = ar.pairOfAccount(ownerAcc); const o = ar.ownerOf(ownerAcc, { customerId: cid });
+        return { label: ar.label(pr), on: Boolean(ar.activeFor(ownerAcc)), owner: o.owner, reason: o.reason, at: o.at, by: o.by ? nameOf(userRow(o.by)) : null }; })() : null,
+      messages: msgs.map(m => ({ id: m.id, direction: m.direction, text: m.text, hasFile: Boolean(m.file_ref), status: m.status, createdAt: m.created_at,
+        expertName: m.o_source === "auto_reply" ? autoName(m.o_asst) : m.full_name || m.username || null, auto: m.o_source === "auto_reply", arKind: m.ar_kind ?? null,
+        overlap: Boolean(m.ar_overlap_at), arSource: m.ar_source ?? null })),
+    });
+  });
+
+  /* ---------------- 1b: sending (the expert, own customers, own account only) ---------------- */
+  const ownAccount = (req: Request, res: Response) => {
+    const u = res.locals.baleUser; const a = accountOf(u.id);
+    if (!a) { fail(res, 409, "not_connected"); return undefined; }
+    return a;
+  };
+  const ownRow = (req: Request, res: Response) => {
+    const a = ownAccount(req, res); if (!a) return undefined;
+    const o = row<any>("SELECT * FROM bale_outbox WHERE id=? AND account_id=?", Number(req.params.id), a.id);
+    if (!o) { audit({ req, u: res.locals.baleUser, accountId: a.id, action: `${req.method} ${req.path}`, outcome: "not_found" }); fail(res, 404, "not_found"); return undefined; }
+    // The customer must still be the expert's own (reassigned → no actions on old rows).
+    const c = row<any>("SELECT salesperson_id,merged_into_customer_id FROM customers WHERE id=?", o.customer_id);
+    if (!c || c.salesperson_id !== res.locals.baleUser.salesperson_id || c.merged_into_customer_id != null) {
+      res.status(404).json({ error: "out_of_scope", message: BLOCK_FA.out_of_scope }); return undefined;
+    }
+    return { a, o };
+  };
+  const blockedStatus = (reason: string) => ["bale_disabled", "not_connected", "mode_off", "session_not_live", "attachments_disabled", "autoreply_off", "plan_file_off"].includes(reason) ? 423
+    : reason === "out_of_scope" || reason === "unknown_off" ? 404
+    : ["already_pending", "closed_reply_window", "already_replied", "human_mode", "human_replied", "escalated", "reply_window", "after_hours", "ask_pending", "already_asked"].includes(reason) ? 409
+    : ["cap_hour", "cap_day", "cap_new_chats", "cap_pair_hour", "cap_pair_day"].includes(reason) ? 429 : 422;
+  const sendOut = (res: Response, r: ReturnType<typeof outbox.enqueue>) => r.status === "blocked"
+    ? res.status(blockedStatus(r.reason)).json({ error: r.reason, message: r.message, outboxId: r.outboxId })
+    : res.json({ status: r.status, outboxId: r.outboxId, heldUntil: r.heldUntil, message: r.message, text: r.text });
+  staff.post("/bale/customers/:id/send", expert, (req, res) => {
+    const u = res.locals.baleUser; const a = ownAccount(req, res); if (!a) return;
+    const text = typeof req.body?.text === "string" ? req.body.text : "";
+    sendOut(res, outbox.enqueue({ accountId: a.id, customerId: Number(req.params.id), text, source: "expert_command", explicit: true, createdBy: u.id, sendNow: req.body?.sendNow === true }));
+  });
+  staff.post("/bale/outbox/:id/approve", expert, (req, res) => {
+    const x = ownRow(req, res); if (!x) return;
+    sendOut(res, outbox.approve(x.o.id, res.locals.baleUser, typeof req.body?.text === "string" ? req.body.text : undefined));
+  });
+  staff.put("/bale/outbox/:id", expert, (req, res) => {
+    const x = ownRow(req, res); if (!x) return;
+    const r = outbox.editDraft(x.o.id, res.locals.baleUser, typeof req.body?.text === "string" ? req.body.text : "");
+    if (!r.ok) { res.status(r.reason === "not_editable" ? 409 : 422).json({ error: r.reason, message: r.message }); return; }
+    res.json({ ok: true, text: r.text });
+  });
+  staff.post("/bale/outbox/:id/cancel", expert, (req, res) => {
+    const x = ownRow(req, res); if (!x) return;
+    if (!outbox.cancel(x.o.id, res.locals.baleUser)) return void res.status(409).json({ error: "not_cancellable", message: "این پیام دیگر قابل لغو نیست." });
+    res.json({ ok: true });
+  });
+  staff.post("/bale/outbox/:id/send-now", expert, (req, res) => {
+    const x = ownRow(req, res); if (!x) return;
+    if (!outbox.sendNow(x.o.id, res.locals.baleUser)) return void res.status(409).json({ error: "not_queued", message: "این پیام در صف نیست." });
+    res.json({ ok: true });
+  });
+  /** Decision (b): the expert re-opens a paused conversation (own customer only). */
+  staff.post("/bale/customers/:id/resume", expert, (req, res) => {
+    const u = res.locals.baleUser; const a = ownAccount(req, res); if (!a) return;
+    const cid = Number(req.params.id);
+    if (!row<any>("SELECT 1 FROM customers WHERE id=? AND salesperson_id=? AND merged_into_customer_id IS NULL", cid, u.salesperson_id))
+      return void res.status(404).json({ error: "out_of_scope", message: BLOCK_FA.out_of_scope });
+    if (!outbox.resumeConversation(u, a, cid)) return void res.status(409).json({ error: "not_paused", message: "این گفتگو متوقف نیست." });
+    res.json({ ok: true });
+  });
+
+  /* ---------------- decision (c): «پیام از شماره‌ی ناشناس» → link to one of MY customers ---------------- */
+  staff.get("/bale/unknown", expert, (req, res) => {
+    const a = accountOf(res.locals.baleUser.id); res.json({ items: a ? outbox.unknownList(a) : [] });
+  });
+  staff.get("/bale/my-customers", expert, (req, res) => {
+    res.json({ items: outbox.ownCustomerSearch(res.locals.baleUser, typeof req.query.q === "string" ? req.query.q : "") });
+  });
+  staff.post("/bale/unknown/:id/link", expert, (req, res) => {
+    const u = res.locals.baleUser; const a = ownAccount(req, res); if (!a) return;
+    if (!masterOn()) return fail(res, 423, "bale_disabled");
+    const r = outbox.linkUnknown(u, a, Number(req.params.id), Number(req.body?.customerId));
+    if (!r.ok) return void res.status(r.status).json({ error: r.error, message: r.message });
+    res.json({ ok: true, items: outbox.unknownList(a) });
+  });
+  staff.post("/bale/unknown/:id/dismiss", expert, (req, res) => {
+    const u = res.locals.baleUser; const a = ownAccount(req, res); if (!a) return;
+    if (!outbox.dismissUnknown(u, a, Number(req.params.id))) return fail(res, 404, "not_found");
+    res.json({ ok: true, items: outbox.unknownList(a) });
+  });
+
+  staff.get("/bale/outbox", expert, (req, res) => {
+    const u = res.locals.baleUser; const a = accountOf(u.id); if (!a) return void res.json({ items: [] });
+    // Switch OFF → plan-file rows are not shown at all (they can be neither approved nor sent).
+    const list = rows<any>(`SELECT o.*, c.name cname, c.salesperson_id csp, c.merged_into_customer_id cm FROM bale_outbox o LEFT JOIN customers c ON c.id=o.customer_id
+      WHERE o.account_id=? AND (o.status IN ('pending_approval','queued','sending') OR o.updated_at>?)${attachmentsOn() ? "" : " AND o.attachment_id IS NULL"} ORDER BY o.id DESC LIMIT 100`, a.id, new Date(now().getTime() - 3 * 86_400_000).toISOString());
+    res.json({ items: list.map(o => {
+      const own = o.csp === u.salesperson_id && o.cm == null;
+      // Out-of-scope rows (e.g. the assistant tried a foreign customer, or the customer was reassigned): no name, no text.
+      return own ? { ...outbox.itemView(o, true), customerName: o.cname }
+        : { ...outbox.itemView({ ...o, text: "" }, false), customerId: null, customerName: null, text: null, attachment: null };
+    }) });
+  });
+  staff.post("/bale/reminder-messages", expert, (req, res) => {
+    const u = res.locals.baleUser; const a = ownAccount(req, res); if (!a) return;
+    if (!masterOn()) return fail(res, 423, "bale_disabled");
+    const r = outbox.linkReminder(u, a, Number(req.body?.reminderId), typeof req.body?.text === "string" ? req.body.text : "");
+    if (!r.ok) return void res.status(r.status).json({ error: r.error, message: r.message });
+    res.json({ ok: true });
+  });
+  staff.post("/bale/reminder-messages/:id/cancel", expert, (req, res) => {
+    const u = res.locals.baleUser; const a = ownAccount(req, res); if (!a) return;
+    if (!outbox.cancelReminder(u, a, Number(req.params.id))) return fail(res, 404, "not_found");
+    res.json({ ok: true });
+  });
+
+  /* ---------------- «اسکن بله و اتصال مشتری»: read-only contact scan → expert-confirmed links (customer_bale_links) ---------------- */
+  const SCAN_COOLDOWN_MS = 5 * 60_000; const SCAN_TTL_MS = 30 * 60_000;
+  type Scan = { id: string; userId: number; accountId: number; expertUserId: number; all: boolean; at: number; contacts: Map<string, { method: Map<number, string> }> };
+  const scans = new Map<string, Scan>(); const lastScan = new Map<number, number>();
+  const scanner = (req: Request, res: Response, next: NextFunction) => {
+    const u = me(res); if (!u) return fail(res, 401, "unauthorized");
+    const isAdmin = u.role === "admin" && !EXCLUDED_USER_IDS.includes(u.id) && u.active !== 0;
+    if (!isAdmin && !baleEligible(u)) { audit({ req, u, action: `${req.method} ${req.path}`, outcome: "forbidden" }); return fail(res, 403, "forbidden"); }
+    res.locals.scanUser = u; res.locals.scanAdmin = isAdmin; next();
+  };
+  const activeLinks = (expertUserId: number) => rows<any>("SELECT * FROM customer_bale_links WHERE expert_user_id=? AND unlinked_at IS NULL", expertUserId);
+  const scopeCustomers = (all: boolean, spId: number | null) => all
+    ? rows<any>("SELECT id,name,phone,salesperson_id FROM customers WHERE merged_into_customer_id IS NULL")
+    : rows<any>("SELECT id,name,phone,salesperson_id FROM customers WHERE salesperson_id=? AND merged_into_customer_id IS NULL", spId);
+  const inScope = (all: boolean, spId: number | null, customerId: number) => {
+    const c = Number.isSafeInteger(customerId) && customerId > 0 ? row<any>("SELECT id,name,phone,salesperson_id,merged_into_customer_id FROM customers WHERE id=?", customerId) : undefined;
+    return c && c.merged_into_customer_id == null && (all || (spId != null && c.salesperson_id === spId)) ? c : undefined;
+  };
+  /** Which Bale account a scan reads: the expert's own; admin picks a connected expert account (body.accountId). */
+  const scanAccount = (res: Response, accountId: unknown) => {
+    const u = res.locals.scanUser;
+    if (!res.locals.scanAdmin || (accountId == null && accountOf(u.id))) return accountOf(u.id);
+    const a = row<any>("SELECT * FROM bale_accounts WHERE id=? AND kind<>'system_test'", Number(accountId));
+    return a && baleEligible(userRow(a.user_id)) ? a : undefined;
+  };
+  function linkView(l: any) { return l ? { id: l.id, customerId: l.customer_id, baleUserId: l.bale_user_id, method: l.match_method, linkedAt: l.linked_at } : null; }
+  staff.get("/bale/contact-scan", scanner, (_req, res) => {
+    const u = res.locals.scanUser; const isAdmin = res.locals.scanAdmin;
+    const accs = isAdmin ? rows<any>("SELECT * FROM bale_accounts WHERE kind<>'system_test' AND status='connected' ORDER BY id").filter(a => baleEligible(userRow(a.user_id)))
+      : [accountOf(u.id)].filter(a => a && a.status === "connected");
+    res.json({ admin: isAdmin, masterEnabled: masterOn(), cooldownS: SCAN_COOLDOWN_MS / 1000,
+      accounts: accs.map(a => ({ id: a.id, userId: a.user_id, name: nameOf(userRow(a.user_id)), session: outbox.liveState(a),
+        nextScanInS: Math.max(0, Math.ceil(((lastScan.get(a.id) ?? 0) + SCAN_COOLDOWN_MS - now().getTime()) / 1000)),
+        links: Number(row<any>("SELECT count(*) n FROM customer_bale_links WHERE expert_user_id=? AND unlinked_at IS NULL", a.user_id)?.n ?? 0) })) });
+  });
+  staff.post("/bale/contact-scan", scanner, async (req, res) => {
+    // 2026-10-26: an admin scanning an expert's account matches ONLY that expert's own customers (same as the expert's own scan).
+    const u = res.locals.scanUser; const all = false; const byAdmin = Boolean(res.locals.scanAdmin);
+    if (!masterOn()) return fail(res, 423, "bale_disabled");
+    const a = scanAccount(res, req.body?.accountId);
+    if (!a || a.status !== "connected" || !a.session_ct) return fail(res, 409, "not_connected");
+    const t0 = now().getTime(); const last = lastScan.get(a.id) ?? 0;
+    if (t0 - last < SCAN_COOLDOWN_MS) { audit({ req, u, accountId: a.id, action: "contacts.scan", outcome: "rate_limited" }); return void res.status(429).json({ error: "scan_too_soon", message: ERR_FA.scan_too_soon, retryAfterS: Math.ceil((last + SCAN_COOLDOWN_MS - t0) / 1000) }); }
+    lastScan.set(a.id, t0);
+    let got: { source: "contacts" | "dialogs"; contacts: BaleScanContact[]; truncated: boolean };
+    try { got = await deps.sidecar.contacts({ accountRef: `acc-${a.id}` }); }
+    catch (e) {
+      const code = e instanceof BaleSidecarError ? e.code : "unknown";
+      audit({ req, u, accountId: a.id, action: "contacts.scan", outcome: "error", detail: { code } });
+      if (e instanceof BaleSidecarError) return fail(res, code === "rate_limited" ? 429 : code === "not_attached" ? 409 : code === "session_invalid" || code === "account_banned" ? 409 : 502, code === "rate_limited" ? "scan_too_soon" : code);
+      return sidecarFail(res, e);
+    }
+    const expert = userRow(a.user_id);
+    const customers = scopeCustomers(all, expert?.salesperson_id ?? null);
+    const byId = new Map(customers.map(c => [c.id, c]));
+    const m = matchContacts(got.contacts, customers);
+    const links = activeLinks(a.user_id); const linkByPeer = new Map(links.map(l => [l.bale_user_id, l])); const linkByCustomer = new Map(links.map(l => [l.customer_id, l]));
+    const scan: Scan = { id: randomUUID(), userId: u.id, accountId: a.id, expertUserId: a.user_id, all, at: t0, contacts: new Map() };
+    for (const [k, v] of scans) if (v.at < t0 - SCAN_TTL_MS || (v.userId === u.id && v.accountId === a.id)) scans.delete(k);
+    const view = (r: MatchRow) => {
+      scan.contacts.set(r.contact.baleUserId, { method: new Map(r.candidates.map(c => [c.customerId, c.method])) });
+      const link = linkByPeer.get(r.contact.baleUserId);
+      return { baleUserId: r.contact.baleUserId, contactName: r.label.slice(0, 80), phoneMasked: maskPhone(normMobile(r.contact.phone)), note: r.note, link: linkView(link),
+        candidates: r.candidates.slice(0, 8).map(c => { const cu = byId.get(c.customerId); const other = linkByCustomer.get(c.customerId);
+          return { customerId: c.customerId, name: cu?.name ?? "", method: c.method, phoneMasked: maskPhone(normMobile(cu?.phone)),
+            linkedToOther: Boolean(other && other.bale_user_id !== r.contact.baleUserId) }; }) };
+    };
+    const out = { scanId: scan.id, source: got.source, truncated: got.truncated, accountId: a.id, expert: nameOf(expert), all, byAdmin,
+      counts: { contacts: got.contacts.length, confident: m.confident.length, review: m.review.length, notFound: m.notFound.length },
+      confident: m.confident.map(view), review: m.review.map(view), notFound: m.notFound.map(view) };
+    scans.set(scan.id, scan);
+    audit({ req, u, accountId: a.id, action: "contacts.scan", outcome: "ok", detail: { source: got.source, ...out.counts, admin: byAdmin } });
+    res.json(out);
+  });
+  staff.post("/bale/contact-links", scanner, (req, res) => {
+    const u = res.locals.scanUser;
+    const scan = scans.get(String(req.body?.scanId ?? ""));
+    if (!scan || scan.userId !== u.id || scan.at < now().getTime() - SCAN_TTL_MS) return fail(res, 410, "scan_expired");
+    const items: any[] = Array.isArray(req.body?.items) ? req.body.items.slice(0, 500) : [];
+    if (!items.length) return fail(res, 400, "bad_request");
+    const expert = userRow(scan.expertUserId); const spId = expert?.salesperson_id ?? null;
+    if (!baleEligible(expert)) return fail(res, 409, "not_connected");
+    const done: { baleUserId: string; customerId: number; linkId: number; method: string }[] = []; const skipped: { baleUserId: string; customerId: number; reason: string }[] = [];
+    for (const it of items) {
+      const peer = String(it?.baleUserId ?? ""); const cid = Number(it?.customerId);
+      const sc = scan.contacts.get(peer);
+      if (!sc) { skipped.push({ baleUserId: peer, customerId: cid, reason: "not_in_scan" }); continue; }
+      if (!inScope(scan.all, spId, cid)) { skipped.push({ baleUserId: peer, customerId: cid, reason: "out_of_scope" }); continue; }
+      const byPeer = row<any>("SELECT * FROM customer_bale_links WHERE expert_user_id=? AND bale_user_id=? AND unlinked_at IS NULL", scan.expertUserId, peer);
+      if (byPeer?.customer_id === cid) { done.push({ baleUserId: peer, customerId: cid, linkId: byPeer.id, method: byPeer.match_method }); continue; }
+      if (byPeer) { skipped.push({ baleUserId: peer, customerId: cid, reason: "contact_linked" }); continue; }
+      if (row("SELECT 1 FROM customer_bale_links WHERE expert_user_id=? AND customer_id=? AND unlinked_at IS NULL", scan.expertUserId, cid)) { skipped.push({ baleUserId: peer, customerId: cid, reason: "customer_linked" }); continue; }
+      const method = sc.method.get(cid) ?? "manual";
+      const id = Number(run("INSERT INTO customer_bale_links(bale_user_id,customer_id,expert_user_id,account_id,match_method,linked_at,linked_by) VALUES(?,?,?,?,?,?,?)",
+        peer, cid, scan.expertUserId, scan.accountId, method, iso(), u.id).lastInsertRowid);
+      audit({ req, u, accountId: scan.accountId, customerId: cid, action: "contacts.link", outcome: "ok", detail: { method, linkId: id, peer: peerTag(peer) } });
+      done.push({ baleUserId: peer, customerId: cid, linkId: id, method });
+    }
+    res.json({ ok: true, linked: done, skipped });
+  });
+  staff.post("/bale/contact-links/:id/unlink", scanner, (req, res) => {
+    const u = res.locals.scanUser;
+    const l = row<any>("SELECT * FROM customer_bale_links WHERE id=? AND unlinked_at IS NULL", Number(req.params.id));
+    if (!l || (!res.locals.scanAdmin && l.expert_user_id !== u.id)) return fail(res, 404, "not_found");
+    run("UPDATE customer_bale_links SET unlinked_at=?, unlinked_by=?, unlink_reason=? WHERE id=?", iso(), u.id, res.locals.scanAdmin && l.expert_user_id !== u.id ? "admin" : "expert", l.id);
+    audit({ req, u, accountId: l.account_id, customerId: l.customer_id, action: "contacts.unlink", outcome: "ok", detail: { linkId: l.id, peer: peerTag(l.bale_user_id) } });
+    res.json({ ok: true });
+  });
+  /** «متصل به بله» badge on the customer profile: admin sees any customer; an eligible expert only their own. */
+  staff.get("/bale/customers/:id/link", (req, res) => {
+    const u = me(res); if (!u) return fail(res, 401, "unauthorized");
+    const v = baleChatViewer(u); if (!v) return fail(res, 403, "forbidden");
+    const cid = Number(req.params.id);
+    const c = inScope(v === "all", u.salesperson_id ?? null, cid); if (!c) return fail(res, 404, "not_found");
+    const l = row<any>("SELECT l.*, u.full_name, u.username FROM customer_bale_links l LEFT JOIN users u ON u.id=l.expert_user_id WHERE l.customer_id=? AND l.unlinked_at IS NULL"
+      + (v === "all" ? "" : " AND l.expert_user_id=" + Number(u.id)) + " ORDER BY l.id DESC LIMIT 1", cid);
+    res.json({ linked: Boolean(l), link: l ? { ...linkView(l), expertName: nameOf({ id: l.expert_user_id, full_name: l.full_name, username: l.username }), canUnlink: v === "all" || l.expert_user_id === u.id } : null });
+  });
+
+  /* ---------------- admin ---------------- */
+  const admin = (req: Request, res: Response, next: NextFunction) => {
+    const u = me(res);
+    if (!u || u.role !== "admin" || EXCLUDED_USER_IDS.includes(u.id) || u.active === 0) { if (u) audit({ req, u, action: `${req.method} ${req.path}`, outcome: "forbidden" }); return fail(res, 403, "forbidden"); }
+    res.locals.baleAdmin = u; next();
+  };
+  /* ================= «پاسخ خودکار دستیارها در بله» (lib/bale-autoreply.ts) — everything OFF by default ================= */
+  const arTextCheck = (t: unknown): string | null => {
+    const s = String(t ?? "").trim(); if (!s) return "empty";
+    const tp = baleTextProblem(s, (() => { try { const l = JSON.parse(setting("banned_words")); return Array.isArray(l) ? l.map(String) : []; } catch { return []; } })()); if (tp) return tp;
+    if (arVoice(s).problem) return "signature";
+    // Admin-written fixed texts: a vague day word (the PM's «فردا صبح پیگیری می‌کنم») is allowed; promises, amounts, anger words are not.
+    const k = arEscalation(s); if (k && k !== "date") return "escalated"; return null;
+  };
+  const arTarget = (req: Request): { customerId: number } | { chatId: number } | null => {
+    const id = Number(req.params.id); if (!Number.isSafeInteger(id) || id < 1) return null;
+    return req.params.kind === "customer" ? { customerId: id } : req.params.kind === "unknown" ? { chatId: id } : null;
+  };
+  /** The expert's own live view: switch card + conversation list. */
+  staff.get("/bale/me/autoreply", expert, (_req, res) => {
+    const u = res.locals.baleUser; const a = accountOf(u.id); const pr = a ? ar.pairOfAccount(a) : ar.pairs().find(p => p.expert_user_id === u.id && p.bound_user_id === u.id);
+    if (!pr) { res.json({ paired: false }); return; }
+    res.json({ paired: true, pair: ar.pairView(pr), settings: ar.settingsView(), connected: Boolean(a && a.status === "connected"),
+      list: a ? ar.liveList(a, pr).map(x => ({ ...x, lastText: String(x.lastText ?? "").slice(0, 140) })) : [] });
+  });
+  /** Expert: OFF only (turning it on is an admin action with confirmation). */
+  staff.put("/bale/me/autoreply", expert, (req, res) => {
+    const u = res.locals.baleUser; const pr = ar.pairs().find(p => p.expert_user_id === u.id && p.bound_user_id === u.id);
+    if (!pr) return fail(res, 404, "not_found");
+    if (req.body?.enabled !== false) { audit({ req, u, action: "autoreply.expert_on", outcome: "forbidden" }); return void res.status(403).json({ error: "admin_only", message: "روشن کردن پاسخ خودکار فقط با مدیر است." }); }
+    run("UPDATE bale_autoreply_pairs SET enabled=0, updated_by=?, updated_at=? WHERE assistant_id=?", u.id, iso(), pr.assistant_id);
+    audit({ req, u, action: "autoreply.pair_off", outcome: "ok", detail: { assistantId: pr.assistant_id, by: "expert" } });
+    res.json({ pair: ar.pairView(ar.pairs().find(p => p.assistant_id === pr.assistant_id)) });
+  });
+  /** «خودم جواب می‌دم» / «برگردون به مسعود» — own account only; matched customers must still be the expert's own. */
+  for (const act of ["takeover", "giveback"] as const) {
+    staff.post(`/bale/me/autoreply/:kind/:id/${act}`, expert, (req, res) => {
+      const u = res.locals.baleUser; const a = accountOf(u.id); const t = arTarget(req);
+      if (!a || !t) return fail(res, 404, "not_found");
+      if ("customerId" in t) {
+        const c = row<any>("SELECT salesperson_id,merged_into_customer_id FROM customers WHERE id=?", t.customerId);
+        if (!c || c.salesperson_id !== u.salesperson_id || c.merged_into_customer_id != null) { audit({ req, u, accountId: a.id, action: `autoreply.${act}`, outcome: "not_in_scope" }); return fail(res, 404, "not_found"); }
+      } else if (!row("SELECT 1 FROM bale_ar_chats WHERE id=? AND account_id=?", t.chatId, a.id)) return fail(res, 404, "not_found");
+      const cancelled = ar.setOwner(a, t as any, act === "takeover" ? "expert" : "assistant", act === "takeover" ? "expert_button" : "expert_giveback", u.id);
+      res.json({ owner: ar.ownerOf(a, t as any), cancelled });
+    });
+  }
+  staff.get("/bale/me/autoreply/unknown/:id", expert, (req, res) => {
+    const u = res.locals.baleUser; const a = accountOf(u.id); const v = a ? ar.unknownMessages(a, Number(req.params.id)) : null;
+    if (!v) return fail(res, 404, "not_found");
+    res.json(v);
+  });
+  /* ---------- AR30: «سؤال از کارشناس» (expert side; own questions only) ---------- */
+  const ownQuestion = (req: Request, res: Response) => {
+    const u = me(res); if (!u) { fail(res, 401, "unauthorized"); return null; }
+    const q = ar.questionById(Number(req.params.id));
+    if (!q || q.expert_user_id !== u.id) { fail(res, 404, "not_found"); return null; }
+    return { u, q };
+  };
+  /** Polled by the assistant dock (only for Bale-eligible experts; anyone else gets an empty list, never another expert's rows). */
+  staff.get("/bale/me/autoreply/questions", (_req, res) => {
+    const u = me(res); if (!u) return fail(res, 401, "unauthorized");
+    if (!baleEligible(u)) return void res.json({ questions: [] });
+    res.json({ questions: ar.questionsFor(u.id, false) });
+  });
+  staff.post("/bale/me/autoreply/questions/:id/answer", expert, (req, res) => {
+    const g = ownQuestion(req, res); if (!g) return; const { u, q } = g;
+    if (q.status !== "pending") return void res.status(409).json({ error: "not_pending", message: "این سؤال دیگر منتظر جواب نیست." });
+    const text = String(req.body?.text ?? "").trim(); const save = req.body?.save === true;
+    if (!text) return void res.status(422).json({ error: "empty", message: "جواب خالی است." });
+    // A learned answer may never carry an amount or a promise. AR30c (PM): that no longer refuses the answer — it is sent as usual
+    // (every outbox check, cap and the amount disclaimer unchanged) and only the learned save is skipped. Other save problems still refuse.
+    let saveSkipped: "learned_amount" | "learned_promise" | null = null;
+    if (save) { const e = ar.learnedProblem(text); if (e === "learned_amount" || e === "learned_promise") saveSkipped = e; else if (e) return void res.status(422).json({ error: e, message: e === "text_too_long" ? "جواب ذخیره‌شونده حداکثر ۵۰۰ نویسه است." : (BLOCK_FA as any)[e] ?? "این جواب قابل ذخیره نیست." }); }
+    const a = accountOf(u.id); const p = ar.pairOfAssistant(q.assistant_id);
+    if (!a || a.id !== q.account_id || !p) return fail(res, 404, "not_found");
+    if (!ar.pairOn(p)) { audit({ req, u, accountId: a.id, action: "autoreply.ask_answer", outcome: "autoreply_off", detail: { questionId: q.id } }); return void res.status(423).json({ error: "autoreply_off", message: (BLOCK_FA as any).autoreply_off ?? "پاسخ خودکار خاموش است؛ چیزی فرستاده نشد." }); }
+    let sent: { outboxId?: number | null; arMessageId?: number | null }; let heldUntil: string | null = null;
+    if (q.customer_id != null) {
+      const c = row<any>("SELECT salesperson_id,merged_into_customer_id FROM customers WHERE id=?", q.customer_id);
+      if (!c || c.salesperson_id !== u.salesperson_id || c.merged_into_customer_id != null) return fail(res, 404, "not_found");
+      const r = outbox.enqueue({ accountId: a.id, customerId: q.customer_id, text, source: "auto_reply", arKind: "answer", arSource: "expert_answer", questionId: q.id, explicit: false,
+        createdBy: u.id, assistant: { id: q.assistant_id, inScope: true }, reason: "ask_expert" });
+      if (r.status === "blocked") return void res.status(blockedStatus(r.reason)).json({ error: r.reason, message: r.message });
+      sent = { outboxId: r.outboxId }; heldUntil = r.heldUntil ?? null;
+    } else {
+      const r = ar.enqueueUnknown(a, p, q.chat_id, withAmountDisclaimer(text), { kind: "answer", source: "expert_answer", questionId: q.id, assistantId: q.assistant_id });
+      if (r !== "queued") return void res.status(blockedStatus(r)).json({ error: r, message: (BLOCK_FA as any)[r] ?? r });
+      sent = { arMessageId: ar.lastUnknownMessageId() }; heldUntil = ar.lastUnknownHeld();
+    }
+    const learnedId = ar.recordAnswer(q, u.id, text, save && !saveSkipped, sent);
+    // AR30b: inside the sidecar quiet window (21:30–08:30) the answer is held and goes out at its end.
+    const head = heldUntil ? `جواب ثبت شد · ${quietMorningFa(setting("quiet_end"))}` : "جواب رفت";
+    const tail = learnedId ? " · در «جواب‌های آموخته‌شده» ذخیره شد" : saveSkipped ? ` · ${LEARNED_SKIPPED_FA}` : "";
+    res.json({ status: "queued", learnedId, heldUntil, saveSkipped, message: `${head}${tail}` });
+  });
+  staff.post("/bale/me/autoreply/questions/:id/self", expert, (req, res) => {
+    const g = ownQuestion(req, res); if (!g) return;
+    if (g.q.status !== "pending") return void res.status(409).json({ error: "not_pending", message: "این سؤال دیگر منتظر جواب نیست." });
+    ar.selfAnswer(g.q, g.u.id); res.json({ status: "self" });
+  });
+  /* ---------- AR30: «جواب‌های آموخته‌شده» — expert (own) ---------- */
+  const learnedBody = (b: any) => ({ question: b?.question === undefined ? undefined : String(b.question), answer: b?.answer === undefined ? undefined : String(b.answer), active: b?.active === undefined ? undefined : b.active === true });
+  const learnedErr = (res: Response, e: string) => res.status(422).json({ error: e, message: e === "learned_amount" ? "جواب آموخته‌شده نباید مبلغ داشته باشد." : e === "learned_promise" ? "جواب آموخته‌شده نباید قول یا تعهد داشته باشد." : e.endsWith("too_long") ? "حداکثر ۵۰۰ نویسه." : e === "signature" ? BLOCK_FA.signature : (BLOCK_FA as any)[e] ?? "متن قابل قبول نیست." });
+  staff.get("/bale/me/autoreply/learned", expert, (req, res) => {
+    const u = res.locals.baleUser; res.json({ items: ar.learnedList(u.id, { q: String(req.query.q ?? "").slice(0, 80) }), max: 500 });
+  });
+  staff.put("/bale/me/autoreply/learned/:id", expert, (req, res) => {
+    const u = res.locals.baleUser; const l = ar.learnedById(Number(req.params.id));
+    if (!l || l.expert_user_id !== u.id) return fail(res, 404, "not_found");
+    const r = ar.updateLearned(l, learnedBody(req.body), u.id); if (!r.ok) return void learnedErr(res, r.error);
+    res.json({ item: r.item });
+  });
+  staff.delete("/bale/me/autoreply/learned/:id", expert, (req, res) => {
+    const u = res.locals.baleUser; const l = ar.learnedById(Number(req.params.id));
+    if (!l || l.expert_user_id !== u.id) return fail(res, 404, "not_found");
+    ar.deleteLearned(l, u.id); res.json({ ok: true });
+  });
+  /* admin */
+  staff.get("/admin/bale/autoreply", admin, (_req, res) => { res.json({ settings: ar.settingsView(), pairs: ar.pairs().map(p => ar.pairView(p)) }); });
+  staff.put("/admin/bale/autoreply/settings", admin, (req, res) => {
+    const u = res.locals.baleAdmin; const b = req.body ?? {}; const set: [string, string][] = [];
+    if (b.globalEnabled !== undefined) {
+      if (b.globalEnabled === true && b.confirm !== "روشن") return void res.status(428).json({ error: "confirm_required", message: "برای روشن کردن، «روشن» را تایپ کنید." });
+      set.push(["autoreply_enabled", b.globalEnabled === true ? "1" : "0"]);
+    }
+    for (const [k, key] of [["dayStart", "autoreply_day_start"], ["dayEnd", "autoreply_day_end"]] as const) if (b[k] !== undefined) {
+      if (arParseHm(String(b[k]), -1) < 0) return void res.status(422).json({ error: "bad_time", message: "ساعت را به شکل ۰۸:۳۰ بنویسید." });
+      set.push([key, String(b[k]).trim().padStart(5, "0")]);
+    }
+    if (b.days !== undefined) { const d = arParseDays(Array.isArray(b.days) ? b.days.join(",") : String(b.days)); set.push(["autoreply_days", [...d].sort().join(",")]); }
+    let holidayList: { date: string; label: string | null }[] | null = null;
+    if (b.allowOtherPairs !== undefined) {
+      // AR30 pair guard: only Mohammad's separate approval (recorded by an admin with this typed phrase) lets a non-masoud pair be switched on.
+      if (b.allowOtherPairs === true && b.confirm !== AR_OTHER_PAIRS_CONFIRM) return void res.status(428).json({ error: "confirm_required", message: `فقط با تأیید جداگانه‌ی محمد: «${AR_OTHER_PAIRS_CONFIRM}» را تایپ کنید.` });
+      set.push(["autoreply_allow_other_pairs", b.allowOtherPairs === true ? "1" : "0"]);
+    }
+    if (b.askTimeoutMin !== undefined) {
+      const v = Number(b.askTimeoutMin);
+      if (!Number.isInteger(v) || v < AR_ASK_TIMEOUT_MIN[0] || v > AR_ASK_TIMEOUT_MIN[1]) return void res.status(422).json({ error: "bad_limit", message: `مهلت جواب کارشناس باید بین ${AR_ASK_TIMEOUT_MIN[0]} و ${AR_ASK_TIMEOUT_MIN[1]} دقیقه باشد.` });
+      set.push(["autoreply_ask_timeout_min", String(v)]);
+    }
+    if (b.holidays !== undefined) {
+      if (!Array.isArray(b.holidays) || b.holidays.length > 60) return void res.status(422).json({ error: "bad_holidays", message: "فهرست تعطیلات معتبر نیست." });
+      const seen = new Set<string>(); const list: { date: string; label: string | null }[] = [];
+      for (const h of b.holidays) {
+        const date = String(h?.date ?? ""); const lab = h?.label == null ? null : String(h.label).trim().slice(0, 40) || null;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T12:00:00+03:30`))) return void res.status(422).json({ error: "bad_holiday_date", message: "تاریخ تعطیلی معتبر نیست." });
+        if (!seen.has(date)) { seen.add(date); list.push({ date, label: lab }); }
+      }
+      holidayList = list; // AR30: stored in the shared official_holidays table (synced below)
+      set.push(["autoreply_holidays", "[]"]); // the legacy JSON setting stays empty (touched so «آخرین تغییر» shows who edited)
+    }
+    for (const [k, key] of [["holdText", "autoreply_hold_text"], ["nightText", "autoreply_night_text"]] as const) if (b[k] !== undefined) {
+      const e = arTextCheck(b[k]); if (e) return void res.status(422).json({ error: e, message: BLOCK_FA[e as keyof typeof BLOCK_FA] ?? "متن قابل قبول نیست." });
+      set.push([key, String(b[k]).trim()]);
+    }
+    for (const [k, v] of set) run("INSERT INTO bale_settings(key,value,updated_at,updated_by_user_id) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,updated_by_user_id=excluded.updated_by_user_id", k, v, iso(), u.id);
+    let hol: { added: number; removed: number } | null = null;
+    if (holidayList) { hol = replaceOfficialHolidays(db, holidayList, u.id, iso()); audit({ req, u, action: "holidays.replace", outcome: "ok", detail: { added: hol.added, removed: hol.removed } }); }
+    audit({ req, u, action: "autoreply.settings", outcome: "ok", detail: { keys: [...set.map(x => x[0]), ...(holidayList ? ["official_holidays"] : [])].join(",") } });
+    res.json({ settings: ar.settingsView() });
+  });
+  staff.put("/admin/bale/autoreply/pairs/:assistantId", admin, (req, res) => {
+    const u = res.locals.baleAdmin; const p = ar.pairs().find(x => x.assistant_id === Number(req.params.assistantId)); const b = req.body ?? {};
+    if (!p) return fail(res, 404, "not_found");
+    if (b.allowUnknown === true && p.slug !== "masoud") return void res.status(422).json({ error: "unknown_off", message: "پاسخ به شماره‌ی ناشناس فقط برای جفت کاظمی–مسعود است." });
+    // AR30 pair guard: Hasani–Somayeh / Ghasemi–Mohaddeseh stay OFF until Mohammad approves them separately (autoreply_allow_other_pairs).
+    if (p.slug !== "masoud" && (["enabled", "readsEnabled", "allowPlanFile"] as const).some(k => b[k] === true) && setting("autoreply_allow_other_pairs") !== "1") {
+      audit({ req, u, action: "autoreply.pair", outcome: "pair_needs_mohammad", detail: { assistantId: p.assistant_id } });
+      return void res.status(423).json({ error: "pair_needs_mohammad", message: "این جفت فقط با تأیید جداگانه‌ی محمد روشن می‌شود؛ فعلاً فقط جفت کاظمی–مسعود مجاز است." });
+    }
+    // Every «روشن» (the pair, reads, unknown numbers, plan file) needs the typed confirmation; turning OFF never does.
+    if ((["enabled", "readsEnabled", "allowUnknown", "allowPlanFile"] as const).some(k => b[k] === true) && b.confirm !== "روشن") return void res.status(428).json({ error: "confirm_required", message: "برای روشن کردن، «روشن» را تایپ کنید." });
+    const n = (v: any, lo: number, hi: number) => { const x = Number(v); return Number.isInteger(x) && x >= lo && x <= hi ? x : null; };
+    const upd: [string, any][] = [];
+    if (b.enabled !== undefined) { upd.push(["enabled", b.enabled === true ? 1 : 0]); if (b.enabled === true) upd.push(["stopped_reason", null]); }
+    for (const [k, col] of [["readsEnabled", "reads_enabled"], ["allowPlanFile", "allow_plan_file"]] as const) if (b[k] !== undefined) upd.push([col, b[k] === true ? 1 : 0]);
+    if (b.allowUnknown !== undefined) { if (b.allowUnknown === true && p.slug !== "masoud") return void res.status(422).json({ error: "unknown_off", message: "پاسخ به شماره‌ی ناشناس فقط برای جفت کاظمی–مسعود است." }); upd.push(["allow_unknown", b.allowUnknown === true ? 1 : 0]); }
+    for (const [k, col, lo, hi] of [["perHour", "per_hour", 1, 20], ["perDay", "per_day", 1, 80], ["replyWindowMin", "reply_window_min", 5, 1440]] as const) if (b[k] !== undefined) {
+      const v = n(b[k], lo, hi); if (v == null) return void res.status(422).json({ error: "bad_limit", message: `عدد ${k} باید بین ${lo} و ${hi} باشد.` }); upd.push([col, v]);
+    }
+    if (!upd.length) return fail(res, 422, "unknown");
+    run(`UPDATE bale_autoreply_pairs SET ${upd.map(x => `${x[0]}=?`).join(",")}, updated_by=?, updated_at=? WHERE assistant_id=?`, ...upd.map(x => x[1]), u.id, iso(), p.assistant_id);
+    audit({ req, u, action: "autoreply.pair", outcome: "ok", detail: { assistantId: p.assistant_id, ...Object.fromEntries(upd.map(([k, v]) => [k, v])) } });
+    res.json({ pair: ar.pairView(ar.pairs().find(x => x.assistant_id === p.assistant_id)) });
+  });
+  /** Admin live view (read-only). */
+  staff.get("/admin/bale/autoreply/pairs/:assistantId/live", admin, (req, res) => {
+    const p = ar.pairs().find(x => x.assistant_id === Number(req.params.assistantId)); if (!p) return fail(res, 404, "not_found");
+    const a = accountOf(p.expert_user_id);
+    res.json({ pair: ar.pairView(p), readOnly: true, list: a ? ar.liveList(a, p).map(x => ({ ...x, lastText: String(x.lastText ?? "").slice(0, 140) })) : [] });
+  });
+  /** Admin live view: one unknown-number conversation (read-only; text + label only, never a phone). */
+  staff.get("/admin/bale/autoreply/pairs/:assistantId/unknown/:id", admin, (req, res) => {
+    const p = ar.pairs().find(x => x.assistant_id === Number(req.params.assistantId)); if (!p) return fail(res, 404, "not_found");
+    const a = accountOf(p.expert_user_id); const v = a ? ar.unknownMessages(a, Number(req.params.id)) : null;
+    if (!v) return fail(res, 404, "not_found");
+    res.json({ ...v, readOnly: true });
+  });
+
+  /* ---------- AR30: admin — learned answers per pair, questions (read-only), shared official holidays ---------- */
+  staff.get("/admin/bale/autoreply/pairs/:assistantId/learned", admin, (req, res) => {
+    const p = ar.pairs().find(x => x.assistant_id === Number(req.params.assistantId)); if (!p) return fail(res, 404, "not_found");
+    res.json({ pair: { assistantId: p.assistant_id, slug: p.slug, label: ar.label(p) }, items: ar.learnedList(p.expert_user_id, { q: String(req.query.q ?? "").slice(0, 80) }), max: 500 });
+  });
+  staff.get("/admin/bale/autoreply/pairs/:assistantId/questions", admin, (req, res) => {
+    const p = ar.pairs().find(x => x.assistant_id === Number(req.params.assistantId)); if (!p) return fail(res, 404, "not_found");
+    res.json({ readOnly: true, questions: ar.questionsFor(p.expert_user_id, true) });
+  });
+  staff.put("/admin/bale/autoreply/learned/:id", admin, (req, res) => {
+    const u = res.locals.baleAdmin; const l = ar.learnedById(Number(req.params.id)); if (!l) return fail(res, 404, "not_found");
+    const r = ar.updateLearned(l, learnedBody(req.body), u.id); if (!r.ok) return void learnedErr(res, r.error);
+    res.json({ item: r.item });
+  });
+  staff.delete("/admin/bale/autoreply/learned/:id", admin, (req, res) => {
+    const u = res.locals.baleAdmin; const l = ar.learnedById(Number(req.params.id)); if (!l) return fail(res, 404, "not_found");
+    ar.deleteLearned(l, u.id); res.json({ ok: true });
+  });
+  staff.get("/admin/holidays", admin, (_req, res) => { res.json({ holidays: listOfficialHolidays(db) }); });
+  staff.post("/admin/holidays", admin, (req, res) => {
+    const u = res.locals.baleAdmin; const r = addOfficialHoliday(db, { date: String(req.body?.date ?? ""), label: req.body?.label == null ? null : String(req.body.label) }, u.id, iso());
+    if (!r.ok) return void res.status(422).json({ error: r.error, message: r.error === "too_many" ? "تعداد تعطیلات بیش از حد است." : r.error === "label_too_long" ? "عنوان حداکثر ۴۰ نویسه." : "تاریخ تعطیلی معتبر نیست." });
+    audit({ req, u, action: "holidays.add", outcome: r.created ? "created" : "updated", detail: { id: r.id } });
+    res.status(r.created ? 201 : 200).json({ id: r.id, holidays: listOfficialHolidays(db) });
+  });
+  staff.delete("/admin/holidays/:id", admin, (req, res) => {
+    const u = res.locals.baleAdmin; const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || !deleteOfficialHoliday(db, id)) return fail(res, 404, "not_found");
+    audit({ req, u, action: "holidays.remove", outcome: "ok", detail: { id } });
+    res.json({ holidays: listOfficialHolidays(db) });
+  });
+
+
+  test.mount(staff, admin); // «حساب تستی»: /admin/bale/test/* — every route behind the same admin gate (never 29)
+  const adminAccount = (a: any) => ({ ...accountView(a), user: { id: a.user_id, name: nameOf(userRow(a.user_id)) }, salespersonId: a.salesperson_id });
+  staff.get("/admin/bale", admin, async (_req, res) => {
+    const eligible = rows<any>("SELECT id,role,salesperson_id,active,full_name,username FROM users WHERE role='salesperson' ORDER BY id").filter(baleEligible);
+    const accounts = rows<any>("SELECT * FROM bale_accounts WHERE kind<>'system_test' ORDER BY id");
+    const health = deps.sidecar.configured() ? await deps.sidecar.health() : { ok: false };
+    res.json({
+      masterEnabled: masterOn(), keyReady: baleHasKey(deps.env()), sidecar: { configured: deps.sidecar.configured(), reachable: health.ok },
+      attachmentsEnabled: attachmentsOn(), planFilesReady: Boolean(planFiles), sidecarVersion: health.version ?? null,
+      limits: { gapMinS: Number(setting("gap_min_s")), gapMaxS: Number(setting("gap_max_s")), perHour: Number(setting("per_hour")), perDay: Number(setting("per_day")),
+        newChatsPerDay: Number(setting("new_chats_per_day")), quietStart: setting("quiet_start"), quietEnd: setting("quiet_end") },
+      // Decision (b): UNVERIFIED until checked with the test SIM; the default is the safe whole-account stop.
+      peerBlock: { mode: setting("peer_block_mode"), verified: false },
+      experts: eligible.map(u => { const a = accounts.find(x => x.user_id === u.id); return { userId: u.id, name: nameOf(u), account: a ? adminAccount(a) : null }; }),
+    });
+  });
+  staff.put("/admin/bale/master", admin, (req, res) => {
+    const on = req.body?.enabled === true; const u = res.locals.baleAdmin;
+    run("INSERT INTO bale_settings(key,value,updated_at,updated_by_user_id) VALUES('master_enabled',?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,updated_by_user_id=excluded.updated_by_user_id", on ? "1" : "0", iso(), u.id);
+    if (!on) flows.clear();
+    audit({ req, u, action: on ? "admin.master_on" : "admin.master_off", outcome: "ok" });
+    res.json({ masterEnabled: masterOn() });
+  });
+  /* ---------------- BALE-FIXB-66 «سکوت بله» admin alert (default OFF; turning ON needs confirm «روشن») ---------------- */
+  staff.get("/admin/bale/silence-alert", admin, (_req, res) => { res.json(outbox.silenceView()); });
+  staff.put("/admin/bale/silence-alert", admin, (req, res) => {
+    const u = res.locals.baleAdmin; const b = req.body ?? {};
+    const hhmm = (v: unknown) => typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
+    if (b.hours !== undefined && !(Number.isInteger(b.hours) && b.hours >= 1 && b.hours <= 11)) return fail(res, 400, "bad_hours");
+    if ((b.from !== undefined && !hhmm(b.from)) || (b.to !== undefined && !hhmm(b.to))) return fail(res, 400, "bad_time");
+    const cur = outbox.silenceView();
+    if ((b.from ?? cur.from) >= (b.to ?? cur.to)) return fail(res, 400, "bad_time");
+    if (b.enabled === true && !cur.enabled && b.confirm !== "روشن") return void res.status(428).json({ error: "confirm_required", message: "برای روشن کردن، «روشن» را تایپ کنید." });
+    const put = (k: string, v: string) => run("INSERT INTO bale_settings(key,value,updated_at,updated_by_user_id) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,updated_by_user_id=excluded.updated_by_user_id", k, v, iso(), u.id);
+    if (b.enabled !== undefined) put("bale_silence_alert", b.enabled === true ? "1" : "0");
+    if (b.hours !== undefined) put("bale_silence_hours", String(b.hours));
+    if (b.from !== undefined) put("bale_silence_from", b.from);
+    if (b.to !== undefined) put("bale_silence_to", b.to);
+    audit({ req, u, action: "admin.silence_alert", outcome: "ok", detail: { enabled: b.enabled === undefined ? null : b.enabled === true, hours: b.hours ?? null, from: b.from ?? null, to: b.to ?? null } });
+    res.json(outbox.silenceView());
+  });
+  /* ---------------- plan files («فایل طرح برای بله») ---------------- */
+  staff.put("/admin/bale/attachments", admin, (req, res) => {
+    const on = req.body?.enabled === true; const u = res.locals.baleAdmin;
+    run("INSERT INTO bale_settings(key,value,updated_at,updated_by_user_id) VALUES('bale_attachments_enabled',?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,updated_by_user_id=excluded.updated_by_user_id", on ? "1" : "0", iso(), u.id);
+    audit({ req, u, action: on ? "admin.attachments_on" : "admin.attachments_off", outcome: "ok" });
+    res.json({ attachmentsEnabled: attachmentsOn() });
+  });
+  const planFileLimits = { maxBytes: BALE_PLAN_FILE_MAX_BYTES, types: BALE_PLAN_FILE_TYPES.map(t => t.label) };
+  staff.get("/admin/bale/plan-files", admin, (_req, res) => {
+    if (!planFiles) return fail(res, 503, "plan_files_unavailable");
+    res.json({ attachmentsEnabled: attachmentsOn(), ...planFileLimits, plans: planFiles.list() });
+  });
+  // Upload works whatever the switch says (the admin prepares files before the PM turns sending on).
+  const planUpload = multer({ storage: multer.memoryStorage(), defParamCharset: "utf8", limits: { fileSize: BALE_PLAN_FILE_MAX_BYTES, files: 1, fields: 4 } } as any).single("file");
+  staff.post("/admin/bale/plans/:id/file", admin, (req, res) => {
+    if (!planFiles) return fail(res, 503, "plan_files_unavailable");
+    planUpload(req, res, (e: any) => {
+      const u = res.locals.baleAdmin; const planId = Number(req.params.id);
+      if (e) {
+        const big = e?.code === "LIMIT_FILE_SIZE";
+        audit({ req, u, action: "plan_file.upload", outcome: big ? "too_large" : "bad_upload", detail: { planId: Number.isSafeInteger(planId) ? planId : null } });
+        return void res.status(big ? 413 : 400).json({ error: big ? "file_too_large" : "bad_upload", message: big ? "حجم فایل بیشتر از ۱۰ مگابایت است." : "فایل درست فرستاده نشد؛ دوباره امتحان کنید." });
+      }
+      const f = (req as any).file as { buffer: Buffer; originalname?: string } | undefined;
+      const name = typeof req.body?.name === "string" && req.body.name.trim() ? req.body.name : f?.originalname;
+      const r = planFiles.save(planId, f?.buffer, name, u.id);
+      audit({ req, u, action: "plan_file.upload", outcome: r.ok ? "ok" : r.error, detail: r.ok ? { planId, fileId: r.file.id, size: r.file.size, type: r.file.typeLabel } : { planId: Number.isSafeInteger(planId) ? planId : null } });
+      if (!r.ok) return void res.status(r.status).json({ error: r.error, message: r.message });
+      res.json({ file: r.file, attachmentsEnabled: attachmentsOn() });
+    });
+  });
+  staff.delete("/admin/bale/plans/:id/file", admin, (req, res) => {
+    if (!planFiles) return fail(res, 503, "plan_files_unavailable");
+    const u = res.locals.baleAdmin; const planId = Number(req.params.id);
+    const ok = planFiles.remove(planId, u.id);
+    audit({ req, u, action: "plan_file.remove", outcome: ok ? "ok" : "not_found", detail: { planId: Number.isSafeInteger(planId) ? planId : null } });
+    if (!ok) return fail(res, 404, "not_found");
+    res.json({ ok: true });
+  });
+  /** Bytes for the draft preview / thumbnail: admins (not 29) and eligible sales experts only; plan files are not customer data. */
+  staff.get("/bale/plan-files/:id/content", (req, res) => {
+    const u = me(res); if (!u) return fail(res, 401, "unauthorized");
+    const isAdmin = u.role === "admin" && !EXCLUDED_USER_IDS.includes(u.id) && u.active !== 0;
+    if (!isAdmin && !baleEligible(u)) return fail(res, 403, "not_eligible");
+    const f = planFiles?.byId(Number(req.params.id)); const bytes = f ? planFiles!.read(f) : null;
+    if (!f || !bytes) return fail(res, 404, "not_found");
+    res.setHeader("Content-Type", f.mime);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Disposition", `inline; filename="plan-${f.plan_id}.${f.stored_name.split(".").pop()}"; filename*=UTF-8''${encodeURIComponent(f.display_name)}`);
+    if (f.mime !== "application/pdf") res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
+    res.end(bytes);
+  });
+  staff.put("/admin/bale/peer-block-mode", admin, (req, res) => {
+    const mode = String(req.body?.mode ?? ""); const u = res.locals.baleAdmin;
+    if (!(BALE_PEER_BLOCK_MODES as readonly string[]).includes(mode)) return fail(res, 422, "bad_mode");
+    run("INSERT INTO bale_settings(key,value,updated_at,updated_by_user_id) VALUES('peer_block_mode',?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,updated_by_user_id=excluded.updated_by_user_id", mode, iso(), u.id);
+    audit({ req, u, action: "admin.peer_block_mode", outcome: "ok", detail: { mode, unverified: true } });
+    res.json({ peerBlock: { mode: setting("peer_block_mode"), verified: false } });
+  });
+  const byId = (req: Request, res: Response) => { const a = row<any>("SELECT * FROM bale_accounts WHERE id=? AND kind<>'system_test'", Number(req.params.id)); if (!a) fail(res, 404, "not_found"); return a; };
+  staff.put("/admin/bale/accounts/:id/mode", admin, (req, res) => {
+    const a = byId(req, res); if (!a) return; const u = res.locals.baleAdmin; const mode = String(req.body?.mode ?? "") as BaleMode;
+    if (!BALE_MODES.includes(mode)) return fail(res, 422, "bad_mode");
+    if (mode !== "off" && a.status !== "connected") return fail(res, 409, "not_connected");
+    run("UPDATE bale_accounts SET mode=?, updated_at=? WHERE id=?", mode, iso(), a.id);
+    audit({ req, u, accountId: a.id, action: "mode.admin", outcome: "ok", detail: { from: a.mode, to: mode } });
+    res.json(adminAccount(row<any>("SELECT * FROM bale_accounts WHERE id=?", a.id)));
+  });
+  staff.post("/admin/bale/accounts/:id/disconnect", admin, async (req, res) => {
+    const a = byId(req, res); if (!a) return; const u = res.locals.baleAdmin;
+    const remote = await disconnect(req, u, a, "admin");
+    res.json({ ...adminAccount(row<any>("SELECT * FROM bale_accounts WHERE id=?", a.id)), remoteSignOut: remote });
+  });
+  staff.get("/admin/bale/audit", admin, (req, res) => {
+    const limit = Math.max(1, Math.min(200, Number(req.query.limit ?? 100) || 100));
+    res.json({ items: rows<any>("SELECT * FROM bale_audit ORDER BY id DESC LIMIT ?", limit).map(x => ({ id: x.id, at: x.at, actor: x.actor_label, accountId: x.account_id,
+      customerId: x.customer_id, action: x.action, outcome: x.outcome, detail: x.detail_json ? JSON.parse(x.detail_json) : null })) });
+  });
+
+  /* ============ runner hook: the expert's own sales assistant (mounted inside /api/assistant-runner, Bearer already checked) ============ */
+  /** POST /bale/send {customerId, text, reason?, explicitExpertCommand?} — or a plan file: {customerId, planId | attachmentId, caption?, reason?}
+   *  (only while bale_attachments_enabled = 1; ALWAYS pending_approval; caption always ends with the amount disclaimer). Only a sales assistant bound to an expert; only the
+   *  assistant's in-scope customers that are also the expert's own. explicitExpertCommand (first message to a customer with no
+   *  prior chat) is honoured only when the expert wrote to the assistant in the last 15 minutes. Never bypasses quiet hours. */
+  function runnerSend(req: Request, res: Response, ctx: { inScope: (a: any, cid: number) => boolean; replyScope?: (a: any, cid: number) => boolean }) {
+    const asst = res.locals.assistant;
+    const cid = Number(req.body?.customerId);
+    if (!asst || asst.kind !== "sales" || !asst.bound_user_id) return void res.status(403).json({ error: "forbidden", message: "این کار برای دستیار مجاز نیست." });
+    const u = userRow(asst.bound_user_id);
+    const a = u ? accountOf(u.id) : undefined;
+    if (!u || !baleEligible(u) || !a) return void res.status(423).json({ error: "not_connected", message: BLOCK_FA.not_connected });
+    let explicit = false;
+    if (req.body?.explicitExpertCommand === true) {
+      const since = new Date(now().getTime() - 15 * 60_000).toISOString();
+      explicit = Boolean(row(`SELECT 1 FROM assistant_messages m JOIN assistant_threads t ON t.id=m.thread_id WHERE t.assistant_id=? AND t.user_id=? AND m.author='user' AND m.created_at>? LIMIT 1`,
+        asst.id, u.id, since));
+    }
+    const strictScope = Number.isSafeInteger(cid) && ctx.inScope(asst, cid);
+    // assistants72 reply side: text replies also to the expert's own completed / cancelled customer (24 h inbound window enforced in check()); plan files stay strict.
+    const wantsFile0 = (req.body?.planId != null && req.body.planId !== "") || (req.body?.attachmentId != null && req.body.attachmentId !== "");
+    const inScope = strictScope || (!wantsFile0 && Number.isSafeInteger(cid) && Boolean(ctx.replyScope?.(asst, cid)));
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.slice(0, 300) : null;
+    // Plan file: {planId | attachmentId, caption?}. Switch OFF → refused before anything is stored. Always a draft the expert approves.
+    const wantsFile = (req.body?.planId != null && req.body.planId !== "") || (req.body?.attachmentId != null && req.body.attachmentId !== "");
+    let attachmentId: number | null = null;
+    if (wantsFile) {
+      const blockedFile = (code: "attachments_disabled" | "attachment_missing" | "out_of_scope") => {
+        audit({ accountId: a.id, customerId: Number.isSafeInteger(cid) ? cid : null, action: "outbox.assistant_file", outcome: `blocked:${code}`, detail: { assistantId: asst.id } });
+        res.status(blockedStatus(code)).json({ status: "blocked", error: code, message: BLOCK_FA[code] });
+      };
+      if (!planFiles || !attachmentsOn()) return blockedFile("attachments_disabled");
+      if (!strictScope) return blockedFile("out_of_scope");
+      const f = planFiles.resolve({ planId: req.body?.planId, attachmentId: req.body?.attachmentId });
+      if (!f || !planFiles.read(f)) return blockedFile("attachment_missing");
+      attachmentId = f.id;
+    }
+    const text = wantsFile ? (typeof req.body?.caption === "string" ? req.body.caption : typeof req.body?.text === "string" ? req.body.text : "")
+      : typeof req.body?.text === "string" ? req.body.text : "";
+    const r = outbox.enqueue({ accountId: a.id, customerId: cid, text, source: "assistant", explicit,
+      createdBy: null, assistant: { id: asst.id, inScope }, reason, attachmentId });
+    if (r.status === "blocked") return void res.status(blockedStatus(r.reason)).json({ status: "blocked", error: r.reason, message: r.message });
+    res.json({ status: r.status, outboxId: r.outboxId, heldUntil: r.heldUntil, ...(attachmentId != null ? { attachmentId } : {}) });
+  }
+
+  /* ============ runner: auto reply (pair-locked; Masoud ↔ Kazemi, Somayeh ↔ Hasani, Mohaddeseh ↔ Ghasemi) ============ */
+  const runnerPair = (res: Response) => {
+    const asst = res.locals.assistant;
+    if (!asst || asst.kind !== "sales" || !asst.bound_user_id || EXCLUDED_USER_IDS.includes(asst.bound_user_id)) { res.status(403).json({ error: "forbidden", message: "این کار برای دستیار مجاز نیست." }); return null; }
+    const p = ar.pairOfAssistant(asst.id); const u = p ? userRow(p.expert_user_id) : undefined;
+    if (!p || !u || !baleEligible(u)) { res.status(404).json({ error: "not_found" }); return null; }
+    return { asst, p, u, a: accountOf(u.id) };
+  };
+  /** POST /bale/auto-reply {customerId | arChatId, text, planId? | attachmentId?} — replies only; every rule in check() + ar.rules(). */
+  function runnerAutoReply(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean; replyScope?: (a: any, cid: number) => boolean }) {
+    const r0 = runnerPair(res); if (!r0) return; const { asst, p, a } = r0;
+    // OFF (global / pair / auto-stopped): refuse before anything is stored — no outbox row, audit line only.
+    if (!ar.pairOn(p)) { audit({ accountId: a?.id ?? null, customerId: Number.isSafeInteger(Number(req.body?.customerId)) ? Number(req.body.customerId) : null, action: "outbox.auto_reply", outcome: "autoreply_off", detail: { assistantId: asst.id } });
+      return void res.status(423).json({ status: "blocked", error: "autoreply_off", message: (BLOCK_FA as any).autoreply_off ?? "پاسخ خودکار برای این دستیار خاموش است؛ چیزی فرستاده نشد." }); }
+    if (!a) return void res.status(423).json({ status: "blocked", error: "not_connected", message: BLOCK_FA.not_connected });
+    const wantsFile = (req.body?.planId != null && req.body.planId !== "") || (req.body?.attachmentId != null && req.body.attachmentId !== "");
+    let attachmentId: number | null = null;
+    if (wantsFile) {
+      if (!planFiles || !attachmentsOn() || p.allow_plan_file !== 1) return void res.status(423).json({ status: "blocked", error: "plan_file_off", message: BLOCK_FA.plan_file_off });
+      const f = planFiles.resolve({ planId: req.body?.planId, attachmentId: req.body?.attachmentId });
+      if (!f || !planFiles.read(f)) return void res.status(422).json({ status: "blocked", error: "attachment_missing", message: BLOCK_FA.attachment_missing });
+      attachmentId = f.id;
+    }
+    let text = typeof req.body?.text === "string" ? req.body.text : typeof req.body?.caption === "string" ? req.body.caption : "";
+    // AR30: learnedId = send the expert's approved «جواب آموخته‌شده» word for word (own expert's, active only; never with a file).
+    let learned: any = null;
+    if (req.body?.learnedId != null && req.body.learnedId !== "") {
+      if (attachmentId != null) return void res.status(422).json({ status: "blocked", error: "learned_with_file", message: "جواب آموخته‌شده با فایل فرستاده نمی‌شود." });
+      learned = ar.learnedById(Number(req.body.learnedId));
+      if (!learned || learned.expert_user_id !== p.expert_user_id || learned.active !== 1) return void res.status(404).json({ error: "learned_not_found" });
+      text = learned.answer;
+    }
+    const src = learned ? { source: "learned" as const, learnedId: learned.id } : {};
+    if (req.body?.arChatId != null) {
+      const chatId = Number(req.body.arChatId);
+      if (!Number.isSafeInteger(chatId) || !row("SELECT 1 FROM bale_ar_chats WHERE id=? AND account_id=?", chatId, a.id)) return void res.status(404).json({ error: "not_found" });
+      const r = ar.enqueueUnknown(a, p, chatId, text, { kind: attachmentId != null ? "plan" : "reply", attachmentId, assistantId: asst.id, ...src });
+      if (r === "queued" && learned) ar.useLearned(learned.id);
+      return void (r === "queued" ? res.json({ status: "queued" }) : res.status(blockedStatus(r)).json({ status: "blocked", error: r, message: BLOCK_FA[r as keyof typeof BLOCK_FA] ?? r }));
+    }
+    const cid = Number(req.body?.customerId);
+    if (!Number.isSafeInteger(cid) || !(h.inScope(asst, cid) || (attachmentId == null && Boolean(h.replyScope?.(asst, cid))))) { audit({ accountId: a.id, customerId: Number.isSafeInteger(cid) ? cid : null, action: "outbox.auto_reply", outcome: "not_in_scope", detail: { assistantId: asst.id } }); return void res.status(404).json({ error: "not_found" }); }
+    const r = outbox.enqueue({ accountId: a.id, customerId: cid, text, source: "auto_reply", arKind: attachmentId != null ? "plan" : "reply", explicit: false, createdBy: null,
+      assistant: { id: asst.id, inScope: true }, reason: "auto_reply", attachmentId, ...(learned ? { arSource: "learned" as const, learnedId: learned.id } : {}) });
+    if (r.status === "blocked") return void res.status(blockedStatus(r.reason)).json({ status: "blocked", error: r.reason, message: r.message });
+    if (learned) ar.useLearned(learned.id);
+    res.json({ status: r.status, outboxId: r.outboxId });
+  }
+  /** AR30 runner: POST /bale/ask-expert {customerId | arChatId, question, summary?} — Masoud doesn't know the answer. OFF → 423, nothing stored. */
+  function runnerAskExpert(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean; replyScope?: (a: any, cid: number) => boolean }) {
+    const r0 = runnerPair(res); if (!r0) return; const { asst, p, a } = r0;
+    if (!ar.pairOn(p)) { audit({ accountId: a?.id ?? null, action: "autoreply.ask", outcome: "autoreply_off", detail: { assistantId: asst.id } });
+      return void res.status(423).json({ status: "blocked", error: "autoreply_off", message: (BLOCK_FA as any).autoreply_off ?? "پاسخ خودکار خاموش است؛ چیزی ذخیره یا فرستاده نشد." }); }
+    if (!a) return void res.status(423).json({ status: "blocked", error: "not_connected", message: BLOCK_FA.not_connected });
+    let t: { customerId: number } | { chatId: number };
+    if (req.body?.arChatId != null) {
+      const chatId = Number(req.body.arChatId);
+      if (p.allow_unknown !== 1 || !Number.isSafeInteger(chatId) || !row("SELECT 1 FROM bale_ar_chats WHERE id=? AND account_id=?", chatId, a.id)) return void res.status(404).json({ error: "not_found" });
+      t = { chatId };
+    } else {
+      const cid = Number(req.body?.customerId);
+      if (!Number.isSafeInteger(cid) || !h.inScope(asst, cid)) return void res.status(404).json({ error: "not_found" });
+      const c = row<any>("SELECT salesperson_id,merged_into_customer_id FROM customers WHERE id=?", cid);
+      const ex = userRow(p.expert_user_id);
+      if (!c || c.salesperson_id !== ex?.salesperson_id || c.merged_into_customer_id != null) return void res.status(404).json({ error: "not_found" });
+      t = { customerId: cid };
+    }
+    const r = ar.askExpert(a, p, t as any, String(req.body?.question ?? ""), req.body?.summary == null ? null : String(req.body.summary));
+    const ASK_FA: Record<string, string> = { question_required: "متن سؤال خالی است.", question_too_long: "سؤال بیشتر از ۵۰۰ نویسه است.", summary_too_long: "خلاصه بیشتر از ۸۰۰ نویسه است.",
+      already_asked: "برای همین پیام مشتری یک سؤال بی‌جواب از کارشناس هست." };
+    if (!r.ok) return void res.status(r.status).json({ status: "blocked", error: r.error, message: ASK_FA[r.error] ?? (BLOCK_FA as any)[r.error] ?? r.error });
+    res.status(201).json({ status: "pending", questionId: r.id, hold: r.hold });
+  }
+  /** AR30 runner: GET /bale/learned — the pair's own expert's active learned answers (reads gate). */
+  function runnerLearned(_req: Request, res: Response) {
+    const r0 = runnerPair(res); if (!r0) return;
+    if (!ar.readsOn(r0.p)) return void res.status(423).json({ error: "reads_off", message: "خواندن برای این دستیار خاموش است." });
+    res.json({ items: ar.learnedList(r0.p.expert_user_id, { activeOnly: true }).map(l => ({ id: l.id, question: l.question, answer: l.answer })) });
+  }
+  /** GET /bale/auto-reply/state — switches, hours, counters; no customer data. */
+  function runnerAutoReplyState(_req: Request, res: Response) {
+    const r0 = runnerPair(res); if (!r0) return; const { p, a } = r0; const v = ar.pairView(p);
+    res.json({ on: Boolean(a && ar.activeFor(a)), readsOn: ar.readsOn(p), pair: { slug: v.slug, enabled: v.enabled, allowUnknown: v.allowUnknown, allowPlanFile: v.allowPlanFile, perHour: v.perHour, perDay: v.perDay,
+      sentLastHour: v.sentLastHour, sentToday: v.sentToday, stoppedReason: v.stoppedReason }, hours: { ...(({ dayStart, dayEnd, days, openNow }) => ({ dayStart, dayEnd, days, openNow }))(ar.settingsView()) } });
+  }
+  /** Scoped reads (reads_enabled or pair ON): own in-scope customers only; anything else → 404. */
+  function runnerReadGate(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean; replyScope?: (a: any, cid: number) => boolean }, allowReply = false) {
+    const r0 = runnerPair(res); if (!r0) return null;
+    if (!ar.readsOn(r0.p)) { res.status(423).json({ error: "reads_off", message: "خواندن گفتگوهای بله برای این دستیار خاموش است." }); return null; }
+    const cid = Number(req.params.customerId ?? req.params.id);
+    if (!Number.isSafeInteger(cid) || !(h.inScope(r0.asst, cid) || (allowReply && Boolean(h.replyScope?.(r0.asst, cid))))) { audit({ accountId: r0.a?.id ?? null, customerId: Number.isSafeInteger(cid) ? cid : null, action: `runner.${req.path.split("/")[1] ?? "read"}`, outcome: "not_in_scope", detail: { assistantId: r0.asst.id } }); res.status(404).json({ error: "not_found" }); return null; }
+    return { ...r0, cid };
+  }
+  function runnerConversation(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean; replyScope?: (a: any, cid: number) => boolean }) {
+    const g = runnerReadGate(req, res, h, true); if (!g) return;
+    const msgs = g.a ? rows<any>(`SELECT m.id,m.direction,m.text,m.file_ref,m.created_at,o.source FROM bale_messages m LEFT JOIN bale_outbox o ON o.id=m.outbox_id
+      WHERE m.account_id=? AND m.customer_id=? ORDER BY m.id DESC LIMIT 50`, g.a.id, g.cid).reverse() : [];
+    const own = g.a ? ar.ownerOf(g.a, { customerId: g.cid }) : null;
+    res.json({ customerId: g.cid, owner: own?.owner ?? "assistant", messages: msgs.map(m => ({ id: m.id, direction: m.direction, text: m.text, hasFile: Boolean(m.file_ref), at: m.created_at,
+      by: m.direction === "in" ? "customer" : m.source === "auto_reply" ? "assistant" : "expert" })) });
+  }
+  const DOC_FA: Record<string, string> = { national_card_front: "کارت ملی (رو)", national_card_back: "کارت ملی (پشت)", birth_cert_p1: "شناسنامه ص۱", birth_cert_p2: "شناسنامه ص۲", birth_cert_p3: "شناسنامه ص۳" };
+  const DOC_STATUS_FA: Record<string, string> = { pending: "منتظر", uploaded: "رسیده", approved: "تأیید شد", accepted: "تأیید شد", incomplete: "ناقص", rejected: "ردشده", submitted: "رسیده" };
+  function runnerDocuments(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean; replyScope?: (a: any, cid: number) => boolean }) {
+    const g = runnerReadGate(req, res, h); if (!g) return;
+    const has = (t: string) => Boolean(row("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", t));
+    const items: { label: string; status: string }[] = [];
+    if (has("loan_application_documents") && has("loan_applications"))
+      for (const d of rows<any>(`SELECT d.label, d.status FROM loan_application_documents d JOIN loan_applications l ON l.id=d.application_id WHERE l.customer_id=? AND l.deleted_at IS NULL ORDER BY d.id LIMIT 100`, g.cid))
+        items.push({ label: String(d.label ?? "").slice(0, 80), status: DOC_STATUS_FA[d.status] ?? String(d.status ?? "") });
+    if (has("customer_identity_documents"))
+      for (const d of rows<any>("SELECT document_type FROM customer_identity_documents WHERE customer_id=? AND is_latest=1 ORDER BY id LIMIT 20", g.cid))
+        items.push({ label: DOC_FA[d.document_type] ?? "مدرک هویتی", status: "رسیده" });
+    res.json({ customerId: g.cid, documents: items });
+  }
+  /** Unknown-sender chats (masoud only): their own text, never anything from customers or cases. */
+  function runnerArChats(req: Request, res: Response) {
+    const r0 = runnerPair(res); if (!r0) return; const { p, a } = r0;
+    if (!ar.readsOn(p) || p.allow_unknown !== 1 || !a) return void res.status(404).json({ error: "not_found" });
+    if (req.params.id) { const v = ar.unknownMessages(a, Number(req.params.id)); if (!v) return void res.status(404).json({ error: "not_found" });
+      return void res.json({ ...v, messages: v.messages.map(m => ({ id: m.id, direction: m.direction, text: m.text, hasFile: m.hasFile, by: m.by, at: m.createdAt })) }); }
+    res.json({ chats: rows<any>("SELECT id, owner, last_at FROM bale_ar_chats WHERE account_id=? ORDER BY last_at DESC LIMIT 50", a.id).map(c => ({ arChatId: c.id, label: "ناشناس", owner: c.owner, lastAt: c.last_at })) });
+  }
+  /** GET /bale/plan-files (runner, read-only): which plans have a Bale file, so the assistant can pick planId. Names / type / size only, never bytes or paths. */
+  function runnerPlanFiles(_req: Request, res: Response) {
+    const asst = res.locals.assistant;
+    if (!asst || asst.kind !== "sales" || !asst.bound_user_id) return void res.status(403).json({ error: "forbidden", message: "این کار برای دستیار مجاز نیست." });
+    const plans = planFiles ? planFiles.list().filter(p => p.active) : [];
+    res.json({ attachmentsEnabled: Boolean(planFiles) && attachmentsOn(),
+      plans: plans.map(p => ({ planId: p.planId, name: p.name, file: p.file ? { attachmentId: p.file.id, name: p.file.name, typeLabel: p.file.typeLabel, size: p.file.size } : null })) });
+  }
+
+
+  /* ============ BALE-STATUS-64: GET /api/assistant-runner/bale/status — READ-ONLY health of the bound expert's own Bale account ============
+   * Only a sales assistant bound to an expert; only that expert's account. Never a token, key, phone, chat/peer id, name or text.
+   * No DB write, no sidecar call, no reconnect/ping/send: the only state it touches is the in-memory per-token rate counter below
+   * (≈20/hour/token → 429 + Retry-After). sessionLive is NOT the stored «connected» flag: the sidecar keeps dead clients in its
+   * attached list, so a "live" session also needs recent evidence (a fresh attach or real Bale traffic within STATUS_STALE_MS).
+   * BALE-FIXB-66: with sidecar ≥1b-0.6 the evidence is the real protocol pong (cached from the last health sync, ≤10 s old):
+   * lastPingAt = when Bale last answered the library's own ping; live needs it (or a fresh attach) within PING_FRESH_MS.
+   * An older sidecar (no ping info) falls back to the 6 h evidence rule. */
+  const STATUS_LIMIT = 20, STATUS_WINDOW_MS = 3600_000, STATUS_STALE_MS = 6 * 3600_000, PING_FRESH_MS = 3 * 60_000;
+  const statusHits = new Map<string, number[]>();
+  const TEHRAN_MS = 12_600_000; // Asia/Tehran is fixed UTC+03:30 (no DST)
+  const tehIso = (ms: number | null) => ms == null || !Number.isFinite(ms) ? null : new Date(ms + TEHRAN_MS).toISOString().replace("Z", "+03:30");
+  const tehDayStart = (t: number) => { const w = new Date(t + TEHRAN_MS); w.setUTCHours(0, 0, 0, 0); return w.getTime() - TEHRAN_MS; };
+  const msOf = (v: unknown) => { if (v == null || v === "") return null; const s = String(v); const t = Date.parse(/^\d{4}-\d\d-\d\d[ T]\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(s) ? s.replace(" ", "T") + "Z" : s); return Number.isFinite(t) ? t : null; };
+  const maxMs = (...v: (number | null)[]) => { const x = v.filter((n): n is number => n != null); return x.length ? Math.max(...x) : null; };
+  const STOP_FA: Record<string, string> = { rate_limited: "بله محدودیت ارسال گذاشت؛ ارسال خودکار متوقف شد.", account_banned: "حساب بله مسدود است.",
+    session_invalid: "نشست بله منقضی شده؛ باید دوباره وصل شود.", peer_blocked: "یک گیرنده دستیار را مسدود کرد؛ ارسال متوقف شد." };
+  const LIVE_FA: Record<string, string> = { ok: "اتصال بله برقرار است.", not_connected: "حساب بله وصل نیست.", bale_disabled: "کلید اصلی بله خاموش است.",
+    not_attached: "نشست بله باز نیست (یا سرویس بله در دسترس نیست).", stale_no_ping: "نشست باز نشان داده می‌شود ولی ساعت‌هاست هیچ نشانه‌ای از اتصال واقعی (پیام یا اتصال تازه) نیست؛ احتمالاً قطع است.",
+    unknown: "وضعیت نشست هنوز معلوم نیست.", banned: "حساب بله مسدود است." };
+  function runnerStatus(req: Request, res: Response) {
+    const asst = res.locals.assistant;
+    if (!asst || asst.kind !== "sales" || !asst.bound_user_id) return void res.status(403).json({ error: "forbidden", message: "این کار برای دستیار مجاز نیست." });
+    const t = now().getTime();
+    const key = String(res.locals.assistantTokenId ?? `a${asst.id}`);
+    const hits = (statusHits.get(key) ?? []).filter(x => t - x < STATUS_WINDOW_MS);
+    if (hits.length >= STATUS_LIMIT) {
+      const retry = Math.max(1, Math.ceil((hits[0] + STATUS_WINDOW_MS - t) / 1000));
+      statusHits.set(key, hits);
+      res.setHeader("Retry-After", String(retry));
+      return void res.status(429).json({ error: "rate_limited", message: `حداکثر ${STATUS_LIMIT} بار در ساعت. ${Math.ceil(retry / 60)} دقیقه‌ی دیگر دوباره امتحان کنید.`, retryAfterSec: retry });
+    }
+    hits.push(t); statusHits.set(key, hits);
+    if (statusHits.size > 500) for (const [k, v] of statusHits) if (!v.length || t - v[v.length - 1] >= STATUS_WINDOW_MS) statusHits.delete(k);
+    const a = accountOf(asst.bound_user_id);
+    const baleEnabled = masterOn();
+    const sync = outbox.syncInfo();
+    const base = { asOf: tehIso(t), baleEnabled, lastPingAt: null as string | null, lastSidecarCheckAt: tehIso(sync.lastSyncOkAt), staleAfterMin: STATUS_STALE_MS / 60_000 };
+    if (!a) return void res.json({ ...base, connected: false, sessionLive: false, sessionLiveReason: "not_connected", sessionLiveText: LIVE_FA.not_connected, mode: null,
+      autoStopped: false, autoStopReason: null, autoStopText: null, lastInboundAt: null, lastAttachAt: null, lastEvidenceAt: null, inboundToday: { customers: 0, nonCustomers: 0 }, queuedOutbound: 0, pendingApproval: 0 });
+    const one = (sql: string, ...p: any[]) => msOf(row<any>(sql, ...p)?.v);
+    const n = (sql: string, ...p: any[]) => Number(row<any>(sql, ...p)?.n ?? 0);
+    const lastCust = one("SELECT created_at v FROM bale_messages WHERE account_id=? AND direction='in' ORDER BY julianday(created_at) DESC LIMIT 1", a.id);
+    const lastUnknown = one("SELECT last_at v FROM bale_unknown_chats WHERE account_id=? ORDER BY julianday(last_at) DESC LIMIT 1", a.id);
+    const lastArIn = one("SELECT created_at v FROM bale_ar_messages WHERE account_id=? AND direction='in' ORDER BY julianday(created_at) DESC LIMIT 1", a.id);
+    const lastInbound = maxMs(lastCust, lastUnknown, lastArIn);
+    const lastSent = maxMs(one("SELECT sent_at v FROM bale_outbox WHERE account_id=? AND status='sent' AND sent_at IS NOT NULL ORDER BY julianday(sent_at) DESC LIMIT 1", a.id),
+      one("SELECT sent_at v FROM bale_ar_messages WHERE account_id=? AND status='sent' AND sent_at IS NOT NULL ORDER BY julianday(sent_at) DESC LIMIT 1", a.id),
+      one("SELECT created_at v FROM bale_ar_messages WHERE account_id=? AND direction='out' AND status='external' ORDER BY julianday(created_at) DESC LIMIT 1", a.id));
+    const lastAttach = msOf(a.last_seen_at); // written only by a successful attach / connect
+    const connected = a.status === "connected" && Boolean(a.session_ct);
+    const ping = connected ? outbox.pingInfo(a) : null;
+    const lastPing = ping?.lastPongAt ?? null;
+    const evidence = maxMs(lastAttach, lastInbound, lastSent, lastPing);
+    const ls = connected ? outbox.liveState(a) : null;
+    let reason: string;
+    if (a.status === "banned") reason = "banned";
+    else if (!connected) reason = "not_connected";
+    else if (!baleEnabled) reason = "bale_disabled";
+    else if (ls === "down") reason = "not_attached";
+    else if (ls !== "live") reason = "unknown";
+    else if (ping && ping.probe === "ping") { const p = maxMs(lastPing, ping.attachedAt); reason = p != null && t - p <= PING_FRESH_MS ? "ok" : "stale_no_ping"; }
+    else if (evidence == null || t - evidence > STATUS_STALE_MS) reason = "stale_no_ping";
+    else reason = "ok";
+    const day = new Date(tehDayStart(t)).toISOString();
+    const customers = n("SELECT count(*) n FROM bale_messages WHERE account_id=? AND direction='in' AND julianday(created_at)>=julianday(?)", a.id, day);
+    // Unknown numbers: Bale text is discarded and only a per-chat row is kept, so this is «chats with a message today» (a lower bound on messages).
+    const nonCustomers = n(`SELECT count(*) n FROM (SELECT peer_id FROM bale_unknown_chats WHERE account_id=? AND julianday(last_at)>=julianday(?)
+      UNION SELECT c.peer_id FROM bale_ar_chats c WHERE c.account_id=? AND EXISTS (SELECT 1 FROM bale_ar_messages m WHERE m.chat_id=c.id AND m.direction='in' AND julianday(m.created_at)>=julianday(?)))`, a.id, day, a.id, day);
+    const queued = n("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status IN ('queued','sending')", a.id)
+      + n("SELECT count(*) n FROM bale_ar_messages WHERE account_id=? AND status IN ('queued','sending')", a.id);
+    const pending = n("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status='pending_approval'", a.id);
+    const stop = a.stopped_reason ? String(a.stopped_reason).slice(0, 40) : null;
+    res.json({ ...base, lastPingAt: tehIso(lastPing), connected, sessionLive: reason === "ok", sessionLiveReason: reason, sessionLiveText: LIVE_FA[reason] ?? LIVE_FA.unknown,
+      mode: a.mode ?? null, autoStopped: Boolean(stop), autoStopReason: stop, autoStopText: stop ? (STOP_FA[stop] ?? "ارسال خودکار متوقف شده است.") : null,
+      lastInboundAt: tehIso(lastInbound), lastAttachAt: tehIso(lastAttach), lastEvidenceAt: tehIso(evidence),
+      inboundToday: { customers, nonCustomers }, queuedOutbound: queued, pendingApproval: pending });
+  }
+
+  /* ============ internal router: sidecar → API inbound (mounted OUTSIDE /api, before session auth) ============ */
+  const internal = Router();
+  internal.post("/internal/bale/inbound", express.json({ limit: "128kb" }), (req, res) => {
+    const remote = String(req.socket.remoteAddress ?? "");
+    const loopback = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+    // Direct sidecar calls only: anything that came through a proxy (nginx sets these) is refused.
+    const proxied = req.headers["x-forwarded-for"] !== undefined || req.headers["x-real-ip"] !== undefined || req.headers.forwarded !== undefined;
+    const want = baleSidecarToken(deps.env()); const got = String(req.headers["x-bale-internal-token"] ?? "");
+    const gb = Buffer.from(got), wb = Buffer.from(want ?? "");
+    const tokenOk = wb.length > 0 && gb.length === wb.length && timingSafeEqual(gb, wb);
+    if (!loopback || proxied || !tokenOk) { audit({ action: "inbound.auth", outcome: "forbidden", detail: { loopback, proxied } }); return void res.status(403).json({ error: "forbidden" }); }
+    res.json(outbox.inbound(req.body));
+  });
+
+  /** Worker: every ~5 s (one tick at a time). */
+  let timer: ReturnType<typeof setInterval> | null = null;
+  const worker = {
+    tick: async () => { const r = await outbox.tick(); const t = await test.tick(); return { ...r, test: t }; },
+    start(ms = 5000) { if (!timer) { timer = setInterval(() => {
+      void outbox.tick().catch(e => console.error("bale worker", (e as Error)?.name)).then(() => test.tick()).catch(e => console.error("bale test worker", (e as Error)?.name));
+    }, ms); timer.unref?.(); } },
+    stop() { if (timer) clearInterval(timer); timer = null; },
+  };
+
+  return { staff, internal, runnerSend, runnerPlanFiles, runnerAutoReply, runnerAutoReplyState, runnerAskExpert, runnerLearned, runnerConversation, runnerDocuments, runnerArChats, runnerStatus, worker, _internal: { flows, masterOn, outbox, test, ar } };
+}

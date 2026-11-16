@@ -1,0 +1,694 @@
+// Synthetic «دستیار هوشمند» fixture: in-memory DB only, no network, no SMS. Run: node scripts/run-bundled-fixture.mjs scripts/assistant-fixture.mjs
+import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
+import crypto from "node:crypto";
+import fs from "node:fs"; import os from "node:os"; import path from "node:path";
+import express from "express";
+import { createAssistants, ensureAssistantSchema, hashAssistantToken, hasBannedWord, inQuietHours } from "../src/lib/assistants.ts";
+import { createSmartFiling, ensureSmartFilingSchema, hashRunnerToken } from "../src/lib/smart-filing.ts";
+import { isTestCustomerName, testCustomerIds, testCustomerSql } from "../src/lib/test-customers.ts";
+import { normRoute, prunePageUsage } from "../src/lib/page-usage.ts";
+
+const db = new DatabaseSync(":memory:");
+db.exec(`CREATE TABLE users(id INTEGER PRIMARY KEY,username TEXT,full_name TEXT,role TEXT,salesperson_id INTEGER,active INTEGER DEFAULT 1);
+CREATE TABLE salespersons(id INTEGER PRIMARY KEY,name TEXT);
+CREATE TABLE customers(id INTEGER PRIMARY KEY,name TEXT,phone TEXT,description TEXT,created_at TEXT,salesperson_id INTEGER,priority INTEGER,status TEXT,national_code TEXT,
+  first_name TEXT,last_name TEXT,father_name TEXT,birth_date_jalali TEXT,postal_code TEXT,address TEXT,city TEXT,email TEXT,merged_into_customer_id INTEGER);
+CREATE TABLE call_logs(id INTEGER PRIMARY KEY,customer_id INTEGER,salesperson_id INTEGER,subject TEXT,customer_request TEXT,expert_notes TEXT,created_at TEXT);
+CREATE TABLE reminders(id INTEGER PRIMARY KEY,user_id INTEGER,salesperson_id INTEGER,message TEXT,remind_at TEXT,sent_sms INTEGER DEFAULT 0,done INTEGER DEFAULT 0,created_at TEXT,subject TEXT,customer_id INTEGER);
+CREATE TABLE loan_plans(id INTEGER PRIMARY KEY,name TEXT);
+CREATE TABLE loan_applications(id INTEGER PRIMARY KEY,customer_id INTEGER,plan_id INTEGER,plan_ids TEXT,requested_amount TEXT,approved_amount TEXT,duration_months INTEGER,requested_duration_months INTEGER,status TEXT,stage TEXT,deleted_at TEXT,created_at TEXT);
+CREATE TABLE loan_application_documents(id INTEGER PRIMARY KEY,application_id INTEGER,requirement_key TEXT,label TEXT,mime_type TEXT,size_bytes INTEGER,storage_path TEXT,status TEXT);
+CREATE TABLE customer_identity_documents(id INTEGER PRIMARY KEY,customer_id INTEGER,document_type TEXT,mime_type TEXT,size_bytes INTEGER,storage_path TEXT,is_latest INTEGER);
+INSERT INTO salespersons VALUES(3,'حسنی'),(4,'قاسمی'),(5,'کارآموز۵'),(6,'کاظمی'),(19,'کارآموز۱۹'),(20,'کارآموز۲۰');
+INSERT INTO users VALUES(1,'admin','مدیر','admin',NULL,1),(2,'s.hasani','حسنی','salesperson',3,1),(3,'m.ghasemi','قاسمی','salesperson',4,1),(4,'reg','ثبت','registrar',NULL,1),
+  (6,'trainee5','کارآموز','salesperson',5,1),(8,'m.kazemi','کاظمی','salesperson',6,1),(27,'t19','کارآموز۱۹','salesperson',19,1),(29,'hasani','ادمین۲۹','admin',NULL,1),(30,'acc','حسابدار','accountant',NULL,1);
+INSERT INTO loan_plans VALUES(7,'ترنم'),(8,'ترنم'),(21,'ترنم'),(3,'دیگر');
+INSERT INTO customers(id,name,phone,description,created_at,salesperson_id,priority,status,national_code) VALUES
+  (100,'مشتری حسنی P1','09121234567','کد ملی 0012345678','2026-10-01',3,1,'in_progress','0012345678'),
+  (101,'مشتری حسنی P2','09120000001','','2026-10-01',3,2,'in_progress',NULL),
+  (102,'حسنی انصرافی','09120000002','','2026-10-01',3,1,'cancelled',NULL),
+  (110,'مشتری قاسمی','09120000003','','2026-10-01',4,1,'in_progress',NULL),
+  (120,'مشتری کاظمی P3','09120000004','','2026-10-01',6,3,'in_progress',NULL),
+  (121,'کاظمی ادغام','09120000005','','2026-10-01',6,3,'in_progress',NULL),
+  (130,'مشتری کارآموز','09120000006','','2026-10-01',5,1,'in_progress',NULL),
+  (140,'بدون کارشناس','09120000007','','2026-10-01',NULL,NULL,'in_progress',NULL),
+  (150,'ثبت هوشمند کاظمی','09120000008','','2026-10-01',6,3,'in_progress',NULL),
+  (151,'ثبت ازکی حسنی','09120000009','','2026-10-01',3,1,'in_progress',NULL);
+UPDATE customers SET merged_into_customer_id=120 WHERE id=121;
+INSERT INTO loan_applications(id,customer_id,plan_id,status,stage,created_at,requested_amount) VALUES(500,150,7,'reviewing','x','2026-10-02','300000000'),(501,151,8,'reviewing','funder_initial_approval','2026-10-02','1'),(502,120,3,'reviewing','funder_initial_approval','2026-10-02','1');
+INSERT INTO call_logs VALUES(1,100,3,'تماس اول','درخواست','یادداشت 09121234567','2026-10-02');
+INSERT INTO reminders(id,user_id,salesperson_id,message,remind_at,created_at,subject,customer_id) VALUES(1,2,3,'پیگیری','2026-10-30','2026-10-02','پیگیری',100);`);
+ensureSmartFilingSchema(db);
+db.exec("INSERT INTO smart_filing_jobs(application_id,customer_id,panel_id,plan_id,status,created_at,updated_at) VALUES(500,150,1,7,'waiting_human','x','x')");
+db.exec(`CREATE TABLE site_notification_events(id INTEGER PRIMARY KEY AUTOINCREMENT,customer_id INTEGER NOT NULL,customer_name TEXT NOT NULL,owner_id INTEGER,resource_type TEXT NOT NULL,
+  resource_id INTEGER NOT NULL,kind TEXT NOT NULL,title TEXT NOT NULL,body TEXT NOT NULL DEFAULT '',permission TEXT NOT NULL,created_at TEXT NOT NULL,actor_key TEXT,recipient_user_id INTEGER);
+CREATE TABLE site_notification_reads(user_id INTEGER NOT NULL,event_id INTEGER NOT NULL,read_at TEXT NOT NULL,PRIMARY KEY(user_id,event_id));`);
+const bellRows = () => db.prepare("SELECT * FROM site_notification_events WHERE resource_type='assistant' ORDER BY id").all();
+ensureAssistantSchema(db); ensureAssistantSchema(db); // idempotent
+const cookie = db.prepare("PRAGMA schema_version").get().schema_version;
+ensureAssistantSchema(db);
+assert.equal(db.prepare("PRAGMA schema_version").get().schema_version, cookie, "second start must not bump schema_version");
+const As = Object.fromEntries(db.prepare("SELECT * FROM assistants").all().map(a => [a.slug, a]));
+assert.deepEqual(Object.keys(As).sort(), ["ahmad", "masoud", "mohaddeseh", "sarina", "somayeh"]);
+// v8 manager row: kind 'sales' in the DB (CHECK constraint) + scope_rule 'manager', bound to the admin role only, off, no token
+assert.equal(As.ahmad.kind, "sales"); assert.equal(As.ahmad.scope_rule, "manager"); assert.equal(As.ahmad.bound_role, "admin");
+assert.equal(As.ahmad.bound_user_id, null); assert.equal(As.ahmad.bound_salesperson_id, null);
+assert.deepEqual(Object.fromEntries(db.prepare("SELECT key,value FROM assistant_settings WHERE key LIKE 'manager_%'").all().map(r => [r.key, r.value])),
+  { manager_calls_ratio: "0.7", manager_calls_compare: "same_time", manager_overdue_reminders_max: "5", manager_site_leads_max: "0", manager_p1_no_call_days: "3", manager_registration_stuck_hours: "24" });
+assert.equal(As.somayeh.bound_user_id, 2); assert.equal(As.mohaddeseh.bound_user_id, 3); assert.equal(As.masoud.bound_user_id, 8);
+assert.equal(As.sarina.bound_user_id, null); assert.equal(As.sarina.bound_role, "registrar");
+assert.ok(Object.values(As).every(a => a.enabled === 0)); // seeded off
+assert.equal(db.prepare("SELECT value FROM assistant_settings WHERE key='global_enabled'").get().value, "0");
+
+let clock = new Date("2026-10-26T07:00:00Z"); // 10:30 Tehran
+const users = { 1: "admin", 2: "salesperson", 3: "salesperson", 4: "registrar", 6: "salesperson", 8: "salesperson", 27: "salesperson", 29: "admin", 30: "accountant" };
+let siteLeadsStub = new Map(); const siteLeadHist = new Map();
+const as = createAssistants({ db, now: () => clock, sales: { activeSiteLeads: () => siteLeadsStub, siteLeadHistory: (id) => siteLeadHist.get(id) ?? [] }, actor: res => { const id = Number(res.locals.uid); return users[id] ? { id, role: users[id], salespersonId: null, name: "x" } : null; } });
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "asst-fx-"));
+const sf = createSmartFiling({ db, env: () => ({}), filesRoot: path.join(tmp, "f"), docRoots: [], actor: () => null });
+const app = express();
+app.use("/api/smart-filing-runner", sf.runner);
+app.use("/api/assistant-runner", as.runner);
+app.use(express.json({ limit: "100kb" }));
+app.use("/api", (req, res, next) => { res.locals.uid = Number(req.headers["x-user"] || 0); next(); }, as.staff);
+const srv = app.listen(0, "127.0.0.1"); await new Promise(r => srv.once("listening", r)); const port = srv.address().port;
+const call = async (method, p, body, user, bearer) => {
+  const r = await fetch(`http://127.0.0.1:${port}${p}`, { method, headers: { "content-type": "application/json", ...(user ? { "x-user": String(user) } : {}), ...(bearer ? { authorization: `Bearer ${bearer}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  const t = await r.text(); let j; try { j = JSON.parse(t); } catch { j = t; } return { s: r.status, j };
+};
+const S = (u, m, p, b) => call(m, `/api${p}`, b, u);
+const R = (tok, m, p, b) => call(m, `/api/assistant-runner${p}`, b, null, tok);
+const snap = () => JSON.stringify(["customers", "call_logs", "reminders", "loan_applications", "users", "smart_filing_jobs"].map(t => db.prepare(`SELECT * FROM ${t} ORDER BY 1`).all()));
+let passed = 0; const ok = (name) => { passed++; console.log("ok", name); };
+try {
+  // pure helpers
+  assert.ok(hasBannedWord("این سپرده است")); assert.ok(hasBannedWord("براورد")); assert.ok(hasBannedWord("برآورد")); assert.ok(hasBannedWord("سپ\u200cرده"));
+  assert.ok(hasBannedWord("تخميني")); assert.ok(!hasBannedWord("سلام، با مشتری تماس بگیر"));
+  assert.ok(inQuietHours(new Date("2026-10-26T17:00:00Z"))); assert.ok(inQuietHours(new Date("2026-10-26T04:30:00Z"))); assert.ok(!inQuietHours(new Date("2026-10-26T05:00:00Z")));
+  ok("helpers");
+  const before = snap();
+  // admin-only
+  assert.equal((await S(2, "GET", "/admin/assistants")).s, 403);
+  assert.equal((await S(4, "GET", "/admin/assistants")).s, 403);
+  assert.equal((await S(1, "GET", "/admin/assistants")).j.globalEnabled, false);
+  ok("admin only");
+  // tokens: admin issues (shown once), stored hashed
+  const iss = {};
+  for (const slug of ["somayeh", "mohaddeseh", "masoud", "sarina"]) {
+    const r = await S(1, "POST", `/admin/assistants/${As[slug].id}/tokens`, { name: `${slug}-fx` }); assert.equal(r.s, 201); iss[slug] = r.j.token;
+    assert.ok(!JSON.stringify(db.prepare("SELECT * FROM assistant_tokens").all()).includes(r.j.token));
+    assert.equal(db.prepare("SELECT token_hash FROM assistant_tokens WHERE id=?").get(r.j.id).token_hash, hashAssistantToken(r.j.token));
+  }
+  assert.ok(!JSON.stringify((await S(1, "GET", "/admin/assistants")).j).includes(iss.masoud));
+  ok("tokens hashed, shown once");
+  // no token / bad token → 401; disabled → 423
+  assert.equal((await R(null, "GET", "/me")).s, 401);
+  assert.equal((await R("x".repeat(30), "GET", "/me")).s, 401);
+  assert.equal((await R(iss.masoud, "GET", "/me")).s, 423); // all off
+  assert.equal((await R(iss.masoud, "POST", "/messages", { kind: "alert", body: "x", customerId: 120 })).s, 423); assert.equal(bellRows().length, 0); // no bell while off
+  await S(1, "POST", `/admin/assistants/${As.masoud.id}/enable`);
+  assert.equal((await R(iss.masoud, "GET", "/me")).s, 423); // global still off
+  assert.equal((await S(8, "GET", "/assistant/mine")).j.assistants.length, 0); // no avatar while global off
+  await S(1, "PUT", "/admin/assistants/global", { enabled: true });
+  for (const slug of ["somayeh", "mohaddeseh", "sarina"]) await S(1, "POST", `/admin/assistants/${As[slug].id}/enable`);
+  const me = await R(iss.masoud, "GET", "/me"); assert.equal(me.s, 200); assert.equal(me.j.assistant.label, "دستیار مسعود"); assert.equal(me.j.assistant.expert.userId, 8);
+  ok("401/423 + enable");
+  // the existing smart-filing runner token still works and is not accepted here (and vice-versa)
+  const oldTok = crypto.randomBytes(32).toString("base64url");
+  db.prepare("INSERT INTO smart_filing_runner_tokens(name,token_hash,created_at) VALUES('sarina-runner-1',?,'now')").run(hashRunnerToken(oldTok));
+  assert.equal((await call("GET", "/api/smart-filing-runner/my-jobs", null, null, oldTok)).s, 200);
+  assert.equal((await R(oldTok, "GET", "/me")).s, 401);
+  assert.equal((await call("GET", "/api/smart-filing-runner/my-jobs", null, null, iss.sarina)).s, 401);
+  ok("smart-filing runner token separate and unchanged");
+  // scope
+  const ids = async (tok) => (await R(tok, "GET", "/customers?limit=200")).j.items.map(c => c.id).sort((a, b) => a - b);
+  assert.deepEqual(await ids(iss.somayeh), [100, 151]); // own P1 only, not cancelled
+  assert.deepEqual(await ids(iss.mohaddeseh), [110]);
+  assert.deepEqual(await ids(iss.masoud), [120, 150]); // own, not merged
+  assert.deepEqual(await ids(iss.sarina), [150, 151]); // registrar smart-filing cases only
+  for (const [tok, id] of [[iss.somayeh, 101], [iss.somayeh, 110], [iss.somayeh, 102], [iss.masoud, 121], [iss.masoud, 130], [iss.masoud, 140], [iss.sarina, 120], [iss.sarina, 100], [iss.mohaddeseh, 99999]]) {
+    assert.equal((await R(tok, "GET", `/customers/${id}`)).s, 404, `out of scope ${id}`);
+    assert.equal((await R(tok, "GET", `/customers/${id}/calls`)).s, 404);
+  }
+  assert.ok(db.prepare("SELECT COUNT(*) n FROM assistant_audit WHERE outcome='not_in_scope'").get().n >= 9);
+  const c100 = await R(iss.somayeh, "GET", "/customers/100"); assert.equal(c100.s, 200);
+  const txt = JSON.stringify(c100.j); assert.ok(!txt.includes("09121234567") && !txt.includes("0012345678")); assert.equal(c100.j.customer.priority, 1); // v7: priority is readable for sales assistants
+  assert.ok(!/fee|commission|contract|wallet|deposit|deduct|prepayment/i.test(Object.keys(JSON.parse(txt)).join() + JSON.stringify(c100.j.applications.map(Object.keys))));
+  // v7: new reads — Sarina 403, out of scope 404, /notes and /timeline exist
+  for (const p of ["history", "notes", "timeline", "consultation"]) {
+    assert.equal((await R(iss.somayeh, "GET", `/customers/100/${p}`)).s, 200, p);
+    assert.equal((await R(iss.somayeh, "GET", `/customers/110/${p}`)).s, 404, p);
+    assert.equal((await R(iss.sarina, "GET", `/customers/150/${p}`)).s, 403, p);
+  }
+  const ctx = await R(iss.somayeh, "GET", "/my-context"); assert.equal(ctx.s, 200); assert.ok("nextCustomer" in ctx.j && "today" in ctx.j);
+  assert.ok(!("nextCustomer" in (await R(iss.sarina, "GET", "/my-context")).j));
+  const calls = await R(iss.somayeh, "GET", "/customers/100/calls"); assert.ok(!JSON.stringify(calls.j).includes("09121234567"));
+  assert.equal((await R(iss.somayeh, "GET", "/customers/100/reminders")).j.items.length, 1);
+  const sar = await R(iss.sarina, "GET", "/customers/150"); assert.equal(sar.s, 200); assert.equal(sar.j.smartFilingJobs.length, 1); assert.ok(!/amount/i.test(JSON.stringify(sar.j)));
+  ok("scope + masking");
+  // blocked writes: priority / assignment / money / contracts / stage / sms / reminders
+  for (const [m, p] of [["PUT", "/customers/100/priority"], ["POST", "/customers/100/assign"], ["PATCH", "/customers/100"], ["POST", "/customers/100/salesperson"], ["POST", "/customers/100/status"],
+    ["POST", "/payments"], ["POST", "/payment-orders"], ["POST", "/wallets"], ["PUT", "/fees"], ["POST", "/contracts"], ["POST", "/loan-applications/500/stage"], ["POST", "/sms"], ["POST", "/customer-messages"], ["POST", "/reminders"], ["DELETE", "/customers/100"], ["POST", "/anything-else"]]) {
+    const r = await R(iss.somayeh, m, p, { priority: 1, salespersonId: 6 }); assert.equal(r.s, 403, `${m} ${p}`);
+  }
+  assert.ok(db.prepare("SELECT COUNT(*) n FROM assistant_audit WHERE outcome='forbidden'").get().n >= 16);
+  ok("blocked writes denied");
+  // messages: masking, banned words, case binding, recipients, trainees
+  const m1 = await R(iss.masoud, "POST", "/messages", { kind: "suggestion", body: "با مشتری 09120000004 تماس بگیر", customerId: 120, clientId: "c1" });
+  assert.equal(m1.s, 201); assert.equal(m1.j.delivered, "now"); assert.ok(!m1.j.message.body.includes("09120000004"));
+  assert.equal((await R(iss.masoud, "POST", "/messages", { kind: "suggestion", body: "x", customerId: 120, clientId: "c1" })).j.delivered, "duplicate");
+  assert.equal((await R(iss.masoud, "POST", "/messages", { body: "برآورد وام شما", customerId: 120 })).s, 422);
+  assert.equal((await R(iss.masoud, "POST", "/messages", { body: "سلام", customerId: 100 })).s, 404); // not his customer
+  assert.equal((await R(iss.masoud, "POST", "/messages", { body: "سلام", userId: 2 })).s, 404); // not his expert
+  assert.equal((await R(iss.masoud, "POST", "/messages", { body: "سلام", userId: 6 })).s, 404); // trainee
+  assert.equal((await R(iss.masoud, "POST", "/messages", { body: "x".repeat(2001) })).s, 422);
+  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "بدون پرونده", userId: 4 })).s, 201); // 01117c6: Sarina (filing) may send case-less to registrar/admin
+  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 4, customerId: 150 })).s, 201); // registrar
+  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 1, customerId: 150 })).s, 201); // admin
+  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 8, customerId: 150 })).s, 403); // v6: the case's sales expert gets no Sarina line
+  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 2, customerId: 150 })).s, 403); // v6: sales expert
+  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 6, customerId: 150 })).s, 403); // v6: trainee (salesperson role)
+  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 29, customerId: 150 })).s, 404); // user 29
+  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 30, customerId: 150 })).s, 403); // v6: other role
+  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 4, customerId: 120 })).s, 404); // not a filing case
+  ok("messages + Sarina binding");
+  // v3 bell: one addressed row per case-bound line (masked), only for the thread's own user
+  { const b = bellRows(); assert.deepEqual(b.map(r => [r.recipient_user_id, r.customer_id]), [[8, 120], [4, 150], [1, 150]]);
+    assert.ok(b.every(r => r.kind === "assistant-message" && r.permission === "assistant.recipient" && r.actor_key.startsWith("assistant:")));
+    assert.ok(!JSON.stringify(b).includes("09120000004")); assert.equal(b[0].title, "دستیار مسعود · پیشنهاد"); assert.equal(b[0].resource_id, m1.j.message.id);
+    assert.ok(!b.some(r => [2, 6, 27, 29, 30].includes(r.recipient_user_id))); }
+  assert.equal((await R(iss.masoud, "POST", "/messages", { body: "جواب چت", customerId: 120 })).s, 201); assert.equal(bellRows().length, 3); // sales chat reply stays in chat
+  db.prepare("DELETE FROM assistant_messages WHERE body='جواب چت'").run();
+  ok("bell rows: addressed, masked, role-scoped");
+  // staff side: who sees what
+  const mineK = await S(8, "GET", "/assistant/mine"); assert.deepEqual(mineK.j.assistants.map(a => a.slug).sort(), ["masoud"]);
+  assert.equal(mineK.j.assistants.find(a => a.slug === "masoud").online, true);
+  for (const u of [6, 27, 29, 30]) assert.equal((await S(u, "GET", "/assistant/mine")).j.assistants.length, 0, `user ${u} sees nothing`);
+  assert.deepEqual((await S(2, "GET", "/assistant/mine")).j.assistants.map(a => a.slug).sort(), ["somayeh"]); // v6: no Sarina for sales experts
+  assert.deepEqual((await S(4, "GET", "/assistant/mine")).j.assistants.map(a => a.slug), ["sarina"]);
+  const tK = mineK.j.assistants.find(a => a.slug === "masoud").threadId;
+  const tS = (await S(4, "GET", "/assistant/mine")).j.assistants.find(a => a.slug === "sarina").threadId;
+  assert.equal((await S(2, "GET", `/assistant/threads/${tK}/messages`)).s, 404); // someone else's thread
+  const hist = await S(8, "GET", `/assistant/threads/${tK}/messages`); assert.equal(hist.j.messages.length, 1); assert.equal(hist.j.messages[0].authorLabel, "دستیار مسعود");
+  assert.equal((await S(4, "GET", `/assistant/threads/${tS}/messages`)).j.messages.length, 2); // registrar sees the case line + the case-less line (01117c6)
+  assert.equal((await S(8, "GET", `/assistant/threads/${tS}/messages`)).s, 404); // v6: the sales expert never reads a Sarina thread
+  ok("staff visibility");
+  // user message → runner event (long-poll) → seen; actions
+  const after0 = (await R(iss.masoud, "GET", "/events")).j.cursor;
+  const waitP = R(iss.masoud, "GET", `/events?after=${after0}&wait=5`);
+  await new Promise(r => setTimeout(r, 300));
+  const um = await S(8, "POST", `/assistant/threads/${tK}/messages`, { body: "مشتری 120 رو بررسی کن", clientId: "u1" }); assert.equal(um.s, 201);
+  const ev = await waitP; assert.equal(ev.s, 200); assert.equal(ev.j.events[0].type, "user_message"); assert.equal(ev.j.events[0].message.body, "مشتری 120 رو بررسی کن");
+  const seen = await S(8, "GET", `/assistant/threads/${tK}/messages?after=999`); assert.equal(seen.j.userSeen[0].seen, true);
+  assert.equal((await R(iss.masoud, "POST", "/events/ack", { upTo: ev.j.cursor })).s, 200);
+  assert.equal((await R(iss.masoud, "POST", "/events/ack", { upTo: 99999 })).s, 422);
+  assert.equal((await S(8, "POST", `/assistant/messages/${m1.j.message.id}/action`, { action: "later" })).s, 200);
+  assert.equal((await S(2, "POST", `/assistant/messages/${m1.j.message.id}/action`, { action: "call" })).s, 404);
+  const ev2 = await R(iss.masoud, "GET", `/events?after=${ev.j.cursor}`); assert.equal(ev2.j.events[0].type, "message_action"); assert.equal(ev2.j.events[0].action, "later");
+  // call_logged on in-scope customer only
+  db.exec("INSERT INTO call_logs(id,customer_id,salesperson_id,subject,created_at) VALUES(2,120,6,'تماس','x'),(3,100,3,'تماس','x')");
+  const ev3 = await R(iss.masoud, "GET", `/events?after=${ev2.j.cursor}`); assert.deepEqual(ev3.j.events.map(e => [e.type, e.customerId]), [["call_logged", 120]]);
+  { const ev8 = bellRows().find(r => r.resource_id === m1.j.message.id);
+    assert.equal((await S(8, "POST", `/assistant/threads/${tK}/read`, { upTo: m1.j.message.id })).s, 200);
+    assert.ok(db.prepare("SELECT 1 FROM site_notification_reads WHERE user_id=8 AND event_id=?").get(ev8.id), "reading the chat marks its bell row read");
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM site_notification_reads WHERE user_id<>8").get().n, 0); }
+  ok("events long-poll + ack + seen");
+  // typing
+  assert.equal((await R(iss.masoud, "POST", "/typing", { threadId: tK, seconds: 10 })).s, 200);
+  assert.equal((await S(8, "GET", `/assistant/threads/${tK}/messages?after=999`)).j.typing, true);
+  assert.equal((await R(iss.masoud, "POST", "/typing", { threadId: tS, seconds: 10 })).s, 404); // not his thread
+  ok("typing");
+  // rate limit / digest / high cap / DND
+  await S(1, "PUT", `/admin/assistants/${As.mohaddeseh.id}`, { maxMessagesPerHour: 2 });
+  const G = (b) => R(iss.mohaddeseh, "POST", "/messages", { body: "سلام", ...b });
+  assert.equal((await G({})).j.delivered, "now"); assert.equal((await G({})).j.delivered, "now"); assert.equal((await G({})).j.delivered, "digest");
+  for (let i = 0; i < 3; i++) assert.equal((await G({ priority: "high" })).j.delivered, "now");
+  assert.equal((await G({ priority: "high" })).s, 429);
+  clock = new Date(clock.getTime() + 61 * 60_000);
+  assert.equal((await G({})).j.delivered, "now");
+  await S(3, "PUT", "/assistant/prefs", { dndMinutes: 30 });
+  assert.equal((await G({})).j.delivered, "held_dnd");
+  await S(3, "PUT", "/assistant/prefs", { dndMinutes: 0 });
+  assert.equal((await G({ kind: "alert" })).j.delivered, "digest"); // cap 2 reached (now + held)
+  const nf = await R(iss.mohaddeseh, "POST", "/notifications", { body: "یادآوری", priority: "high", customerId: 110 }); assert.equal(nf.s, 201); assert.equal(nf.j.message.kind, "alert");
+  { const b = bellRows().filter(r => r.recipient_user_id === 3); assert.deepEqual(b.map(r => [r.customer_id, r.title]), [[110, "دستیار محدثه · هشدار · فوری"]]); } // case-less + digested → no bell
+  ok("rate limit/digest/DND");
+  // notes are the only customer-bound write, audited as «دستیار …»
+  assert.equal((await R(iss.masoud, "POST", "/customers/120/assistant-notes", { body: "پیگیری فردا" })).s, 201);
+  assert.equal((await R(iss.masoud, "POST", "/customers/100/assistant-notes", { body: "x" })).s, 404);
+  assert.equal((await R(iss.masoud, "POST", "/customers/120/assistant-notes", { body: "مبلغ سپرده" })).s, 422);
+  assert.ok(db.prepare("SELECT COUNT(*) n FROM assistant_audit WHERE actor_label='دستیار مسعود' AND outcome='ok'").get().n >= 3);
+  assert.ok(!JSON.stringify(db.prepare("SELECT detail_json FROM assistant_audit").all()).includes("پیگیری فردا")); // text length only
+  ok("notes + audit");
+  // reminder proposals: suggestion only; the expert's click saves via the existing reminders API
+  {
+    const remBefore = db.prepare("SELECT COUNT(*) n FROM reminders").get().n;
+    const future = new Date(clock.getTime() + 86400_000).toISOString();
+    assert.equal((await R(iss.somayeh, "POST", "/reminder-proposals", { customerId: 110, remindAt: future, note: "x" })).s, 404); // other expert
+    assert.equal((await R(iss.somayeh, "POST", "/reminder-proposals", { remindAt: future })).s, 422);
+    assert.equal((await R(iss.somayeh, "POST", "/reminder-proposals", { customerId: 100, remindAt: "2020-01-01T00:00:00Z" })).s, 422);
+    assert.equal((await R(iss.somayeh, "POST", "/reminder-proposals", { customerId: 100, remindAt: new Date(clock.getTime() + 40 * 86400_000).toISOString() })).s, 422);
+    assert.equal((await R(iss.somayeh, "POST", "/reminder-proposals", { customerId: 100, remindAt: future, note: "سپرده" })).s, 422);
+    const pr = await R(iss.somayeh, "POST", "/reminder-proposals", { customerId: 100, remindAt: future, note: "پیگیری مدارک", reason: "فردا ساعت ۱۰ پیگیری مدارک؟" });
+    assert.equal(pr.s, 201); assert.equal(pr.j.message.kind, "reminder_proposal"); assert.equal(pr.j.message.proposal.status, "pending");
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM reminders").get().n, remBefore, "assistant never creates a reminder");
+    const pid = pr.j.message.proposal.id;
+    const th = (await S(2, "GET", "/assistant/mine")).j.assistants.find(a => a.slug === "somayeh");
+    assert.ok(th);
+    assert.equal((await S(3, "POST", `/assistant/reminder-proposals/${pid}/decide`, { accept: false })).s, 404); // not the owner
+    assert.equal((await S(2, "POST", `/assistant/reminder-proposals/${pid}/decide`, { accept: true })).s, 422); // no reminder saved
+    // someone else's reminder can't be linked
+    db.prepare("INSERT INTO reminders(id,user_id,salesperson_id,message,remind_at,created_at,subject,customer_id) VALUES(900,3,4,'x',?,?,'x',100)").run(future, clock.toISOString());
+    assert.equal((await S(2, "POST", `/assistant/reminder-proposals/${pid}/decide`, { accept: true, reminderId: 900 })).s, 422);
+    // the expert's own click → existing POST /api/reminders (simulated row) → link
+    db.prepare("INSERT INTO reminders(id,user_id,salesperson_id,message,remind_at,created_at,subject,customer_id) VALUES(901,2,3,'پیگیری مدارک',?,?,'پیگیری مدارک',100)").run(future, clock.toISOString());
+    const dec = await S(2, "POST", `/assistant/reminder-proposals/${pid}/decide`, { accept: true, reminderId: 901 });
+    assert.equal(dec.s, 200); assert.equal(dec.j.proposal.status, "accepted"); assert.equal(dec.j.proposal.reminderId, 901);
+    assert.equal((await S(2, "POST", `/assistant/reminder-proposals/${pid}/decide`, { accept: false })).s, 409);
+    const pr2 = await R(iss.somayeh, "POST", "/reminder-proposals", { customerId: 100, remindAt: future });
+    assert.equal((await S(2, "POST", `/assistant/reminder-proposals/${pr2.j.message.proposal.id}/decide`, { accept: true, reminderId: 901 })).s, 409); // already linked
+    assert.equal((await S(2, "POST", `/assistant/reminder-proposals/${pr2.j.message.proposal.id}/decide`, { accept: false })).j.proposal.status, "rejected");
+    const ev = await R(iss.somayeh, "GET", "/events?after=0&wait=0");
+    assert.ok(ev.j.events.some(e => e.type === "suggestion_action" && e.proposalId === pid && e.accepted === true));
+    db.exec("DELETE FROM reminders WHERE id IN (900,901)");
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM reminders").get().n, remBefore);
+    // credit-inquiry permission setting: default manager, admin-only change
+    assert.equal((await S(2, "GET", "/assistant/settings")).j.creditInquiryPermission, "manager");
+    assert.equal((await S(2, "PUT", "/admin/assistants/settings", { creditInquiryPermission: "expert" })).s, 403);
+    assert.equal((await S(1, "PUT", "/admin/assistants/settings", { creditInquiryPermission: "bad" })).s, 422);
+    assert.equal((await S(1, "PUT", "/admin/assistants/settings", { creditInquiryPermission: "expert" })).s, 200);
+    assert.equal((await S(1, "GET", "/admin/assistants")).j.creditInquiryPermission, "expert");
+    await S(1, "PUT", "/admin/assistants/settings", { creditInquiryPermission: "manager" });
+  }
+  ok("reminder proposals (one-click, never auto) + credit-inquiry setting");
+  { // v8 «احمد» — sales-manager assistant (piece A)
+    const mgrBefore = snap(); const clockBefore = clock; clock = new Date("2026-10-26T07:00:00Z"); // Mon 10:30 Tehran
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM assistant_tokens WHERE assistant_id=?").get(As.ahmad.id).n, 0); // no token seeded
+    const adm = (await S(1, "GET", "/admin/assistants")).j.assistants.find(a => a.slug === "ahmad");
+    assert.equal(adm.kind, "manager"); assert.equal(adm.enabled, false); assert.equal(adm.boundRole, "admin");
+    const tk = (await S(1, "POST", `/admin/assistants/${As.ahmad.id}/tokens`, { name: "ahmad-fx" })).j.token;
+    assert.equal((await R(tk, "GET", "/me")).s, 423); // own switch still off
+    assert.ok(!(await S(1, "GET", "/assistant/mine")).j.assistants.some(a => a.slug === "ahmad"));
+    await S(1, "POST", `/admin/assistants/${As.ahmad.id}/enable`);
+    assert.ok((await S(1, "GET", "/assistant/mine")).j.assistants.some(a => a.slug === "ahmad" && a.kind === "manager"));
+    for (const u of [29, 4, 2, 3, 8, 6, 27, 30]) assert.ok(!(await S(u, "GET", "/assistant/mine")).j.assistants?.some(a => a.slug === "ahmad"), `user ${u} must not see ahmad`);
+    for (const u of [2, 4, 6, 8, 29]) assert.equal((await S(u, "GET", "/admin/assistants/manager-report")).s, 403); // v8 fix: 29 is an admin but never reaches the manager
+    { // v8 fix: user 29 stays out of «احمد» (server 403 + hidden) while the rest of 29's admin access is unchanged
+      for (const [m, p, b] of [["GET", "/admin/assistants/manager-settings"], ["PUT", "/admin/assistants/manager-settings", { overdueRemindersMax: 9 }], ["GET", "/admin/assistants/manager-report?range=week"],
+        ["POST", `/admin/assistants/${As.ahmad.id}/tokens`, { name: "x" }], ["POST", `/admin/assistants/${As.ahmad.id}/disable`], ["PUT", `/admin/assistants/${As.ahmad.id}`, { maxMessagesPerHour: 5 }]])
+        assert.equal((await S(29, m, p, b)).s, 403, `29 ${m} ${p}`);
+      const ahT = (await S(1, "GET", "/assistant/mine")).j.assistants.find(a => a.slug === "ahmad").threadId;
+      assert.equal((await S(29, "GET", `/assistant/threads/${ahT}/messages`)).s, 403); assert.equal((await S(29, "POST", `/assistant/threads/${ahT}/messages`, { body: "x" })).s, 403);
+      const l29 = (await S(29, "GET", "/admin/assistants")); assert.equal(l29.s, 200); assert.equal(l29.j.managerAccess, false);
+      assert.ok(!l29.j.assistants.some(a => a.slug === "ahmad")); assert.ok(l29.j.assistants.some(a => a.slug === "sarina") && l29.j.assistants.some(a => a.slug === "somayeh")); // other cards unchanged
+      { const a29 = await S(29, "GET", "/admin/assistant-audit"), a1 = await S(1, "GET", "/admin/assistant-audit");
+        assert.equal(a29.s, 200); assert.ok(a1.j.items.some(x => x.assistantId === As.ahmad.id)); assert.ok(!a29.j.items.some(x => x.assistantId === As.ahmad.id)); assert.ok(a29.j.items.length > 0); }
+      assert.equal((await S(1, "GET", "/admin/assistants")).j.managerAccess, true);
+      assert.equal((await S(1, "GET", "/admin/assistants/manager-settings")).s, 200);
+      assert.equal(db.prepare("SELECT COUNT(*) n FROM assistant_tokens WHERE assistant_id=? AND name='x'").get(As.ahmad.id).n, 0);
+      assert.equal(db.prepare("SELECT enabled FROM assistants WHERE id=?").get(As.ahmad.id).enabled, 1);
+      ok("manager: user 29 → 403 on report/settings/ahmad admin card/thread, hidden in lists; other admin access kept");
+    }
+    const me8 = await R(tk, "GET", "/me"); assert.equal(me8.s, 200); assert.equal(me8.j.assistant.kind, "manager"); assert.equal(me8.j.assistant.label, "احمد | مدیر فروش");
+    const ctx = (await R(tk, "GET", "/my-context")).j; assert.deepEqual(ctx.people.map(p => p.userId), [1]); assert.equal(ctx.scope, "manager_all_experts_incl_trainees_readonly");
+    assert.deepEqual(ctx.experts.map(e => e.salespersonId), [3, 4, 5, 6, 19]); // trainees read-only; user 29 never
+    assert.deepEqual(ctx.experts.filter(e => e.trainee).map(e => e.salespersonId), [5, 19]);
+    ok("manager: seeded off, admin-only dock, own token + switch");
+    // scope: every expert's live customers (trainees included, read-only); masking holds
+    const cl = (await R(tk, "GET", "/customers?limit=200")).j.items;
+    assert.deepEqual(cl.map(c => c.id).sort((a, b) => a - b), [100, 101, 110, 120, 130, 150, 151]);
+    assert.ok(cl.every(c => !/09\d{9}/.test(JSON.stringify(c)))); assert.ok(!cl.find(c => c.id === 100).mobile.includes("1234567"));
+    assert.equal(cl.find(c => c.id === 110).expert.name, "قاسمی"); assert.equal(cl.find(c => c.id === 100).priority, 1);
+    assert.deepEqual((await R(tk, "GET", "/customers?salespersonId=4")).j.items.map(c => c.id), [110]);
+    for (const id of [140, 102, 121]) assert.equal((await R(tk, "GET", `/customers/${id}`)).s, 404);
+    const c100 = await R(tk, "GET", "/customers/100"); assert.equal(c100.s, 200);
+    assert.ok(!JSON.stringify(c100.j).includes("0012345678") && !JSON.stringify(c100.j).includes("09121234567"));
+    assert.equal((await R(tk, "GET", "/customers/100/history")).s, 200); assert.equal((await R(tk, "GET", "/customers/100/consultation")).s, 200);
+    const calls100 = await R(tk, "GET", "/customers/100/calls"); assert.equal(calls100.s, 200); assert.ok(!JSON.stringify(calls100.j).includes("09121234567"));
+    assert.equal((await R(tk, "GET", "/customers/130/calls")).s, 200); // trainee customer: readable
+    ok("manager: read scope (trainees read-only; no merged / cancelled / unassigned) + masking");
+    // writes: only chat/notifications to an admin and assistant notes
+    assert.equal((await R(tk, "POST", "/messages", { body: "سلام" })).j.error, "recipient_required");
+    for (const u of [2, 4, 6, 8, 29, 30]) assert.equal((await R(tk, "POST", "/messages", { userId: u, body: "سلام" })).s, 404, `no message to user ${u}`);
+    assert.equal((await R(tk, "POST", "/messages", { userId: 1, body: "گزارش امروز آماده است" })).s, 201);
+    const nb = bellRows().length;
+    assert.equal((await R(tk, "POST", "/notifications", { userId: 1, customerId: 110, body: "سرنخ سایت بی‌تماس" })).s, 201);
+    assert.equal(bellRows().length, nb + 1); assert.equal(bellRows().at(-1).recipient_user_id, 1); assert.equal(bellRows().at(-1).actor_key, "assistant:ahmad");
+    assert.equal((await R(tk, "POST", "/notifications", { userId: 1, customerId: 140, body: "x" })).s, 404);
+    const rp = await R(tk, "POST", "/reminder-proposals", { userId: 1, customerId: 100, remindAt: new Date(clock.getTime() + 86400_000).toISOString() });
+    assert.equal(rp.s, 403); assert.equal(rp.j.error, "manager_read_only");
+    for (const [m, p2] of [["POST", "/customers/100/priority"], ["PUT", "/customers/100/assign"], ["POST", "/reminders"], ["DELETE", "/customers/100"], ["POST", "/payments"], ["POST", "/sms"],
+      ["POST", "/customer-messages"], ["POST", "/manager/report"], ["DELETE", "/messages/1"], ["PUT", "/manager/settings"], ["POST", "/commission"]])
+      assert.equal((await R(tk, m, p2, { priority: 3 })).s, 403, `${m} ${p2}`);
+    assert.equal((await R(tk, "POST", "/customers/100/assistant-notes", { body: "یادداشت مدیر" })).s, 201);
+    assert.equal((await R(tk, "POST", "/customers/130/assistant-notes", { body: "x" })).j.error, "trainee_read_only"); // no write on trainees
+    assert.equal((await R(tk, "POST", "/customers/140/assistant-notes", { body: "x" })).s, 404);
+    for (const t2 of [iss.mohaddeseh, iss.sarina]) for (const p2 of ["/manager/report", "/manager/alerts", "/manager/summary?slot=morning", "/manager/experts", "/manager/settings"])
+      assert.equal((await R(t2, "GET", p2)).j.error, "manager_only");
+    ok("manager: writes limited to admin chat + notes; other assistants get manager_only");
+    // report numbers (Mon 10:30 Tehran)
+    db.exec(`CREATE TABLE voip_after_call_events(id INTEGER PRIMARY KEY,call_log_id INTEGER,customer_id INTEGER,salesperson_id INTEGER,status TEXT,started_at TEXT,ended_at TEXT,is_live INTEGER DEFAULT 0,
+        mobile_answered_at TEXT,direction TEXT,duration_seconds INTEGER,expert_name TEXT);
+      CREATE TABLE team_sales_qualifications(id INTEGER PRIMARY KEY,call_log_id INTEGER,call_result TEXT,actor_user_id INTEGER,customer_id INTEGER);`);
+    const ins = db.prepare("INSERT INTO call_logs(id,customer_id,salesperson_id,subject,created_at) VALUES(?,?,?,?,?)");
+    ins.run(900, 100, 3, "x", "2026-10-26 05:30:00"); ins.run(901, 101, 3, "x", "2026-10-26T06:10:00.000Z");
+    db.exec("INSERT INTO voip_after_call_events(id,call_log_id,customer_id,salesperson_id,status,started_at) VALUES(1,900,100,3,'ANSWERED','2026-10-26T05:30:00Z')");
+    db.exec("INSERT INTO team_sales_qualifications(id,call_log_id,call_result) VALUES(1,901,'no_answer')");
+    db.exec("INSERT INTO voip_after_call_events(id,call_log_id,customer_id,salesperson_id,status,started_at,is_live) VALUES(2,NULL,101,3,'ANSWERED','2026-10-26T06:20:00Z',1)"); // live: not counted
+    for (let i = 0; i < 5; i++) { ins.run(910 + i, 101, 3, "x", `2026-10-25 0${i}:00:00`); ins.run(920 + i, 101, 3, "x", `2026-10-24 0${i}:00:00`); } // 5/day before 10:30 Tehran
+    ins.run(930, 130, 5, "trainee", "2026-10-26 05:00:00");
+    const rins = db.prepare("INSERT INTO reminders(id,user_id,salesperson_id,message,remind_at,done,created_at,subject,customer_id) VALUES(?,?,?,?,?,?,?,?,?)");
+    for (let i = 0; i < 6; i++) rins.run(900 + i, 3, 4, "پیگیری 09121234567", "2026-10-20T07:00:00.000Z", 0, "2026-10-19", "پیگیری", 110);
+    rins.run(910, 3, 4, "done", "2026-10-20T07:00:00.000Z", 1, "2026-10-19", "x", 110); rins.run(911, 6, 5, "trainee", "2026-10-20T07:00:00.000Z", 0, "2026-10-19", "x", 130);
+    siteLeadsStub = new Map([[110, { requestedAt: "2026-10-26T04:00:00Z", dueAt: "2026-10-26T05:00:00Z", openRequests: 1, isRepeat: false }],
+      [130, { requestedAt: "2026-10-26T04:00:00Z", dueAt: "2026-10-26T05:00:00Z", openRequests: 1, isRepeat: false }],
+      [101, { requestedAt: "2026-10-26T06:50:00Z", dueAt: "2026-10-26T09:00:00Z", openRequests: 1, isRepeat: true }]]);
+    const rep = (await R(tk, "GET", "/manager/report?range=today")).j;
+    assert.deepEqual(rep.experts.map(e => e.salespersonId), [3, 4, 5, 6, 19]);
+    const t5 = rep.experts.find(e => e.salespersonId === 5); assert.equal(t5.trainee, true); assert.equal(t5.calls.count, 1); assert.equal(t5.overdueReminders.count, 1);
+    assert.deepEqual(t5.siteLeadsOverdue.items.map(x => x.customerId), [130]); assert.equal(rep.experts.find(e => e.salespersonId === 19).calls.count, 0);
+    const h = rep.experts.find(e => e.salespersonId === 3), g = rep.experts.find(e => e.salespersonId === 4), k = rep.experts.find(e => e.salespersonId === 6);
+    assert.deepEqual(h.calls, { count: 2, answered: 1, notAnswered: 1, unknown: 0, answeredShare: 0.5 });
+    assert.equal(h.baseline.average, 5); assert.equal(h.baseline.activeDays, 2);
+    assert.deepEqual(h.score.alerts.map(a => a.rule), ["calls_below_average"]); assert.equal(h.score.alerts[0].numbers.threshold, 3.5); assert.equal(h.score.level, "watch");
+    assert.deepEqual(h.p1NoCall.items.map(x => x.customerId), [151]); // 100 was called today
+    assert.equal(g.overdueReminders.count, 6); assert.equal(g.overdueReminders.maxDaysLate, 6); assert.ok(!JSON.stringify(g).includes("09121234567"));
+    assert.deepEqual(g.siteLeadsOverdue.items.map(x => x.customerId), [110]); assert.equal(g.siteLeadsOverdue.items[0].hoursLate, 2);
+    assert.deepEqual(g.score.alerts.map(a => a.rule), ["overdue_reminders", "site_leads_unanswered"]); assert.equal(g.score.level, "alert"); assert.equal(g.score.points, 60);
+    assert.ok(g.score.alerts.every(a => a.reason && a.numbers)); assert.deepEqual(g.p1NoCall.items.map(x => x.customerId), [110]);
+    assert.equal(k.calls.count, 0); assert.equal(k.score.level, "ok");
+    assert.equal(rep.team.calls, 3); assert.ok(!JSON.stringify(rep).includes("ادمین۲۹"));
+    const wk = (await R(tk, "GET", "/manager/report?range=week&salespersonId=3")).j;
+    assert.equal(wk.from, "2026-10-23T20:30:00.000Z"); assert.equal(wk.experts.length, 1); assert.equal(wk.experts[0].calls.count, 12);
+    assert.equal((await R(tk, "GET", "/manager/report?range=decade")).j.error, "range_not_supported"); // month is supported since the Shamsi-month release
+    assert.equal((await R(tk, "GET", "/manager/report?salespersonId=5")).s, 200); assert.equal((await R(tk, "GET", "/manager/report?salespersonId=20")).s, 404); // sp 20: no active user
+    const al = (await R(tk, "GET", "/manager/alerts")).j.items; assert.deepEqual(al.map(a => `${a.salespersonId}:${a.rule}`), ["3:calls_below_average", "4:overdue_reminders", "4:site_leads_unanswered", "5:site_leads_unanswered"]);
+    ok("manager: today/week report, alerts with reasons + numbers");
+    { // v8 fix: ONE call definition — by the logging expert, hand-off/review rows out — same number in /my-context and the manager report
+      ins.run(940, 101, 3, "ارتقا به اولویت ۱ توسط کاظمی", "2026-10-26 06:00:00"); ins.run(941, 101, 3, "اطلاعات تماس اول درست بود", "2026-10-26 06:01:00");
+      ins.run(942, 110, 3, "", "2026-10-26 06:10:00"); // sp3 calls a customer owned by sp4: counts for sp3 (the logger)
+      const h2 = (await R(tk, "GET", "/manager/report?range=today&salespersonId=3")).j.experts[0].calls;
+      assert.equal(h2.count, 3); assert.equal((await R(tk, "GET", "/manager/report?range=today&salespersonId=4")).j.experts[0].calls.count, 0);
+      const myc = (await R(iss.somayeh, "GET", "/my-context")).j.today; assert.equal(myc.calls, 3); assert.equal(myc.answered, h2.answered); assert.equal(myc.fromSuggestionBox, null);
+      assert.ok(/logged/.test(myc.definition));
+      const cv = (await R(iss.somayeh, "GET", "/customers/100/calls")).j.items.find(x => x.id === 1);
+      assert.deepEqual(cv.loggedBy, { name: "حسنی", currentName: "حسنی", salespersonId: 3 }); assert.ok(!JSON.stringify(cv).includes("09121234567")); // staff name + id clear, phone masked
+      const mv = (await R(tk, "GET", "/customers/100/calls")).j.items.find(x => x.id === 1); assert.deepEqual(mv.loggedBy, cv.loggedBy); assert.ok(!JSON.stringify(mv).includes("09121234567"));
+      db.exec("DELETE FROM call_logs WHERE id IN (940,941,942)");
+      ok("calls: one shared definition (logger, not owner; hand-off rows excluded) in /my-context + manager; loggedBy = staff name");
+    }
+    { // v9: amountUnit next to every amount (all toman; site «حدود مبلغ» band → toman range) + leftScopeToday for the expert
+      db.exec(`CREATE TABLE IF NOT EXISTS consultation_forms(id INTEGER PRIMARY KEY,customer_id INTEGER,requested_amount TEXT,requested_amount_toman INTEGER,job_type TEXT,author_user_id INTEGER,created_at TEXT,updated_at TEXT);
+        CREATE TABLE IF NOT EXISTS public_leads(id INTEGER PRIMARY KEY,customer_id INTEGER,amount_band TEXT,phone TEXT);
+        CREATE TABLE IF NOT EXISTS site_lead_requests(id INTEGER PRIMARY KEY,customer_id INTEGER,source TEXT,source_id INTEGER,requested_at TEXT,contact_time TEXT,answered_at TEXT);
+        CREATE TABLE IF NOT EXISTS customer_priority_history(id INTEGER PRIMARY KEY,customer_id INTEGER,old_priority INTEGER,new_priority INTEGER,old_salesperson_id INTEGER,new_salesperson_id INTEGER,actor_user_id INTEGER,source TEXT,reason TEXT,created_at TEXT);
+        INSERT INTO consultation_forms VALUES(1,120,'150 تا 200 میلیون',NULL,'karmand',8,'2026-10-20','2026-10-20');
+        INSERT INTO public_leads VALUES(71,120,'100-200','09129999999');
+        INSERT INTO site_lead_requests VALUES(81,120,'lead',71,'2026-10-25T10:00:00Z','any',NULL),(82,160,'lead',71,'2026-10-25T10:00:00Z','any','2026-10-26T06:17:56.736Z');
+        INSERT INTO customers(id,name,phone,description,created_at,salesperson_id,priority,status) VALUES(160,'زهرا رضایی','09125550160','','2026-10-25',3,1,'in_progress'),
+          (161,'برگشتی کاظمی','09125550161','','2026-10-25',6,1,'in_progress'),(162,'دیروزی','09125550162','','2026-10-24',4,1,'in_progress');
+        INSERT INTO customer_priority_history VALUES(1,160,NULL,1,6,3,8,'qualifier_form','تقسیم عادلانه — فوری + مدارک کامل، مثل «ترنم» (H7)','2026-10-26T06:17:56.714Z'),
+          (2,161,NULL,1,6,4,8,'qualifier_form','x (H7)','2026-10-26T06:20:00.000Z'),(3,161,1,1,4,6,1,'customer_update','','2026-10-26T06:30:00.000Z'),
+          (4,162,NULL,1,6,4,8,'qualifier_form','x (H7)','2026-10-25T19:00:00.000Z'),(5,120,3,3,6,6,8,'qualifier_form','x','2026-10-26T06:00:00.000Z');`);
+      siteLeadHist.set(120, [{ id: 81, source: "lead", requestedAt: "2026-10-25T10:00:00Z", contactTime: "any", contactTimeFa: "هر زمان", isRepeat: false, answeredAt: null }]);
+      const cs = (await R(iss.masoud, "GET", "/customers/120/consultation")).j;
+      assert.equal(cs.consultationForm.requestedAmount, 150_000_000); assert.equal(cs.consultationForm.amountUnit, "toman");
+      assert.equal(cs.consultationForm.requestedAmountSource, "requested_amount_text_parsed"); assert.equal(cs.consultationForm.requestedAmountText, "150 تا 200 میلیون");
+      assert.deepEqual(cs.siteRequests[0].amountRange, { band: "100-200", minAmount: 100_000_000, maxAmount: 200_000_000, amountUnit: "toman", label: "100 تا 200 میلیون تومان" }); // runner text goes through maskText (Latin digits)
+      assert.ok(!JSON.stringify(cs).includes("09129999999"));
+      db.exec("UPDATE consultation_forms SET requested_amount='300000000' WHERE id=1");
+      const cs2 = (await R(iss.masoud, "GET", "/customers/120/consultation")).j.consultationForm;
+      assert.equal(cs2.requestedAmount, 300_000_000); assert.equal(cs2.requestedAmountSource, "requested_amount"); assert.ok(!("requestedAmountText" in cs2));
+      const apps = (await R(iss.masoud, "GET", "/customers/120")).j.applications; assert.ok(apps.length && apps.every(x => x.amountUnit === "toman"));
+      const ctx = (await R(iss.masoud, "GET", "/my-context")).j;
+      assert.equal(ctx.leftScopeToday.length, 1); const l = ctx.leftScopeToday[0];
+      assert.equal(l.customerId, 160); assert.equal(l.maskedName, "زهرا ر…"); assert.ok(l.mobile && !l.mobile.includes("09125550160"));
+      assert.deepEqual(l.toWhom, { salespersonId: 3, name: "حسنی" }); assert.equal(l.reason.source, "qualifier_form"); assert.equal(l.reason.rule, "H7");
+      assert.equal(l.at, "2026-10-26T06:17:56.714Z"); assert.equal(l.atTehran, "2026-10-26 09:47:56"); assert.equal(l.requestAnsweredAtTehran, "2026-10-26 09:47:56");
+      assert.ok(!JSON.stringify(ctx).includes("0912555"));
+      assert.deepEqual((await R(iss.somayeh, "GET", "/my-context")).j.leftScopeToday, []);
+      db.exec(`DELETE FROM customers WHERE id IN (160,161,162); DROP TABLE customer_priority_history; DROP TABLE site_lead_requests; DROP TABLE public_leads; DROP TABLE consultation_forms;`); siteLeadHist.clear();
+      ok("v9: amountUnit toman everywhere (free text + site band normalized) + leftScopeToday (masked, Tehran time, rule, to whom)");
+    }
+    { // v10a: TEST customers left out of the manager report / alerts / my-context (reporting only; admin switch, default ON)
+      for (const [n, d, want] of [["TEST a", "", true], ["  [test] b", "", true], ["[[ Test-ui", "", true], ["تست پنل", "", true], ["عادی", "x [TEST] y", true], ["عادی", "[test]", true],
+        ["حسنی تست", "", false], ["Atest", "", false], ["مشتری", "test", false], ["", null, false]]) {
+        assert.equal(isTestCustomerName(n, d), want, `js ${n}`);
+        assert.equal(db.prepare(`SELECT ${testCustomerSql("c")} t FROM (SELECT NULL id, ? name, ? description, NULL first_name, NULL last_name) c`).get(n, d).t, want ? 1 : 0, `sql ${n}`);
+      }
+      const snapT = snap();
+      const okT = (await S(1, "GET", "/admin/assistants/reporting-settings")).j; assert.equal(okT.excludeTestCustomers, true); assert.equal(okT.pageUsageEnabled, true);
+      for (const u of [2, 4, 8, 29]) { assert.equal((await S(u, "GET", "/admin/assistants/reporting-settings")).s, 403); assert.equal((await S(u, "PUT", "/admin/assistants/reporting-settings", { excludeTestCustomers: false })).s, 403); }
+      assert.equal((await S(1, "PUT", "/admin/assistants/reporting-settings", { excludeTestCustomers: "no" })).s, 422);
+      assert.equal((await S(1, "PUT", "/admin/assistants/reporting-settings", {})).s, 422);
+      const ctx0 = (await R(iss.somayeh, "GET", "/my-context")).j; const rep0 = (await R(tk, "GET", "/manager/report")).j.experts.find(e => e.salespersonId === 3);
+      db.exec(`INSERT INTO customers(id,name,phone,description,created_at,salesperson_id,priority,status) VALUES(170,'TEST a','09125550170','','2026-10-01',3,1,'in_progress'),
+        (171,'[test] b','09125550171','','2026-10-01',3,1,'in_progress'),(172,'تست ج','09125550172','','2026-10-01',3,1,'in_progress'),(173,'عادی د','09125550173','ورود [TEST]','2026-10-01',3,1,'in_progress');
+        INSERT INTO call_logs VALUES(970,170,3,'تماس','x','y','2026-10-26T06:00:00Z'),(971,173,3,'تماس','x','y','2026-10-26T06:10:00Z');
+        INSERT INTO reminders(id,user_id,salesperson_id,message,remind_at,created_at,subject,customer_id) VALUES(970,2,3,'پیگیری','2026-10-20','2026-10-02','پیگیری',171);
+        INSERT INTO customers(id,name,phone,description,created_at,salesperson_id,priority,status) VALUES(174,'عادی ه','09125550174','','2026-10-01',3,1,'in_progress'),
+        (175,'عادی و','09125550175','','2026-10-01',3,1,'in_progress'),(176,'عادی ز','09125550176','','2026-10-01',3,1,'cancelled');
+        CREATE TABLE public_leads(id INTEGER PRIMARY KEY,customer_id INTEGER,utm_source TEXT); CREATE TABLE callback_requests(id INTEGER PRIMARY KEY,customer_id INTEGER,utm_source TEXT);
+        INSERT INTO public_leads VALUES(1,174,' GrokBot-Test '),(2,176,'deploy-test'); INSERT INTO callback_requests VALUES(1,175,'grokbot-test'),(2,176,'ig');`);
+      { const ids = testCustomerIds(db); assert.ok([170, 171, 172, 173, 174, 175].every(i => ids.has(i)) && !ids.has(176), "utm_source=grokbot-test (lead or callback) matches; deploy-test does not " + [...ids].join(",")); }
+      const ctx1 = (await R(iss.somayeh, "GET", "/my-context")).j; const rep1 = (await R(tk, "GET", "/manager/report")).j;
+      assert.equal(ctx1.testCustomersExcluded, true); assert.equal(rep1.testCustomersExcluded, true);
+      assert.equal(ctx1.customersInScope, ctx0.customersInScope); assert.equal(ctx1.today.calls, ctx0.today.calls);
+      const e1 = rep1.experts.find(e => e.salespersonId === 3);
+      assert.equal(e1.calls.count, rep0.calls.count); assert.equal(e1.overdueReminders.count, rep0.overdueReminders.count); assert.equal(e1.p1NoCall.count, rep0.p1NoCall.count);
+      assert.ok(![170, 171, 172, 173, 174, 175].some(id => JSON.stringify(rep1).includes(`"customerId":${id}`)));
+      assert.ok(!JSON.stringify((await R(tk, "GET", "/manager/alerts")).j).match(/"customerId":17[0-3]\b/));
+      assert.equal((await S(1, "PUT", "/admin/assistants/reporting-settings", { excludeTestCustomers: false })).j.excludeTestCustomers, false);
+      const ctx2 = (await R(iss.somayeh, "GET", "/my-context")).j; const e2 = (await R(tk, "GET", "/manager/report")).j.experts.find(e => e.salespersonId === 3);
+      assert.equal(ctx2.testCustomersExcluded, false); assert.equal(ctx2.customersInScope, ctx0.customersInScope + 6, "scope"); assert.equal(ctx2.today.calls, ctx0.today.calls + 2, "ctx calls");
+      assert.equal(e2.calls.count, rep0.calls.count + 2, "rep calls"); assert.equal(e2.overdueReminders.count, rep0.overdueReminders.count + 1); assert.equal(e2.p1NoCall.count, rep0.p1NoCall.count + 4, "p1 (170/173 were called today; +174/175)");
+      assert.equal((await S(1, "PUT", "/admin/assistants/reporting-settings", { excludeTestCustomers: true })).s, 200);
+      db.exec("DELETE FROM customers WHERE id IN (170,171,172,173,174,175,176); DROP TABLE public_leads; DROP TABLE callback_requests; DELETE FROM call_logs WHERE id IN (970,971); DELETE FROM reminders WHERE id=970;");
+      assert.equal(snap(), snapT);
+      ok("v10a: TEST customers (name TEST… / [TEST… / «تست…», [TEST] in description, or lead/callback utm_source=grokbot-test) left out of report, alerts, my-context; admin switch (29 → 403)");
+    }
+    { // v10b: page-usage tracker — patterns only, user 29 never, switch off = nothing stored, harmless on bad input, 90-day prune of its own table only
+      const snapP = snap(); const cnt = () => db.prepare("SELECT COUNT(*) n FROM page_usage_events").get().n;
+      assert.equal(normRoute("/customers/1825?phone=09121234567#x"), "/customers/:id"); assert.equal(normRoute("/customers/"), "/customers"); assert.equal(normRoute("/"), "/");
+      assert.equal(normRoute("/loan-applications/12/edit"), "/loan-applications/:id/edit"); assert.equal(normRoute("/x/09121234567"), "/x/:id"); assert.equal(normRoute("/مشتری"), "/:id"); assert.equal(normRoute("http://a/b"), null);
+      const at = clock.toISOString();
+      const ev = [{ kind: "visit", route: "/customers/1825?phone=09121234567", source: "notification", enteredAt: at }, { kind: "dwell", route: "/customers/1825", dwellMs: 42000, enteredAt: at },
+        { kind: "menu_click", route: "/customers", enteredAt: at }, { kind: "menu_click", route: "/customers/99", enteredAt: at }, { kind: "visit", route: "/customers", source: "menu", enteredAt: at },
+        { kind: "dwell", route: "/customers", dwellMs: 1e12, enteredAt: at }, { kind: "evil", route: "/" }, { kind: "visit", route: "javascript:x" }, { kind: "visit", route: "/calls", source: "hack", customer: "09121234567", enteredAt: at }];
+      const p2 = await S(2, "POST", "/page-usage", { events: ev }); assert.equal(p2.s, 200); assert.equal(p2.j.enabled, true); assert.equal(p2.j.stored, 6);
+      const rows2 = db.prepare("SELECT * FROM page_usage_events").all();
+      assert.ok(rows2.every(r => !/\d/.test(r.route) && !r.route.includes("?") && r.user_id === 2 && r.role === "salesperson"));
+      assert.ok(!JSON.stringify(rows2).includes("0912") && !JSON.stringify(rows2).includes("1825"));
+      assert.equal(rows2.find(r => r.kind === "dwell" && r.route === "/customers").dwell_ms, 4 * 3600_000);
+      assert.equal(rows2.find(r => r.route === "/calls").source, null);
+      assert.deepEqual(db.prepare("SELECT name FROM pragma_table_info('page_usage_events') ORDER BY cid").all().map(r => r.name),
+        ["id", "user_id", "role", "salesperson_id", "kind", "route", "source", "entered_at", "dwell_ms", "created_at"]);
+      // user 29: never stored, told disabled
+      assert.equal((await S(29, "GET", "/page-usage/config")).j.enabled, false);
+      const p29 = await S(29, "POST", "/page-usage", { events: ev }); assert.equal(p29.s, 200); assert.equal(p29.j.stored, 0); assert.equal(cnt(), 6);
+      assert.ok(!db.prepare("SELECT 1 FROM page_usage_events WHERE user_id=29").get());
+      // harmless on junk (beacon failures / bad bodies never 5xx, never store)
+      for (const b of [null, [], { events: "x" }, { events: [null, 1, "a"] }, { events: Array(500).fill({ kind: "visit", route: "/" }) }]) { const r = await S(4, "POST", "/page-usage", b); assert.ok(r.s < 500); }
+      assert.equal(cnt(), 6 + 50); db.exec("DELETE FROM page_usage_events WHERE user_id=4");
+      assert.equal((await S(0, "POST", "/page-usage", { events: ev })).j.stored, 0); // no session actor
+      // switch off → nothing stored
+      assert.equal((await S(2, "PUT", "/admin/assistants/reporting-settings", { pageUsageEnabled: false })).s, 403);
+      assert.equal((await S(1, "PUT", "/admin/assistants/reporting-settings", { pageUsageEnabled: false })).j.pageUsageEnabled, false);
+      assert.equal((await S(3, "GET", "/page-usage/config")).j.enabled, false);
+      const off = await S(3, "POST", "/page-usage", { events: ev }); assert.equal(off.j.enabled, false); assert.equal(off.j.stored, 0); assert.equal(cnt(), 6);
+      assert.equal((await S(1, "PUT", "/admin/assistants/reporting-settings", { pageUsageEnabled: true })).j.pageUsageEnabled, true);
+      await S(3, "POST", "/page-usage", { events: [{ kind: "visit", route: "/reminders", source: "assistant", enteredAt: at }, { kind: "dwell", route: "/reminders", dwellMs: 5000, enteredAt: at }, { kind: "menu_click", route: "/reminders", enteredAt: at }] });
+      // report: manager runner + admin; 29 → 403; other assistants → manager_only
+      const pu = await R(tk, "GET", "/manager/page-usage?range=day"); assert.equal(pu.s, 200);
+      const P = pu.j; assert.equal(P.totals.visits, 4); assert.equal(P.totals.menuClicks, 2); assert.equal(P.totals.users, 2);
+      assert.deepEqual(P.pages.find(x => x.route === "/customers/:id"), { route: "/customers/:id", visits: 1, dwellMs: 42000, avgDwellMs: 42000, users: 1 });
+      assert.deepEqual(P.menu.map(m => m.href).sort(), ["/customers", "/reminders"]);
+      assert.ok(P.neverClickedMenu.some(m => m.href === "/settings/assistants") && !P.neverClickedMenu.some(m => m.href === "/customers"));
+      assert.deepEqual(P.byExpert.map(x => x.userId).sort(), [2, 3]); assert.equal(P.byRole.length, 1); assert.equal(P.byRole[0].role, "salesperson"); assert.equal(P.byRole[0].users, 2);
+      assert.deepEqual(P.entrySources, { notification: 1, menu: 1, assistant: 1 });
+      for (const r of ["week", "month"]) assert.equal((await R(tk, "GET", `/manager/page-usage?range=${r}`)).j.totals.visits, 4);
+      assert.equal((await R(tk, "GET", "/manager/page-usage?range=year")).s, 422);
+      assert.equal((await R(iss.somayeh, "GET", "/manager/page-usage")).j.error, "manager_only");
+      for (const u of [2, 4, 29]) assert.equal((await S(u, "GET", "/admin/assistants/page-usage?range=day")).s, 403);
+      assert.equal((await S(1, "GET", "/admin/assistants/page-usage?range=week")).j.totals.visits, 4);
+      clock = new Date(clock.getTime() + 2 * 86_400_000); assert.equal((await R(tk, "GET", "/manager/page-usage?range=day")).j.totals.visits, 0); clock = new Date(clock.getTime() - 2 * 86_400_000);
+      // 90-day prune touches only page_usage_events
+      db.exec("INSERT INTO page_usage_events(user_id,role,kind,route,entered_at,dwell_ms,created_at) VALUES(2,'salesperson','visit','/','2026-07-01T00:00:00Z',0,'2026-07-01T00:00:00Z')");
+      const n0 = cnt(); assert.equal(prunePageUsage(db, clock), 1); assert.equal(cnt(), n0 - 1);
+      db.exec("DELETE FROM page_usage_events"); assert.equal(snap(), snapP);
+      ok("v10b: page usage — route patterns only (no ids / query), user 29 never, switch off = nothing, junk harmless, report day/week/month + never-clicked menu, 29 → 403, 90-day prune");
+    }
+    { // v11: open «فاکتور» work (goods_purchases) + registration cases (loan_applications) — read only, manager only, TEST excluded
+      db.exec(`CREATE TABLE goods_purchases(id INTEGER PRIMARY KEY,customer_id INTEGER,salesperson_id INTEGER,stage TEXT,credit_amount_toman TEXT,commission_toman TEXT,created_by INTEGER,created_at TEXT);
+        CREATE TABLE goods_purchase_events(id INTEGER PRIMARY KEY AUTOINCREMENT,purchase_id INTEGER,action TEXT,actor_user_id INTEGER,detail TEXT,created_at TEXT);
+        CREATE TABLE loan_application_stage_history(id INTEGER PRIMARY KEY AUTOINCREMENT,application_id INTEGER,from_stage TEXT,to_stage TEXT,action TEXT,reason TEXT,actor_id INTEGER,created_at TEXT);
+        INSERT INTO customers(id,name,phone,description,created_at,salesperson_id,priority,status) VALUES(180,'مشتری ثبت','09125550180','','2026-10-01',4,1,'in_progress'),(181,'TEST ثبت','09125550181','','2026-10-01',3,1,'in_progress');
+        INSERT INTO goods_purchases VALUES(1,100,3,'acknowledgement_signature','180000000','999777',4,'2026-10-20T06:00:00Z'),(2,110,4,'invoice_signature','283256000',NULL,4,'2026-10-25T07:00:00Z'),
+          (3,120,6,'completed','5',NULL,4,'2026-10-20T06:00:00Z'),(4,140,NULL,'invoice_draft','5',NULL,4,'2026-10-20T06:00:00Z'),(5,181,3,'invoice_draft','5',NULL,4,'2026-10-20T06:00:00Z'),
+          (6,121,6,'invoice_draft','5',NULL,4,'2026-10-20T06:00:00Z'),(7,130,5,'invoice_draft','266000000',NULL,1,'2026-10-24T07:00:00Z');
+        INSERT INTO goods_purchase_events(purchase_id,action,actor_user_id,created_at) VALUES(1,'created',4,'2026-10-20T06:00:00Z'),(1,'external_discharge_confirmed',4,'2026-10-20T07:00:00Z'),
+          (1,'invoice_saved',4,'2026-10-21T06:00:00Z'),(1,'invoice_generated',4,'2026-10-21T06:01:00Z'),(1,'invoice_pending',NULL,'2026-10-21T07:00:00Z'),(1,'invoice_pending',NULL,'2026-10-22T07:00:00Z'),
+          (1,'invoice_signed',NULL,'2026-10-22T10:00:00Z'),(1,'settled',1,'2026-10-23T10:00:00Z'),(1,'acknowledgement_generated',4,'2026-10-23T10:05:00Z'),(1,'acknowledgement_pending',NULL,'2026-10-24T07:00:00Z'),(1,'acknowledgement_pending',NULL,'2026-10-25T07:00:00Z'),
+          (2,'created',1,'2026-10-25T07:00:00Z'),(2,'external_discharge_confirmed',1,'2026-10-25T08:00:00Z'),(2,'invoice_saved',4,'2026-10-25T09:00:00Z'),(2,'invoice_pending',NULL,'2026-10-26T01:00:00Z'),(2,'invoice_pending',29,'2026-10-26T05:00:00Z');
+        INSERT INTO loan_applications(id,customer_id,plan_id,status,stage,created_at) VALUES(600,180,7,'reviewing','customer_documents_review','2026-10-20T06:00:00Z'),(601,110,7,'approved','completed','2026-10-10T06:00:00Z'),
+          (602,100,7,'rejected','funder_initial_approval','2026-10-10T06:00:00Z'),(603,181,7,'reviewing','collateral_upload','2026-10-26T05:00:00Z'),(604,180,7,'requested','draft','2026-10-26T06:00:00Z');
+        INSERT INTO loan_application_stage_history(application_id,from_stage,to_stage,action,actor_id,created_at) VALUES(600,NULL,'draft','created',2,'2026-10-20T06:00:00Z'),
+          (600,'draft','primary_contract_pending_signature','submit',2,'2026-10-21T06:00:00Z'),(600,'primary_contract_pending_signature','customer_documents_upload','primary_signature_verified',NULL,'2026-10-25T10:00:00Z'),
+          (600,'customer_documents_upload','customer_documents_review','submit-customer-documents',4,'2026-10-26T03:00:00Z'),(600,'customer_documents_review','customer_documents_review','case-note-added',1,'2026-10-26T06:30:00Z'),
+          (601,'admin_approval','completed','approve-wallet-charge',4,'2026-10-26T02:00:00Z'),(602,'funder_initial_approval','funder_initial_approval','cancel-case',1,'2026-10-26T04:00:00Z'),
+          (603,NULL,'collateral_upload','created',4,'2026-10-26T05:00:00Z'),(604,NULL,'draft','created',4,'2026-10-26T06:00:00Z');`);
+      const s11 = JSON.stringify(db.prepare("SELECT * FROM goods_purchases").all()) + snap() + JSON.stringify(db.prepare("SELECT * FROM loan_application_stage_history").all());
+      const inv = await R(tk, "GET", "/manager/invoices/open"); assert.equal(inv.s, 200); const I = inv.j;
+      assert.equal(I.table, "goods_purchases"); assert.equal(I.concept, "goods_purchase_invoice"); assert.equal(I.amountUnit, "toman"); assert.equal(I.testCustomersExcluded, true);
+      assert.deepEqual(I.items.map(x => x.purchaseId), [1, 7, 2]); // longest stuck first; completed, unassigned, merged and TEST left out
+      assert.deepEqual(I.items.map(x => x.hoursInStage), [69, 48, 6]); // settled 10-23 10:00Z (repeat «pending» sends don't reset); no events → created_at
+      const i1 = I.items[0]; assert.equal(i1.stageLabel, "رسید و اقرارنامه"); assert.equal(i1.waitingOn, "customer"); assert.equal(i1.amount, 180000000); assert.equal(i1.amountUnit, "toman");
+      assert.deepEqual(i1.responsible, { userId: 4, name: "ثبت", role: "registrar", basis: "last_staff_action" }); assert.deepEqual(i1.salesperson, { salespersonId: 3, name: "حسنی" });
+      assert.equal(I.items[2].responsible.userId, 4); // user 29's action never names 29
+      assert.equal(I.items[1].responsible.basis, "created_by"); assert.equal(I.items[1].salesperson.name, "کارآموز۵");
+      assert.equal(I.count, 3); assert.equal(I.totalAmount, 180000000 + 266000000 + 283256000);
+      assert.deepEqual(I.byStage.map(b => `${b.stage}:${b.count}`), ["invoice_draft:1", "invoice_signature:1", "acknowledgement_signature:1"]);
+      const ij = JSON.stringify(I); assert.ok(!/09\d{9}/.test(ij) && i1.phoneMasked && !ij.includes("999777") && !ij.includes("commission"));
+      assert.equal((await R(iss.masoud, "GET", "/manager/invoices/open")).j.error, "manager_only");
+      for (const u of [2, 4, 29]) assert.equal((await S(u, "GET", "/admin/assistants/manager-invoices")).s, 403);
+      assert.equal((await S(1, "GET", "/admin/assistants/manager-invoices")).j.count, 3);
+      assert.equal((await S(1, "PUT", "/admin/assistants/reporting-settings", { excludeTestCustomers: false })).s, 200);
+      assert.deepEqual((await R(tk, "GET", "/manager/invoices/open")).j.items.map(x => x.purchaseId).sort(), [1, 2, 5, 7]);
+      const regOff = (await R(tk, "GET", "/manager/registration?range=day")).j; assert.equal(regOff.flow.newCases, 2); assert.equal(regOff.openCount, 6);
+      assert.equal((await S(1, "PUT", "/admin/assistants/reporting-settings", { excludeTestCustomers: true })).s, 200);
+      ok("v11a: /manager/invoices/open — goods_purchases «فاکتور», longest stuck first, time in stage from events, amounts in toman, phones masked, no commission, TEST/merged/unassigned out, manager only, 29 → 403");
+      const rg = await R(tk, "GET", "/manager/registration?range=day"); assert.equal(rg.s, 200); const G = rg.j;
+      assert.equal(G.table, "loan_applications"); assert.equal(G.historyTable, "loan_application_stage_history"); assert.equal(G.weekStarts, "saturday");
+      assert.equal(G.from, "2026-10-25T20:30:00.000Z"); assert.equal(G.stuckHours, 24); assert.equal(G.stuckHoursSource, "setting");
+      assert.equal(G.openCount, 5); // 500 501 502 (fixture) + 600 + 604; completed / rejected / TEST left out
+      assert.deepEqual(G.flow, { newCases: 1, completed: 1, closed: 1, inflow: 3, outflow: 3 });
+      const st = Object.fromEntries(G.byStage.map(b => [b.stage, b]));
+      assert.deepEqual([st.customer_documents_review.open, st.customer_documents_review.inflow, st.customer_documents_upload.outflow, st.completed.inflow, st.funder_initial_approval.closed, st.draft.inflow, st.draft.open], [1, 1, 1, 1, 1, 1, 1]);
+      assert.deepEqual(G.stuck.items.map(x => x.applicationId), [500, 501, 502]);
+      const c600 = (await R(tk, "GET", "/manager/registration?range=day&stuckHours=3")).j; assert.equal(c600.stuckHoursSource, "query");
+      assert.deepEqual(c600.stuck.items.map(x => x.applicationId), [500, 501, 502, 600]);
+      const x600 = c600.stuck.items[3]; assert.equal(x600.hoursInStage, 4); assert.equal(x600.stageEnteredAt, "2026-10-26T03:00:00Z"); assert.deepEqual(x600.registrar, { userId: 4, name: "ثبت", basis: "last_registrar_action" });
+      assert.equal(x600.stageLabel, "بررسی مدارک مشتری"); assert.ok(x600.phoneMasked && !/09\d{9}/.test(JSON.stringify(c600)));
+      assert.deepEqual(G.registrars.map(r => `${r.userId}:${r.open}:${r.stuck}`), ["null:3:3", "4:2:0"]);
+      const wk = (await R(tk, "GET", "/manager/registration?range=week")).j; assert.equal(wk.from, "2026-10-23T20:30:00.000Z");
+      assert.deepEqual(wk.flow, { newCases: 1, completed: 1, closed: 1, inflow: 4, outflow: 4 });
+      for (const q of ["range=month", "range=day&stuckHours=0", "range=day&stuckHours=abc", "stuckHours=721"]) assert.equal((await R(tk, "GET", `/manager/registration?${q}`)).s, 422, q);
+      assert.equal((await S(1, "PUT", "/admin/assistants/manager-settings", { registrationStuckHours: 0 })).s, 422);
+      assert.equal((await S(1, "PUT", "/admin/assistants/manager-settings", { registrationStuckHours: 3 })).j.thresholds.registrationStuckHours, 3);
+      assert.equal((await R(tk, "GET", "/manager/registration")).j.stuck.count, 4);
+      await S(1, "PUT", "/admin/assistants/manager-settings", { registrationStuckHours: 24 });
+      assert.equal((await R(iss.masoud, "GET", "/manager/registration")).j.error, "manager_only");
+      for (const u of [2, 4, 29]) assert.equal((await S(u, "GET", "/admin/assistants/manager-registration?range=day")).s, 403);
+      assert.equal((await S(1, "GET", "/admin/assistants/manager-registration?range=week")).j.openCount, 5);
+      assert.equal(JSON.stringify(db.prepare("SELECT * FROM goods_purchases").all()) + snap() + JSON.stringify(db.prepare("SELECT * FROM loan_application_stage_history").all()), s11, "v11 reads changed nothing");
+      db.exec("DROP TABLE goods_purchases; DROP TABLE goods_purchase_events; DROP TABLE loan_application_stage_history; DELETE FROM loan_applications WHERE id>=600; DELETE FROM customers WHERE id IN (180,181);");
+      ok("v11b: /manager/registration — loan_applications per stage, inflow/outflow (moves + closures) per Tehran day / Saturday week, stuck over 24h setting or ?stuckHours=, registrar expert, 422s, manager only, 29 → 403, no writes");
+    }
+    // thresholds (assistant_settings manager_* only)
+    assert.equal((await S(2, "PUT", "/admin/assistants/manager-settings", { overdueRemindersMax: 10 })).s, 403);
+    assert.equal((await S(1, "PUT", "/admin/assistants/manager-settings", { overdueRemindersMax: -1 })).s, 422);
+    assert.equal((await S(1, "PUT", "/admin/assistants/manager-settings", { callsRatio: 2 })).s, 422);
+    assert.equal((await S(1, "PUT", "/admin/assistants/manager-settings", { foo: 1 })).s, 422);
+    const put = await S(1, "PUT", "/admin/assistants/manager-settings", { overdueRemindersMax: 10, callsRatio: 0.3 }); assert.equal(put.s, 200); assert.equal(put.j.thresholds.overdueRemindersMax, 10);
+    const al2 = (await R(tk, "GET", "/manager/alerts")).j.items; assert.deepEqual(al2.map(a => `${a.salespersonId}:${a.rule}`), ["4:site_leads_unanswered", "5:site_leads_unanswered"]);
+    assert.equal((await S(1, "PUT", "/admin/assistants/manager-settings", { p1NoCallDays: 30, callsCompare: "full_day" })).s, 200);
+    const r30 = (await R(tk, "GET", "/manager/report")).j; assert.deepEqual(r30.experts.find(e => e.salespersonId === 4).p1NoCall.items, []); assert.equal(r30.thresholds.callsCompare, "full_day");
+    await S(1, "PUT", "/admin/assistants/manager-settings", { overdueRemindersMax: 5, callsRatio: 0.7, p1NoCallDays: 3, callsCompare: "same_time" });
+    assert.equal((await S(1, "GET", "/admin/assistants/manager-report?range=today")).j.experts.length, 5);
+    ok("manager: editable thresholds");
+    for (const slot of ["morning", "evening", "thursday"]) {
+      const sm = (await R(tk, "GET", `/manager/summary?slot=${slot}`)); assert.equal(sm.s, 200);
+      assert.ok(sm.j.text.includes("حسنی") && sm.j.text.includes("قاسمی") && sm.j.text.includes("(کارآموز)") && !sm.j.text.includes("ادمین۲۹") && /[۰-۹]/.test(sm.j.text) && !/09\d{9}/.test(sm.j.text), slot);
+      assert.equal(sm.j.range, slot === "thursday" ? "week" : "today");
+    }
+    assert.equal((await R(tk, "GET", "/manager/summary?slot=x")).s, 422);
+    ok("manager: 09:00 / 18:00 / Thursday summaries");
+    { // PM 22:16: «ثبت‌شده‌ها بر اساس ثبت‌کننده» on the manager endpoint — counts only, user 29 excluded, no ids / names of customers / phones
+      db.exec("ALTER TABLE customers ADD COLUMN registered_by INTEGER; ALTER TABLE customers ADD COLUMN registration_source TEXT; ALTER TABLE customers ADD COLUMN source TEXT");
+      db.exec("UPDATE customers SET registered_by=2, registration_source='staff_form', source='staff' WHERE id IN (100,110); UPDATE customers SET registered_by=29, registration_source='staff_form', source='staff' WHERE id=120");
+      const from = "2026-09-01", to = "2026-10-26";
+      const rb = await R(tk, "GET", `/manager/registered-by?from=${from}&to=${to}`); assert.equal(rb.s, 200, JSON.stringify(rb.j));
+      assert.equal(rb.j.countsOnly, true); assert.ok(rb.j.definitions && rb.j.registrars.length >= 1);
+      assert.ok(!rb.j.registrars.some(x => x.userId === 29)); const r2 = rb.j.registrars.find(x => x.userId === 2); assert.ok(r2 && r2.registered >= 1);
+      for (const x of rb.j.registrars) for (const k of ["registered", "reachedRegistration", "reachedDeposit"]) assert.equal(typeof x[k], "number");
+      const txt = JSON.stringify(rb.j); assert.ok(!/09\d{9}/.test(txt) && !txt.includes("customerId") && !txt.includes("phone"));
+      assert.ok(Array.isArray(rb.j.totals.byChannel));
+      assert.equal((await R(tk, "GET", "/manager/registered-by?from=2026-10-26&to=2026-01-01")).s, 422);
+      assert.equal((await R(tk, "GET", "/manager/registered-by?from=bad")).s, 422);
+      assert.equal((await R(iss.somayeh, "GET", "/manager/registered-by")).j.error, "manager_only");
+      db.exec("ALTER TABLE customers DROP COLUMN registered_by; ALTER TABLE customers DROP COLUMN registration_source; ALTER TABLE customers DROP COLUMN source");
+      ok("manager: /manager/registered-by — per registrar registered / reached registration / reached deposit, counts only, 29 excluded, 422s, manager only");
+    }
+    // rollback safety: an un-normalized row (what an older release sees) has no scope and nobody eligible
+    const raw = db.prepare("SELECT * FROM assistants WHERE slug='ahmad'").get();
+    assert.equal(as._internal.scopeSql(raw).sql, "0"); assert.equal(as._internal.userEligible(raw, { id: 1, role: "admin", salesperson_id: null }), false);
+    // cleanup: fixture rows only; CRM tables identical to before the manager group
+    db.exec("DELETE FROM call_logs WHERE id>=900; DELETE FROM reminders WHERE id>=900; DROP TABLE voip_after_call_events; DROP TABLE team_sales_qualifications;");
+    siteLeadsStub = new Map(); await S(1, "POST", `/admin/assistants/${As.ahmad.id}/disable`);
+    assert.equal(snap(), mgrBefore, "manager traffic changed no CRM table");
+    clock = clockBefore;
+    ok("manager: fail-closed when not normalized + CRM tables unchanged");
+  }
+  { // crm-urgent-history (PM 22:28): narrow assistant urgent write — default OFF (423), admin-only switch, scope, one history row + one bell to Kazemi (8)
+    db.exec("ALTER TABLE customers ADD COLUMN is_urgent INTEGER NOT NULL DEFAULT 0");
+    const urg = (id) => db.prepare("SELECT is_urgent v FROM customers WHERE id=?").get(id).v;
+    const hist = () => db.prepare("SELECT * FROM customer_urgent_history ORDER BY id").all();
+    const ub = () => db.prepare("SELECT * FROM site_notification_events WHERE kind='urgent-change' ORDER BY id").all();
+    const nBells = () => db.prepare("SELECT COUNT(*) n FROM site_notification_events").get().n;
+    assert.equal(db.prepare("SELECT value FROM assistant_settings WHERE key='assistant_urgent_write'").get().value, "0");
+    const b0 = nBells();
+    const off = await R(iss.masoud, "POST", "/customers/120/urgent", { isUrgent: true, reason: "پیگیری فوری" }); assert.equal(off.s, 423); assert.equal(off.j.error, "urgent_write_disabled");
+    assert.equal(urg(120), 0); assert.equal(hist().length, 0); assert.equal(nBells(), b0);
+    for (const u of [2, 8, 29]) assert.equal((await S(u, "PUT", "/admin/assistants/urgent-write", { enabled: true })).s, 403);
+    assert.equal((await S(1, "PUT", "/admin/assistants/urgent-write", { enabled: "yes" })).s, 422);
+    assert.equal((await S(1, "PUT", "/admin/assistants/urgent-write", { enabled: true })).j.enabled, true);
+    assert.equal((await S(1, "GET", "/admin/assistants/urgent-write")).j.enabled, true);
+    assert.equal((await R(iss.masoud, "POST", "/customers/120/urgent", { isUrgent: "1" })).s, 422);
+    assert.equal((await R(iss.masoud, "POST", "/customers/120/urgent", { isUrgent: true })).j.error, "reason_required"); // reason is REQUIRED (PM 22:37)
+    assert.equal(urg(120), 0);
+    const ownerU = db.prepare("SELECT u.id FROM users u JOIN customers c ON c.salesperson_id=u.salesperson_id WHERE c.id=120 AND u.role='salesperson' AND u.active=1 ORDER BY u.id LIMIT 1").get()?.id;
+    const expect = [...new Set([ownerU, 8].filter((x) => x != null && x !== 29))].sort();
+    const per = expect.length;
+    assert.equal((await R(iss.masoud, "POST", "/customers/100/urgent", { isUrgent: true, reason: "پیگیری فوری" })).s, 404); // not in Masoud's scope
+    const on = await R(iss.masoud, "POST", "/customers/120/urgent", { isUrgent: true, reason: "پیگیری فوری" }); assert.equal(on.s, 200); assert.equal(on.j.changed, true); assert.equal(urg(120), 1);
+    let h = hist(); assert.equal(h.length, 1); assert.equal(h[0].actor_kind, "assistant"); assert.equal(h[0].assistant_id, As.masoud.id); assert.equal(h[0].new_value, 1);
+    assert.equal(h[0].reason, "پیگیری فوری");
+    let bl = ub(); assert.deepEqual(bl.map((x) => x.recipient_user_id).sort(), expect); assert.equal(h[0].bell_event_id, bl[0].id); assert.equal(nBells(), b0 + per);
+    assert.deepEqual(JSON.parse(h[0].bell_recipients), bl.map((x) => x.id));
+    assert.equal((await R(iss.masoud, "POST", "/customers/120/urgent", { isUrgent: true, reason: "پیگیری فوری" })).j.changed, false); assert.equal(hist().length, 1); assert.equal(nBells(), b0 + per);
+    assert.equal((await R(iss.masoud, "POST", "/customers/120/urgent", { isUrgent: false, reason: "پیگیری شد" })).j.changed, true); assert.equal(urg(120), 0);
+    h = hist(); bl = ub(); assert.equal(h.length, 2); assert.equal(h[1].old_value, 1); assert.equal(h[1].new_value, 0); assert.equal(bl.length, 2 * per); assert.equal(nBells(), b0 + 2 * per);
+    assert.equal((await S(1, "PUT", "/admin/assistants/urgent-write", { enabled: false })).j.enabled, false);
+    assert.equal((await R(iss.masoud, "POST", "/customers/120/urgent", { isUrgent: true, reason: "پیگیری فوری" })).s, 423);
+    db.exec("DELETE FROM customer_urgent_history; DELETE FROM site_notification_events WHERE kind='urgent-change'; ALTER TABLE customers DROP COLUMN is_urgent");
+    ok("urgent: assistant write OFF by default (423), admin-only switch (2/8/29 → 403), scope 404, reason required, one history (actor assistant) + one bell each to owner and Kazemi per real change");
+  }
+  // revoke mid long-poll → 401; disable → 423
+  const tokRow = db.prepare("SELECT id FROM assistant_tokens WHERE token_hash=?").get(hashAssistantToken(iss.somayeh));
+  const lp = R(iss.somayeh, "GET", "/events?after=999999&wait=6");
+  await new Promise(r => setTimeout(r, 400));
+  await S(1, "POST", `/admin/assistant-tokens/${tokRow.id}/revoke`);
+  const t0 = Date.now(); const lpr = await lp; assert.equal(lpr.s, 401); assert.ok(Date.now() - t0 < 4000);
+  assert.equal((await R(iss.somayeh, "GET", "/me")).s, 401);
+  await S(1, "POST", `/admin/assistants/${As.masoud.id}/disable`);
+  assert.equal((await R(iss.masoud, "GET", "/me")).s, 423);
+  assert.equal((await S(8, "GET", "/assistant/mine")).j.assistants.map(a => a.slug).join(), ""); // v6: no Sarina for sales experts
+  await S(1, "PUT", "/admin/assistants/global", { enabled: false });
+  assert.equal((await R(iss.sarina, "GET", "/me")).s, 423);
+  assert.equal((await S(4, "GET", "/assistant/mine")).j.assistants.length, 0);
+  ok("revoke mid-poll + disable + global off");
+  // per-IP failure limiter
+  for (let i = 0; i < 20; i++) await R("y".repeat(30), "GET", "/me");
+  assert.equal((await R("y".repeat(30), "GET", "/me")).s, 429);
+  ok("429 limiter");
+  // body limit
+  const big = await fetch(`http://127.0.0.1:${port}/api/assistant-runner/messages`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${iss.sarina}` }, body: JSON.stringify({ body: "x".repeat(300_000) }) });
+  assert.ok([413, 429].includes(big.status));
+  // core CRM tables untouched (calls inserted by the fixture itself excepted)
+  db.exec("DELETE FROM call_logs WHERE id IN (2,3)");
+  assert.equal(snap(), before, "no CRM table changed by assistant traffic");
+  const audit = await S(1, "GET", "/admin/assistant-audit?limit=5"); assert.equal(audit.s, 200); assert.equal((await S(8, "GET", "/admin/assistant-audit")).s, 403);
+  ok("CRM tables unchanged + audit view");
+  console.log(`assistant fixture: ${passed} groups passed`);
+} finally { srv.close(); fs.rmSync(tmp, { recursive: true, force: true }); }

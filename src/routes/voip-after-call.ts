@@ -1,0 +1,124 @@
+import { Router, type IRouter } from "express";
+import { assertP1RevertAllowed } from "../lib/history-a";
+import { TeamSalesError } from "../lib/team-sales";
+import { callNoteError } from "../lib/call-note-rule";
+import { CompleteVoipAfterCallBody, CompleteVoipAfterCallParams, ListPendingVoipAfterCallsResponse } from "@workspace/api-zod";
+import { requirePermission } from "../lib/access-control";
+import type { AuthUser } from "../lib/auth";
+import { executeChanges, runTransaction, queryRow } from "../lib/crm-db";
+import { subscribeCallReports, notifyCallReport } from "../lib/voip-call-notifications";
+import { s132bOn } from "../lib/simotel132b";
+import { afterCallState, canSeeAfterCall, canAccessAfterCallCustomer, ensureAfterCallSchema, eventFor, listTodayMissedIncoming, pendingAfterCallPayload } from "../lib/voip-after-call";
+import { perfCacheInvalidate } from "../lib/perf-poll-cache";
+import { storedCallSummary } from "../lib/recording-summary-jobs";
+import { applyNonP1TransferInTx, setNonP1TransferredHeader } from "../lib/nonp1-transfer";
+
+const router: IRouter = Router();
+const reportDay = (value: string) => {
+  const parts = new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Tehran",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date(value));
+  return ["year","month","day"].map(k=>parts.find(p=>p.type===k)!.value).join("-");
+};
+ensureAfterCallSchema();
+router.get("/voip/after-call/stream",requirePermission("calls.view"),(req,res)=>{
+  const actor=res.locals.authUser as AuthUser;
+  res.setHeader("Content-Type","text/event-stream");
+  res.setHeader("Cache-Control","private, no-store");
+  res.setHeader("Connection","keep-alive");
+  res.setHeader("X-Accel-Buffering","no");
+  res.flushHeaders();
+  res.write("data: {\"changed\":true}\n\n");
+  const unsubscribe=subscribeCallReports(expert=>{if(actor.role==="admin" || expert==null || expert===actor.id)res.write("data: {\"changed\":true}\n\n");});
+  const heartbeat=setInterval(()=>res.write(": heartbeat\n\n"),15000);
+  req.on("close",()=>{clearInterval(heartbeat);unsubscribe();});
+});
+router.get("/voip/after-call/missed-today", requirePermission("calls.view"), (_req, res) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  const actor = res.locals.authUser as AuthUser;
+  res.json(listTodayMissedIncoming(actor));
+});
+router.get("/voip/after-call/pending", requirePermission("calls.view"), (_req, res) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  const actor = res.locals.authUser as AuthUser;
+  const payload = pendingAfterCallPayload(actor);
+  const out: any = ListPendingVoipAfterCallsResponse.parse({
+    items: payload.items.map(({ _startedAt, _endedAt, ...rest }) => ({
+      ...rest, recordingFrom: reportDay(_startedAt), recordingTo: reportDay(_endedAt),
+    })),
+    total: payload.total, activatedAt: payload.activatedAt, lastCheckedAt: payload.lastCheckedAt, syncError: payload.syncError,
+    canComplete: actor.role === "admin" || actor.permissions.includes("calls.create"),
+    canEditPriority: actor.role === "admin" || actor.permissions.includes("customers.update"),
+    liveEventSeenAt: payload.liveEventSeenAt,
+  });
+  // SIMOTEL-132 B: the only signal the global layer reads to start its own small poll (flag off → key absent, payload unchanged)
+  if (s132bOn(actor as any)) out.s132b = { on: true };
+  res.json(out);
+});
+router.patch("/voip/after-call/:id", requirePermission("calls.view"), requirePermission("calls.create"), (req, res) => {
+  const params = CompleteVoipAfterCallParams.safeParse(req.params), parsed = CompleteVoipAfterCallBody.safeParse(req.body);
+  if (!params.success || !parsed.success || Object.keys(req.body).some(x => !["expertNotes", "priority", "subject", "customerRequest", "discardHistory"].includes(x))) {
+    res.status(400).json({ error: "اطلاعات نتیجهٔ تماس معتبر نیست." }); return;
+  }
+  const actor = res.locals.authUser as AuthUser, body = parsed.data;
+  if (body.discardHistory && (body.priority !== undefined || body.subject !== undefined || body.customerRequest !== undefined || body.expertNotes !== "")) {
+    res.status(400).json({ error: "عدم ثبت در تاریخچه را نمی‌توان همراه با ویرایش نتیجه یا اولویت فرستاد." }); return;
+  }
+  // crm-call-note-min: completing «نتیجه تماس» needs a note (trimmed, >= 10); «عدم ثبت» stays note-less.
+  const callNoteErr = body.discardHistory ? null : callNoteError(body.expertNotes);
+  if (callNoteErr) { res.status(400).json({ error: callNoteErr }); return; }
+  if (body.priority !== undefined && actor.role !== "admin" && !actor.permissions.includes("customers.update")) {
+    res.status(403).json({ error: "اجازهٔ تغییر اولویت مشتری را ندارید." }); return;
+  }
+  const payload = body.discardHistory ? JSON.stringify({ discardHistory: true }) : JSON.stringify({ expertNotes: body.expertNotes, ...(body.priority !== undefined ? { priority: body.priority } : {}),
+    ...(body.subject !== undefined ? {subject:body.subject} : {}), ...(body.customerRequest !== undefined ? {customerRequest:body.customerRequest} : {}) });
+  let response: { ok: boolean; callLogId: number | null } | null = null;
+  let transferred: number | null = null;
+  runTransaction(() => {
+    const event = eventFor(params.data.id);
+    if (!event || !canSeeAfterCall(event, actor)) { res.status(404).json({ error: "تماس در دسترس شما نیست." }); return; }
+    if (event.completed_at) {
+      if (event.completed_payload !== payload) { res.status(409).json({ error: "نتیجهٔ این تماس قبلاً ثبت شده است." }); return; }
+      response = { ok: true, callLogId: event.call_log_id }; return;
+    }
+    if (body.discardHistory) {
+      // Only a still-pending automatic entry can be removed. Keep the event as
+      // an audited tombstone so polling cannot recreate the customer history.
+      executeChanges("UPDATE voip_after_call_events SET call_log_id=NULL,completed_at=?,completed_by_user_id=?,completed_payload=? WHERE id=?",
+        [new Date().toISOString(), actor.id, payload, event.id]);
+      if (event.call_log_id != null) executeChanges("DELETE FROM call_logs WHERE id=?", [event.call_log_id]);
+      response = { ok: true, callLogId: null }; return;
+    }
+    if (body.priority !== undefined && event.actual_customer_id == null) {
+      res.status(422).json({ error: "برای این شماره مشتری شناسایی نشده است؛ اولویت قابل تغییر نیست." }); return;
+    }
+    if (body.priority !== undefined && !canAccessAfterCallCustomer(event, actor)) {
+      res.status(403).json({ error: "اجازهٔ تغییر اولویت این مشتری را ندارید." }); return;
+    }
+    // HISTORY-A: a P1 the expert set with «ارتقا به اولویت یک» goes back only through an admin.
+    if (body.priority !== undefined && event.actual_customer_id != null) {
+      try { assertP1RevertAllowed(Number(event.actual_customer_id), body.priority, actor); }
+      catch (e) { if (e instanceof TeamSalesError) { res.status(e.status).json({ error: e.message, code: "p1_revert_admin_only" }); return; } throw e; }
+    }
+    if (event.call_log_id != null) executeChanges("UPDATE call_logs SET expert_notes=?,subject=CASE WHEN ? THEN ? ELSE subject END,customer_request=CASE WHEN ? THEN ? ELSE customer_request END WHERE id=?",
+      [body.expertNotes,body.subject!==undefined?1:0,body.subject??null,body.customerRequest!==undefined?1:0,body.customerRequest??null,event.call_log_id]);
+    let before: { priority: number | null; salesperson_id: number | null } | undefined;
+    if (body.priority !== undefined) {
+      before = queryRow<{ priority: number | null; salesperson_id: number | null }>("SELECT priority, salesperson_id FROM customers WHERE id=?", [Number(event.actual_customer_id)]);
+      executeChanges("UPDATE customers SET priority=? WHERE id=?", [body.priority, event.actual_customer_id]);
+    }
+    executeChanges(
+      `UPDATE voip_after_call_events SET expert_notes=?,report_subject=CASE WHEN ? THEN ? ELSE report_subject END,
+       report_saved_at=?,report_edited_by=?,report_revision=report_revision+1,completed_at=?,completed_by_user_id=?,completed_payload=? WHERE id=?`,
+      [body.expertNotes,body.subject!==undefined?1:0,body.subject??null,new Date().toISOString(),actor.id,new Date().toISOString(),actor.id,payload,event.id],
+    );
+    // crm-nonp1-to-kazemi: a non-1 priority from «نتیجه تماس» on a closer's customer moves it to Kazemi (same transaction;
+    // run after the report write so its bell row is marked read for Kazemi instead of reaching him).
+    if (body.priority !== undefined && before) {
+      const customerId = Number(event.actual_customer_id);
+      transferred = applyNonP1TransferInTx({ customerId, oldPriority: before.priority ?? null, oldSalespersonId: before.salesperson_id ?? null,
+        actor: { id: actor.id, role: actor.role, salespersonId: actor.salespersonId ?? null }, via: "نتیجه تماس" }).transferred ? customerId : null;
+    }
+    response = { ok: true, callLogId: event.call_log_id };
+  });
+  if (response) {perfCacheInvalidate("after-call-pending:");notifyCallReport(actor.id);if (transferred != null) setNonP1TransferredHeader(res, transferred);res.json(response);}
+});
+export default router;

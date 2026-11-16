@@ -1,0 +1,198 @@
+// Synthetic smart-filing fixture: in-memory DB, fake customer, temp key file. Run: node scripts/run-bundled-fixture.mjs scripts/smart-filing-fixture.mjs
+import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
+import fs from "node:fs"; import os from "node:os"; import path from "node:path"; import crypto from "node:crypto";
+import express from "express";
+import { createSmartFiling, ensureSmartFilingSchema, hashRunnerToken, maskText } from "../src/lib/smart-filing.ts";
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "sf-fx-"));
+const keyFile = path.join(tmp, "k"); fs.writeFileSync(keyFile, crypto.randomBytes(32).toString("base64"), { mode: 0o600 });
+const env = { SMART_FILING_KEY_FILE: keyFile };
+const db = new DatabaseSync(":memory:");
+db.exec(`CREATE TABLE customers(id INTEGER PRIMARY KEY,name TEXT,phone TEXT,first_name TEXT,last_name TEXT,father_name TEXT,national_code TEXT,birth_date_jalali TEXT,postal_code TEXT,address TEXT,city TEXT,email TEXT,salesperson_id INTEGER);
+CREATE TABLE salespersons(id INTEGER PRIMARY KEY,name TEXT);
+CREATE TABLE loan_plans(id INTEGER PRIMARY KEY,name TEXT);
+CREATE TABLE loan_applications(id INTEGER PRIMARY KEY,customer_id INTEGER,plan_id INTEGER,plan_ids TEXT,requested_amount TEXT,approved_amount TEXT,duration_months INTEGER,requested_duration_months INTEGER,status TEXT,stage TEXT,deleted_at TEXT);
+CREATE TABLE loan_application_documents(id INTEGER PRIMARY KEY,application_id INTEGER,requirement_key TEXT,label TEXT,mime_type TEXT,size_bytes INTEGER,storage_path TEXT,status TEXT);
+CREATE TABLE customer_identity_documents(id INTEGER PRIMARY KEY,customer_id INTEGER,document_type TEXT,mime_type TEXT,size_bytes INTEGER,storage_path TEXT,is_latest INTEGER);
+CREATE TABLE users(id INTEGER PRIMARY KEY,full_name TEXT,username TEXT);
+INSERT INTO users VALUES(2,'کارشناس','u2');
+CREATE TABLE site_notification_events(id INTEGER PRIMARY KEY AUTOINCREMENT,customer_id INTEGER NOT NULL,customer_name TEXT NOT NULL,owner_id INTEGER,resource_type TEXT NOT NULL,resource_id INTEGER NOT NULL,kind TEXT NOT NULL,title TEXT NOT NULL,body TEXT NOT NULL DEFAULT '',permission TEXT NOT NULL,created_at TEXT NOT NULL,actor_key TEXT);
+INSERT INTO salespersons VALUES(7,'کارشناس نمونه');
+INSERT INTO loan_plans VALUES(7,'ترنم'),(8,'ترنم'),(21,'ترنم ( بازنشسته ها )'),(3,'طرح دیگر');
+INSERT INTO customers VALUES(1,'مشتری نمونه','09120000000','مشتری','نمونه','پدر','0010000000','1370/01/01','1111111111','تهران','تهران',NULL,7);
+INSERT INTO customers VALUES(2,'ناقص',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+INSERT INTO loan_applications VALUES(10,1,7,NULL,'300000000',NULL,36,36,'reviewing','x',NULL);
+INSERT INTO loan_applications VALUES(11,1,3,NULL,'1',NULL,12,12,'reviewing','x',NULL);
+INSERT INTO loan_applications VALUES(12,2,NULL,'[8]','1',NULL,12,12,'reviewing','x',NULL);`);
+const docDir = path.join(tmp, "docs"); fs.mkdirSync(docDir); fs.writeFileSync(path.join(docDir, "a.jpg"), "JPEG");
+db.prepare("INSERT INTO customer_identity_documents VALUES(1,1,'national_card_front','image/jpeg',4,?,1)").run(path.join(docDir, "a.jpg"));
+db.prepare("INSERT INTO customer_identity_documents VALUES(2,1,'national_card_back','image/jpeg',4,?,1)").run("/etc/passwd");
+ensureSmartFilingSchema(db); ensureSmartFilingSchema(db);
+assert.deepEqual(db.prepare("SELECT plan_id FROM smart_filing_panel_plans ORDER BY plan_id").all().map(r => r.plan_id), [7, 8, 21]);
+const users = { 1: { id: 1, role: "admin", salespersonId: null, name: "مدیر" }, 2: { id: 2, role: "salesperson", salespersonId: 7, name: "کارشناس" }, 3: { id: 3, role: "salesperson", salespersonId: 9, name: "دیگری" }, 4: { id: 4, role: "registrar", salespersonId: null, name: "ثبت" }, 5: { id: 5, role: "salesperson", salespersonId: 19, name: "کارآموز" }, 6: { id: 6, role: "accountant", salespersonId: null, name: "دیگر نقش" } };
+const sf = createSmartFiling({ db, env: () => env, filesRoot: path.join(tmp, "files"), docRoots: [docDir], actor: res => users[res.locals.uid] ?? null });
+const app = express();
+app.use("/api/smart-filing-runner", sf.runner);
+app.use(express.json({ limit: "100kb" }));
+app.use("/api", (req, res, next) => { res.locals.uid = Number(req.headers["x-user"] || 0); next(); }, sf.admin);
+const srv = app.listen(0); const port = srv.address().port;
+const token = crypto.randomBytes(32).toString("base64url");
+db.prepare("INSERT INTO smart_filing_runner_tokens(name,token_hash,created_at) VALUES('t',?,'now')").run(hashRunnerToken(token));
+const call = async (method, p, body, user, bearer) => {
+  const r = await fetch(`http://127.0.0.1:${port}${p}`, { method, headers: { "content-type": "application/json", ...(user ? { "x-user": String(user) } : {}), ...(bearer ? { authorization: `Bearer ${bearer}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  const t = await r.text(); let j; try { j = JSON.parse(t); } catch { j = t; } return { s: r.status, j };
+};
+const A = (m, p, b) => call(m, `/api/smart-filing${p}`, b, 1);
+const R = (m, p, b, tok = token) => call(m, `/api/smart-filing-runner${p}`, b, null, tok);
+try {
+  assert.equal((await A("PUT", "/panels/1", { baseUrl: "https://panel.example.test", username: "u1", password: "Sup3rSecretPw" })).s, 200);
+  const panels = await A("GET", "/panels"); assert.equal(panels.j.panels[0].hasPassword, true); assert.ok(!JSON.stringify(panels.j).includes("Sup3rSecretPw"));
+  assert.ok(!String(db.prepare("SELECT password_enc FROM smart_filing_panels").get().password_enc).includes("Sup3r"));
+  assert.equal((await A("GET", "/eligibility/11")).j.eligible, false);
+  assert.equal((await A("POST", "/jobs", { applicationId: 11 })).s, 409);
+  assert.equal((await A("POST", "/jobs", { applicationId: 12 })).s, 422); // missing name/nid/mobile blocks real
+  const U = (u, m, p, b) => call(m, `/api/smart-filing${p}`, b, u);
+  assert.equal((await U(3, "POST", "/jobs", { applicationId: 10 })).s, 404); // another expert's case
+  assert.equal((await U(3, "GET", "/eligibility/10")).s, 404);
+  assert.equal((await U(5, "POST", "/jobs", { applicationId: 10 })).s, 403); // trainee
+  assert.equal((await U(5, "GET", "/eligibility/10")).s, 403);
+  assert.equal((await U(6, "POST", "/jobs", { applicationId: 10 })).s, 403); // other role
+  assert.equal((await U(2, "POST", "/jobs", { applicationId: 10, jobType: "training" })).s, 403); // training is admin-only
+  assert.equal((await U(2, "GET", "/eligibility/10")).j.canCreate, true);
+  assert.equal((await U(4, "GET", "/eligibility/10")).j.canCreate, true);
+  // long-poll claim: nothing queued → empty answer after the wait; then a job created mid-wait is handed out at once
+  let t0 = Date.now(); assert.equal((await R("POST", "/claim?wait=1", {})).j.job, null); assert.ok(Date.now() - t0 >= 900, "claim waited");
+  assert.equal((await A("GET", "/jobs")).j.jobs.length, 0);
+  const lpClaim = R("POST", "/claim?wait=8", {}); await new Promise(r => setTimeout(r, 300));
+  const created = await U(2, "POST", "/jobs", { applicationId: 10 }); assert.equal(created.s, 201); const id = created.j.id; // case's sales expert creates
+  assert.equal((await U(4, "POST", "/jobs", { applicationId: 10 })).j.existing, true); // registrar: one active job per case
+  assert.equal((await A("POST", "/jobs", { applicationId: 10 })).j.existing, true);
+  assert.equal((await R("POST", "/claim", {}, "x".repeat(40))).s, 401);
+  assert.equal((await R("GET", "/nope")).s, 404);
+  t0 = Date.now(); const claim = await lpClaim; assert.ok(Date.now() - t0 < 3000, "long-poll claim answered promptly"); assert.equal(claim.j.job.id, id);
+  assert.deepEqual((await R("GET", "/my-jobs")).j.jobs.map(j => j.id), [id]);
+  assert.equal((await A("GET", `/jobs/${id}`)).j.job.runner.online, true); assert.equal(claim.j.case.nationalCode, "0010000000");
+  assert.ok(!JSON.stringify(claim.j).includes("Sup3rSecretPw")); assert.ok(!JSON.stringify(claim.j).includes(docDir));
+  assert.equal((await R("GET", `/jobs/${id}/documents/id-1`)).s, 200);
+  assert.equal((await R("GET", `/jobs/${id}/documents/id-2`)).s, 404); // outside roots
+  const cred = await R("GET", `/jobs/${id}/credentials`); assert.equal(cred.j.password, "Sup3rSecretPw");
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(600_000)]);
+  const m1 = await R("POST", `/jobs/${id}/messages`, { text: "فرم با 09121234567 و 0012345678 و رمز Sup3rSecretPw پر شد", step: "فرم مشخصات", progress: 40, data: { nationalCode: "0012345678", mobile: "09121234567", ok: true }, screenshot: { base64: png.toString("base64") } });
+  assert.equal(m1.s, 201);
+  const big = await R("POST", `/jobs/${id}/messages`, { text: "x", screenshot: { base64: Buffer.alloc(1_600_000).toString("base64") } }); assert.equal(big.s, 413);
+  const stored = db.prepare("SELECT body,data_json FROM smart_filing_messages WHERE id=?").get(m1.j.id);
+  assert.ok(!/09121234567|0012345678|Sup3rSecretPw/.test(stored.body + stored.data_json), stored.body);
+  assert.equal((await R("POST", `/jobs/${id}/messages`, { text: "submit", step: "final_submit" })).j.error, "final_submit_not_approved");
+  assert.equal((await R("POST", `/jobs/${id}/status`, { status: "submitted" })).s, 409);
+  // code flow
+  assert.equal((await A("POST", `/jobs/${id}/code`, { code: "12345" })).s, 409);
+  const cr = await R("POST", `/jobs/${id}/code-requests`, { target: "customer", expiresInSeconds: 120 }); assert.equal(cr.s, 201);
+  const cvP = R("GET", `/jobs/${id}/code-requests/${cr.j.id}?wait=8`); await new Promise(r => setTimeout(r, 300));
+  assert.equal((await call("POST", `/api/smart-filing/jobs/${id}/code`, { code: "12345" }, 3)).s, 404); // other expert
+  assert.equal((await call("POST", `/api/smart-filing/jobs/${id}/code`, { code: "۱۲۳۴۵" }, 2)).s, 200); // case expert, Persian digits
+  const cv = await cvP; assert.equal(cv.j.code, "12345"); // long-poll returned the code once entered
+  const crow = db.prepare("SELECT status,code_enc,code_masked FROM smart_filing_code_requests WHERE id=?").get(cr.j.id);
+  assert.deepEqual([crow.status, crow.code_enc, crow.code_masked], ["consumed", null, "1•••5"]);
+  assert.equal((await R("GET", `/jobs/${id}/code-requests/${cr.j.id}`)).j.status, "consumed");
+  // «اجازه‌ی استعلام» — manager mode (no assistant_settings row → manager)
+  const P = (u, act, b) => call("POST", `/api/smart-filing/jobs/${id}/permission/${act}`, b ?? {}, u);
+  const job = () => db.prepare("SELECT status FROM smart_filing_jobs WHERE id=?").get(id).status;
+  const bell = () => db.prepare("SELECT * FROM site_notification_events WHERE resource_type='smart_filing' ORDER BY id").all();
+  assert.equal((await P(2, "send", { lineConfirmed: true })).j.error, "no_permission_request");
+  const pr = await R("POST", `/jobs/${id}/permission-requests`, { kind: "credit_inquiry", costText: "حدود ۱۵ هزار تومان" });
+  assert.equal(pr.s, 201); assert.equal(pr.j.approver, "manager"); assert.equal(pr.j.status, "needs_request"); assert.equal(job(), "waiting_human");
+  assert.equal((await R("POST", `/jobs/${id}/permission-requests`, { kind: "credit_inquiry" })).j.existing, true);
+  assert.equal((await R("POST", `/jobs/${id}/permission-requests`, { kind: "x" })).s, 422);
+  let pv = (await U(2, "GET", `/jobs/${id}`)).j; assert.equal(pv.permission.status, "needs_request"); assert.equal(pv.permission.canSend, true); assert.equal(pv.permission.canDecide, false);
+  assert.ok(JSON.stringify(pv.job).includes("در انتظار اجازه‌ی مدیر"));
+  assert.equal((await A("GET", `/jobs/${id}`)).j.permission.canDecide, true);
+  assert.equal((await P(3, "send", { lineConfirmed: true })).s, 404); // other expert
+  assert.equal((await P(5, "send", { lineConfirmed: true })).s, 403); // trainee
+  assert.equal((await P(2, "send", {})).s, 422); // line not confirmed
+  assert.equal(bell().length, 0);
+  assert.equal((await P(2, "later")).s, 200); assert.equal(job(), "waiting_human");
+  assert.equal((await P(2, "send", { lineConfirmed: true })).s, 200);
+  let b = bell(); assert.equal(b.length, 1); assert.equal(b[0].permission, "smart_filing.credit_permission"); assert.equal(b[0].kind, "credit-permission"); assert.equal(b[0].resource_id, id);
+  assert.ok(b[0].title.startsWith("اجازه‌ی استعلام اعتباری برای مشتری نمونه")); assert.ok(b[0].body.includes("کارشناس: کارشناس") && b[0].body.includes("ترنم") && /(۱۵|15) هزار/.test(b[0].body), b[0].body);
+  assert.ok(!/0010000000|09120000000/.test(JSON.stringify(b)));
+  const rem = await P(2, "remind"); assert.equal(rem.s, 409); assert.equal(rem.j.error, "remind_too_soon");
+  pv = (await U(2, "GET", `/jobs/${id}`)).j.permission; assert.ok(pv.secondsToRemind > 590 && pv.secondsToRemind <= 600); assert.equal(pv.canRemind, false);
+  db.prepare("UPDATE smart_filing_permission_requests SET sent_at=? WHERE id=?").run(new Date(Date.now() - 11 * 60_000).toISOString(), pr.j.id);
+  assert.equal((await U(2, "GET", `/jobs/${id}`)).j.permission.canRemind, true);
+  assert.equal((await P(2, "remind")).s, 200); b = bell(); assert.equal(b.length, 2); assert.ok(b[1].title.startsWith("یادآوری: "));
+  assert.equal((await P(2, "remind")).j.error, "remind_too_soon"); // 10 min from the last reminder
+  assert.equal((await P(2, "decide", { approve: true, lineConfirmed: true })).s, 403); // expert cannot approve in manager mode
+  assert.equal((await P(4, "decide", { approve: true, lineConfirmed: true })).s, 403); // registrar neither
+  assert.equal((await P(2, "cancel")).s, 200); assert.equal((await U(2, "GET", `/jobs/${id}`)).j.permission.status, "needs_request");
+  assert.equal((await P(2, "send", { lineConfirmed: true })).s, 200); assert.equal(bell().length, 3);
+  const lpPerm = R("GET", `/jobs/${id}/permission-requests/${pr.j.id}?wait=8`); await new Promise(r => setTimeout(r, 300));
+  assert.equal((await P(1, "decide", { approve: true })).s, 200);
+  t0 = Date.now(); const pdone = await lpPerm; assert.ok(Date.now() - t0 < 3000); assert.equal(pdone.j.status, "approved"); assert.equal(pdone.j.decidedRole, "admin");
+  assert.equal(job(), "running"); assert.equal((await P(1, "decide", { approve: false })).j.error, "permission_state");
+  assert.equal((await R("GET", `/jobs/${id}/permission-requests/999`)).s, 404);
+  // reject path: «مدیر اجازه نداد» + «برگرداندن به کارشناس»
+  const pr2 = await R("POST", `/jobs/${id}/permission-requests`, { kind: "credit_inquiry" }); assert.equal(pr2.s, 201); assert.notEqual(pr2.j.id, pr.j.id);
+  assert.equal((await P(2, "send", { lineConfirmed: true })).s, 200);
+  assert.equal((await P(1, "decide", { approve: false })).s, 200); assert.equal(job(), "waiting_human");
+  assert.equal((await R("GET", `/jobs/${id}/permission-requests/${pr2.j.id}`)).j.status, "rejected");
+  pv = (await A("GET", `/jobs/${id}`)).j; assert.equal(pv.permission.status, "rejected"); assert.equal(pv.permission.canReturn, true); assert.ok(pv.messages.some(m => m.body.includes("مدیر اجازه نداد")));
+  assert.equal((await P(2, "return")).s, 403); assert.equal((await P(1, "return", { note: "مدارک را کامل کنید" })).s, 200);
+  assert.equal((await R("POST", `/jobs/${id}/status`, { status: "running" })).s, 200);
+  // expert mode (assistant_settings.credit_inquiry_permission = expert), 33c
+  db.exec("CREATE TABLE IF NOT EXISTS assistant_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT NOT NULL,updated_by_user_id INTEGER); INSERT INTO assistant_settings VALUES('credit_inquiry_permission','expert','now',NULL)");
+  const pr3 = await R("POST", `/jobs/${id}/permission-requests`, { kind: "credit_inquiry" }); assert.equal(pr3.j.approver, "expert"); assert.equal(pr3.j.status, "needs_expert");
+  assert.ok(JSON.stringify((await U(2, "GET", `/jobs/${id}`)).j.job).includes("منتظر اجازه‌ی شما برای استعلام"));
+  assert.equal((await P(2, "send", { lineConfirmed: true })).j.error, "permission_state"); // nothing goes to the manager
+  assert.equal((await P(3, "decide", { approve: true, lineConfirmed: true })).s, 404);
+  assert.equal((await P(2, "decide", { approve: true })).s, 422);
+  assert.equal((await P(2, "later")).s, 200);
+  assert.equal((await P(2, "decide", { approve: true, lineConfirmed: true })).s, 200); assert.equal(job(), "running");
+  assert.equal((await R("GET", `/jobs/${id}/permission-requests/${pr3.j.id}`)).j.status, "approved");
+  assert.equal(bell().length, 4); // only the 3 manager-mode sends + 1 reminder ever reached the bell
+  db.exec("DELETE FROM assistant_settings");
+  // human message + approval gate
+  const cur = (await R("GET", `/jobs/${id}/messages?after=0`)).j.cursor;
+  t0 = Date.now(); const idle = await R("GET", `/jobs/${id}/messages?after=${cur}&wait=1`); assert.equal(idle.j.messages.length, 0); assert.ok(Date.now() - t0 >= 900);
+  const lpMsg = R("GET", `/jobs/${id}/messages?after=${cur}&wait=8`); await new Promise(r => setTimeout(r, 300));
+  assert.equal((await call("POST", `/api/smart-filing/jobs/${id}/messages`, { text: "بانک را اقتصاد نوین بزن" }, 2)).s, 201);
+  t0 = Date.now(); const woke = await lpMsg; assert.ok(Date.now() - t0 < 3000); assert.ok(woke.j.messages.some(m => m.body.includes("اقتصاد نوین")));
+  const hm = await R("GET", `/jobs/${id}/messages?after=0`); assert.ok(hm.j.messages.some(m => m.body.includes("اقتصاد نوین")));
+  assert.equal((await A("POST", `/jobs/${id}/approve-submit`)).s, 409);
+  assert.equal((await R("POST", `/jobs/${id}/status`, { status: "ready_for_approval" })).s, 200);
+  assert.equal((await call("POST", `/api/smart-filing/jobs/${id}/approve-submit`, {}, 2)).s, 403);
+  assert.equal((await U(4, "POST", `/jobs/${id}/approve-submit`)).s, 403); // registrar cannot approve
+  for (const u of [2, 4]) for (const pth of ["outcome", "cancel", "retry"]) assert.equal((await U(u, "POST", `/jobs/${id}/${pth}`, { outcome: "approved" })).s, 403);
+  for (const u of [2, 3, 4, 5, 6]) { assert.equal((await U(u, "GET", "/panels")).s, 403); assert.equal((await U(u, "PUT", "/panels/1", { password: "x" })).s, 403); }
+  assert.equal((await A("POST", `/jobs/${id}/approve-submit`)).s, 200);
+  assert.equal((await R("POST", `/jobs/${id}/messages`, { text: "ok", step: "final_submit" })).s, 201);
+  assert.equal((await R("POST", `/jobs/${id}/finish`, { status: "submitted", panelReference: "REF-1" })).s, 200);
+  assert.equal((await R("GET", `/jobs/${id}/credentials`)).s, 409); // not running
+  assert.equal((await A("POST", `/jobs/${id}/outcome`, { outcome: "approved" })).s, 200);
+  const view = await A("GET", `/jobs/${id}`); assert.equal(view.j.job.status, "approved"); assert.ok(view.j.messages.some(m => m.screenshotUrl));
+  const shot = await fetch(`http://127.0.0.1:${port}${view.j.messages.find(m => m.screenshotUrl).screenshotUrl}`, { headers: { "x-user": "1" } }); assert.equal(shot.status, 200);
+  assert.equal((await call("GET", `/api/smart-filing/jobs/${id}`, null, 3)).s, 404);
+  assert.equal((await call("GET", `/api/smart-filing/jobs`, null, 2)).j.jobs.length, 1);
+  assert.equal((await call("GET", `/api/smart-filing/jobs`, null, 3)).j.jobs.length, 0);
+  // registrar: all jobs on linked plans; chat, codes, screenshots. Trainee/other role: nothing.
+  assert.equal((await U(4, "GET", "/jobs")).j.jobs.length, 1);
+  assert.equal((await U(4, "GET", `/jobs/${id}`)).s, 200);
+  assert.equal((await U(4, "POST", `/jobs/${id}/messages`, { text: "ثبت: ادامه بده" })).s, 201);
+  const shotUrl = view.j.messages.find(m => m.screenshotUrl).screenshotUrl;
+  for (const [u, st] of [[2, 200], [4, 200], [3, 404], [5, 403], [6, 403]]) assert.equal((await fetch(`http://127.0.0.1:${port}${shotUrl}`, { headers: { "x-user": String(u) } })).status, st, `shot u${u}`);
+  for (const u of [5, 6]) { assert.equal((await U(u, "GET", "/jobs")).s, 403); assert.equal((await U(u, "GET", `/jobs/${id}`)).s, 403); assert.equal((await U(u, "POST", `/jobs/${id}/messages`, { text: "x" })).s, 403); assert.equal((await U(u, "POST", `/jobs/${id}/code`, { code: "1234" })).s, 403); }
+  assert.equal((await U(3, "POST", `/jobs/${id}/messages`, { text: "x" })).s, 404);
+  // registrar code entry on a fresh request (job reopened by admin retry → claim → code request)
+  assert.equal((await A("POST", `/jobs/${id}/cancel`)).s, 409); // approved is final
+  db.exec("INSERT INTO loan_applications VALUES(13,1,21,NULL,'90000000',NULL,24,24,'approved','completed',NULL)"); // completed case: still allowed (all stages)
+  const c2 = await U(4, "POST", "/jobs", { applicationId: 13 }); assert.equal(c2.s, 201);
+  assert.equal((await R("POST", "/claim", {})).j.job.id, c2.j.id);
+  assert.equal((await R("POST", `/jobs/${c2.j.id}/code-requests`, { target: "ours", expiresInSeconds: 60 })).s, 201);
+  const v2 = await U(4, "GET", `/jobs/${c2.j.id}`); assert.ok(v2.j.codeRequest.secondsLeft > 50 && v2.j.codeRequest.secondsLeft <= 60);
+  assert.equal((await U(3, "POST", `/jobs/${c2.j.id}/code`, { code: "4321" })).s, 404);
+  assert.equal((await U(4, "POST", `/jobs/${c2.j.id}/code`, { code: "4321" })).s, 200);
+  const audit = JSON.stringify(db.prepare("SELECT * FROM smart_filing_audit").all());
+  assert.ok(!/Sup3rSecretPw|12345"|09121234567/.test(audit));
+  assert.equal(maskText("۰۹۱۲۱۲۳۴۵۶۷"), "0912••••567");
+  console.log("smart-filing fixture OK");
+} finally { srv.close(); fs.rmSync(tmp, { recursive: true, force: true }); }

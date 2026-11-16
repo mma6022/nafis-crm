@@ -1,0 +1,270 @@
+import { Router } from "express";
+import { customerSearchSql } from "../lib/customer-id-search";
+import { execute, queryRow, queryRows, runTransaction, executeChanges } from "../lib/crm-db";
+import { requirePermission } from "../lib/access-control";
+import { wallet, type WalletType } from "../lib/wallets";
+import type { AuthUser } from "../lib/auth";
+
+const router = Router();
+const currentUser = (res: any) => res.locals.authUser as AuthUser;
+const now = () => new Date().toISOString();
+const validId = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+const survivorOwnerId = (customerId: string) => `(WITH RECURSIVE customer_chain(id,merged_into_customer_id) AS (
+  SELECT id,merged_into_customer_id FROM customers WHERE id=${customerId}
+  UNION ALL SELECT target.id,target.merged_into_customer_id
+    FROM customer_chain previous
+    JOIN customer_merge_audit audit ON audit.source_customer_id=previous.id
+      AND audit.survivor_customer_id=previous.merged_into_customer_id
+    JOIN customers target ON target.id=audit.survivor_customer_id
+)
+SELECT survivor.salesperson_id FROM customer_chain
+JOIN customers survivor ON survivor.id=customer_chain.id
+WHERE customer_chain.merged_into_customer_id IS NULL LIMIT 1)`;
+const survivorOwnerName = (customerId: string) => `(WITH RECURSIVE customer_chain(id,merged_into_customer_id) AS (
+  SELECT id,merged_into_customer_id FROM customers WHERE id=${customerId}
+  UNION ALL SELECT target.id,target.merged_into_customer_id
+    FROM customer_chain previous
+    JOIN customer_merge_audit audit ON audit.source_customer_id=previous.id
+      AND audit.survivor_customer_id=previous.merged_into_customer_id
+    JOIN customers target ON target.id=audit.survivor_customer_id
+)
+SELECT salesperson.name FROM customer_chain
+JOIN customers survivor ON survivor.id=customer_chain.id
+LEFT JOIN salespersons salesperson ON salesperson.id=survivor.salesperson_id
+WHERE customer_chain.merged_into_customer_id IS NULL LIMIT 1)`;
+
+const walletsView = requirePermission("wallets.view");
+/** Accounting (may mark payment orders paid) reads customer-wallet transactions ONLY through «وضعیت تراکنش‌ها»:
+ * GET /transactions?view=status. Every other customer-wallet request keeps the e270524 rule (wallets.view), so accounting gets 403. */
+const accountingRead = (req: any, res: any): boolean => {
+  const u = res.locals.authUser as AuthUser | undefined;
+  return Boolean(u && req.method === "GET" && /^\/transactions\/?$/.test(req.path) && req.query?.view === "status" && u.permissions?.includes("payment_orders.pay"));
+};
+/** Customer-wallet day filter = Tehran calendar day (Asia/Tehran, UTC+3:30, no DST since 1401), same as «وضعیت تراکنش‌ها» › پورسانت‌ها.
+ * Stored timestamps are ISO-8601 UTC (…Z), so the bounds are compared as ISO strings. */
+const TEHRAN_OFFSET_MS = 210 * 60_000;
+const tehranDayStartIso = (ymd: string, plusDays = 0) => {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + plusDays) - TEHRAN_OFFSET_MS).toISOString();
+};
+router.use("/wallet-management", (req, res, next) => (accountingRead(req, res) ? next() : walletsView(req, res, next)), (_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
+
+router.get("/wallet-management/accounts", (req, res): void => {
+  const u = currentUser(res);
+  const page = Math.max(1, Math.min(100000, Number(req.query.page) || 1));
+  const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 25));
+  const search = String(req.query.search ?? "").trim().slice(0, 100);
+  const name = String(req.query.name ?? "").trim().slice(0, 100);
+  const phone = String(req.query.phone ?? "").trim().slice(0, 30);
+  const sortBy = String(req.query.sortBy ?? "");
+  const sortDir = String(req.query.sortDir ?? "desc");
+  const rawBounds = ["minCash", "maxCash", "minCredit", "maxCredit"].map((key) => String(req.query[key] ?? ""));
+  if (!["", "customerName", "phone", "cashBalanceToman", "creditBalanceToman"].includes(sortBy)
+    || !["asc", "desc"].includes(sortDir)
+    || rawBounds.some((bound) => bound && !/^\d{1,30}$/.test(bound))) {
+    res.status(400).json({ error: "invalid_filters" }); return;
+  }
+  const [minCash, maxCash, minCredit, maxCredit] = rawBounds.map((bound) => bound.replace(/^0+(?=\d)/, ""));
+  const exceeds = (min: string, max: string) => min && max && (min.length > max.length || (min.length === max.length && min > max));
+  if (exceeds(minCash, maxCash) || exceeds(minCredit, maxCredit)) {
+    res.status(400).json({ error: "invalid_filters" }); return;
+  }
+  const cashBalance = "COALESCE(NULLIF(LTRIM(cash.balance,'0'),''),'0')";
+  const creditBalance = "COALESCE(NULLIF(LTRIM(credit.balance,'0'),''),'0')";
+  const joins = `FROM customers c
+    LEFT JOIN wallet_accounts_v2 cash ON cash.customer_id=c.id AND cash.wallet_type='cash'
+    LEFT JOIN wallet_accounts_v2 credit ON credit.customer_id=c.id AND credit.wallet_type='credit'`;
+  const conditions = ["1=1"];
+  const params: Array<string | number | null> = [];
+  if (u.customerScope === "assigned") { conditions.push(`${survivorOwnerId("c.id")}=?`); params.push(u.salespersonId); }
+  const walletIdSearch = search ? customerSearchSql(search) : null;
+  if (search && walletIdSearch) {
+    const t = walletIdSearch.text;
+    const clause = walletIdSearch.where("(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR c.phone LIKE ? OR CAST(c.id AS TEXT)=?)", [`%${t}%`, `%${t}%`, t], "c.id");
+    conditions.push(clause.sql); params.push(...clause.params);
+  }
+  if (name) { conditions.push("crm_persian_search_key(c.name) LIKE crm_persian_search_key(?)"); params.push(`%${name}%`); }
+  if (phone) { conditions.push("c.phone LIKE ?"); params.push(`%${phone}%`); }
+  const range = (balance: string, min: string, max: string) => {
+    if (min) { conditions.push(`(LENGTH(${balance}) > ? OR (LENGTH(${balance}) = ? AND ${balance} COLLATE BINARY >= ?))`); params.push(min.length, min.length, min); }
+    if (max) { conditions.push(`(LENGTH(${balance}) < ? OR (LENGTH(${balance}) = ? AND ${balance} COLLATE BINARY <= ?))`); params.push(max.length, max.length, max); }
+  };
+  range(cashBalance, minCash, maxCash);
+  range(creditBalance, minCredit, maxCredit);
+  const where = conditions.join(" AND ");
+  const total = queryRow<{ count: number }>(`SELECT COUNT(*) count ${joins} WHERE ${where}`, params)?.count ?? 0;
+  const direction = sortDir === "asc" ? "ASC" : "DESC";
+  const orderBy: Record<string, string> = {
+    customerName: `c.name COLLATE NOCASE ${direction}`,
+    phone: `c.phone COLLATE BINARY ${direction}`,
+    cashBalanceToman: `LENGTH(${cashBalance}) ${direction},${cashBalance} COLLATE BINARY ${direction}`,
+    creditBalanceToman: `LENGTH(${creditBalance}) ${direction},${creditBalance} COLLATE BINARY ${direction}`,
+  };
+  const exactIdFirst = !sortBy && search ? "CASE WHEN CAST(c.id AS TEXT)=? THEN 0 ELSE 1 END," : "";
+  const rows = queryRows<any>(`
+    SELECT c.id customerId,c.name customerName,c.phone,${survivorOwnerName("c.id")} customerSalespersonName,
+      COALESCE(cash.balance,'0') cashBalanceToman,COALESCE(credit.balance,'0') creditBalanceToman
+    ${joins}
+    WHERE ${where} ORDER BY ${exactIdFirst}${orderBy[sortBy] ? `${orderBy[sortBy]},` : ""} c.id DESC LIMIT ? OFFSET ?`,
+    [...params, ...(exactIdFirst ? [walletIdSearch?.text ?? search] : []), limit, (page - 1) * limit]);
+  res.json({ items: rows, total, page, limit });
+});
+
+router.get("/wallet-management/transactions", (req, res): void => {
+  const u = currentUser(res);
+  const page = Math.max(1, Math.min(100000, Number(req.query.page) || 1));
+  const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 25));
+  const customerId = req.query.customerId ? Number(req.query.customerId) : null;
+  const actorId = req.query.actorId ? Number(req.query.actorId) : null;
+  const walletType = String(req.query.walletType ?? "");
+  const kind = String(req.query.kind ?? "");
+  const status = String(req.query.status ?? "");
+  // «وضعیت تراکنش‌ها» (view=status) is for admin and accounting only (PM decision 4). Without it the endpoint behaves exactly as before
+  // (single status, no counts, no phone search), so the customer-wallet access salespersons/registrars already had is unchanged.
+  const statusView = req.query.view === "status";
+  if (statusView) {
+    const viewer = res.locals.authUser as AuthUser | undefined;
+    if (!viewer || (viewer.role !== "admin" && !viewer.permissions?.includes("payment_orders.pay"))) { res.status(403).json({ error: "forbidden" }); return; }
+  }
+  const statuses = status ? (statusView ? status.split(",").filter(Boolean) : [status]) : [];
+  const withCounts = statusView && req.query.withCounts === "1";
+  const from = String(req.query.from ?? "");
+  const to = String(req.query.to ?? "");
+  const search = String(req.query.search ?? "").trim().slice(0, 100);
+  if ((customerId !== null && !validId(customerId)) || (actorId !== null && !validId(actorId))
+    || (walletType && !["cash", "credit"].includes(walletType))
+    || (kind && !["payment", "loan_credit", "transfer", "legacy", "filing_fee", "goods_purchase", "credit_correction"].includes(kind))
+    || (status && (!statuses.length || statuses.some((x) => !["requested", "gateway_ready", "failed", "cancelled", "credited", "verification_pending", "requires_reconciliation", "completed"].includes(x))))
+    || (from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) || (to && !/^\d{4}-\d{2}-\d{2}$/.test(to))
+    || (from && to && from > to)) { res.status(400).json({ error: "invalid_filters" }); return; }
+
+  const scope = u.customerScope === "assigned" ? `AND ${survivorOwnerId("c.id")}=?` : "";
+  const transferScope = u.customerScope === "assigned"
+    ? `AND ${survivorOwnerId("source.id")}=? AND ${survivorOwnerId("target.id")}=?`
+    : "";
+  const scopeParams = u.customerScope === "assigned" ? [u.salespersonId, u.salespersonId, u.salespersonId, u.salespersonId] : [];
+  const base = `
+    WITH entries AS (
+      SELECT 'payment' kind,'cash' walletType,a.id recordId,a.customer_id customerId,c.name customerName,
+        ${survivorOwnerName("c.id")} customerSalespersonName,NULL otherCustomerId,NULL otherCustomerName,NULL otherCustomerSalespersonName,a.amount_toman amountToman,a.status,
+        a.initiated_by_user_id actorId,COALESCE(NULLIF(u.full_name,''),u.username) actorName,
+        a.error_code errorCode,NULL reason,a.created_at createdAt,a.updated_at updatedAt
+      FROM wallet_payment_attempts a JOIN customers c ON c.id=a.customer_id
+      LEFT JOIN users u ON u.id=a.initiated_by_user_id WHERE 1=1 ${scope}
+      UNION ALL
+       SELECT CASE WHEN l.kind LIKE 'legacy_%' THEN 'legacy' WHEN l.kind='filing_fee_out' THEN 'filing_fee'
+         WHEN l.kind='goods_purchase_debit' THEN 'goods_purchase' WHEN l.kind='credit_correction_debit' THEN 'credit_correction' ELSE 'loan_credit' END,
+        w.wallet_type,l.id,c.id,c.name,${survivorOwnerName("c.id")},NULL,NULL,NULL,l.amount,'completed',
+        COALESCE(l.actor_user_id,CASE WHEN l.kind LIKE 'loan_credit:actor:%' THEN CAST(SUBSTR(l.kind,19) AS INTEGER) END),
+        COALESCE(NULLIF(u.full_name,''),u.username),NULL,
+         CASE WHEN l.kind LIKE 'legacy_%' THEN l.kind WHEN l.kind='filing_fee_out' THEN 'هزینه تشکیل پرونده'
+           WHEN l.kind='goods_purchase_debit' THEN 'کسر بابت خرید کالا'
+           WHEN l.kind='credit_correction_debit' THEN 'اصلاح کسر اقساط تسهیلات، پرونده ' || COALESCE(CAST(l.application_id AS TEXT),'') ELSE CAST(l.application_id AS TEXT) END,
+        l.created_at,l.created_at
+      FROM wallet_ledger_v2 l JOIN wallet_accounts_v2 w ON w.id=l.wallet_id
+      JOIN customers c ON c.id=w.customer_id
+      LEFT JOIN users u ON u.id=COALESCE(l.actor_user_id,CASE WHEN l.kind LIKE 'loan_credit:actor:%' THEN CAST(SUBSTR(l.kind,19) AS INTEGER) END)
+      WHERE l.kind<>'cash_payment' AND l.kind NOT IN ('transfer_out','transfer_in') ${scope}
+      UNION ALL
+      SELECT 'transfer',t.wallet_type,t.id,source.id,source.name,${survivorOwnerName("source.id")},target.id,target.name,${survivorOwnerName("target.id")},t.amount_toman,t.status,
+        t.actor_user_id,COALESCE(NULLIF(u.full_name,''),u.username),t.error_code,t.reason,t.created_at,t.created_at
+      FROM wallet_transfers t JOIN customers source ON source.id=t.from_customer_id
+      JOIN customers target ON target.id=t.to_customer_id LEFT JOIN users u ON u.id=t.actor_user_id
+      WHERE 1=1 ${transferScope}
+    )`;
+  const filters: string[] = ["1=1"];
+  const params: Array<string | number | null> = [];
+  if (customerId !== null) { filters.push("(customerId=? OR otherCustomerId=?)"); params.push(customerId, customerId); }
+  if (actorId !== null) { filters.push("actorId=?"); params.push(actorId); }
+  if (walletType) { filters.push("walletType=?"); params.push(walletType); }
+  if (kind) { filters.push("kind=?"); params.push(kind); }
+  if (from) { filters.push("createdAt>=?"); params.push(tehranDayStartIso(from)); }
+  if (to) { filters.push("createdAt<?"); params.push(tehranDayStartIso(to, 1)); }
+  const txIdSearch = search ? customerSearchSql(search) : null;
+  if (search && txIdSearch) {
+    const t = txIdSearch.text;
+    if (txIdSearch.idQuery) {
+      // A number matches the record number (as before) or either customer's id.
+      filters.push("(crm_persian_search_key(customerName) LIKE crm_persian_search_key(?) OR crm_persian_search_key(otherCustomerName) LIKE crm_persian_search_key(?) OR CAST(recordId AS TEXT)=? OR customerId=? OR otherCustomerId=?)");
+      params.push(`%${t}%`, `%${t}%`, t, txIdSearch.idQuery.id, txIdSearch.idQuery.id);
+    } else {
+      filters.push("(crm_persian_search_key(customerName) LIKE crm_persian_search_key(?) OR crm_persian_search_key(otherCustomerName) LIKE crm_persian_search_key(?) OR CAST(recordId AS TEXT)=?)"); params.push(`%${t}%`, `%${t}%`, t);
+    }
+  }
+  // Search by customer mobile too (digits only, at least 4).
+  const phoneDigits = search.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/\D/g, "");
+  if (search && txIdSearch && phoneDigits.length >= 4 && /^[\d\s۰-۹+-]+$/.test(search)) {
+    filters[filters.length - 1] = filters[filters.length - 1].replace(/\)$/, " OR customerId IN (SELECT id FROM customers WHERE phone LIKE ?) OR otherCustomerId IN (SELECT id FROM customers WHERE phone LIKE ?))");
+    params.push(`%${phoneDigits}%`, `%${phoneDigits}%`);
+  }
+  const statusCounts = withCounts
+    ? Object.fromEntries(queryRows<{ status: string; count: number }>(`${base} SELECT status,COUNT(*) count FROM entries WHERE ${filters.join(" AND ")} GROUP BY status`, [...scopeParams, ...params]).map((r) => [r.status, Number(r.count)]))
+    : undefined;
+  if (statuses.length) { filters.push(`status IN (${statuses.map(() => "?").join(",")})`); params.push(...statuses); }
+  const where = filters.join(" AND ");
+  const total = queryRow<{ count: number }>(`${base} SELECT COUNT(*) count FROM entries WHERE ${where}`, [...scopeParams, ...params])?.count ?? 0;
+  // A searched customer id ranks that customer's rows first (record-number hits follow).
+  const txRank = txIdSearch?.idQuery ? { sql: "CASE WHEN customerId=? OR otherCustomerId=? THEN 0 ELSE 1 END,", params: [txIdSearch.idQuery.id, txIdSearch.idQuery.id] } : { sql: "", params: [] as number[] };
+  const items = queryRows<any>(`${base} SELECT * FROM entries WHERE ${where} ORDER BY ${txRank.sql}createdAt DESC,kind,recordId DESC LIMIT ? OFFSET ?`,
+    [...scopeParams, ...params, ...txRank.params, limit, (page - 1) * limit]);
+  // Goods-purchase debits carry their purchase id in the idempotency key (goods:<id>:debit) → link «خرید #».
+  for (const item of items) if (item.kind === "goods_purchase") {
+    const key = queryRow<{ k: string }>("SELECT idempotency_key k FROM wallet_ledger_v2 WHERE id=?", [item.recordId])?.k ?? "";
+    item.purchaseId = /^goods:(\d+):debit$/.test(key) ? Number(key.split(":")[1]) : null;
+  }
+  res.json({ items, total, page, limit, ...(statusCounts ? { statusCounts } : {}) });
+});
+
+router.post("/wallet-management/transfers", requirePermission("wallets.transfer"), (req, res): void => {
+  const actor = currentUser(res);
+  if (actor.role !== "admin") { res.status(403).json({ error: "admin_required" }); return; }
+  const fromId = req.body?.fromCustomerId, toId = req.body?.toCustomerId;
+  const type = req.body?.walletType as WalletType;
+  const amount = String(req.body?.amountToman ?? "");
+  const reason = String(req.body?.reason ?? "").trim();
+  const key = String(req.header("Idempotency-Key") ?? "");
+  if (!validId(fromId) || !validId(toId) || fromId === toId || !["cash", "credit"].includes(type)
+    || !/^[1-9]\d*$/.test(amount) || reason.length < 3 || reason.length > 500
+    || !/^[\x20-\x7e]{8,200}$/.test(key)) { res.status(400).json({ error: "invalid_transfer" }); return; }
+  const existing = queryRow<any>("SELECT * FROM wallet_transfers WHERE idempotency_key=?", [key]);
+  if (existing) {
+    if (existing.from_customer_id !== fromId || existing.to_customer_id !== toId || existing.wallet_type !== type || existing.amount_toman !== amount || existing.reason !== reason) {
+      res.status(409).json({ error: "transfer_idempotency_conflict" }); return;
+    }
+    res.status(existing.status === "completed" ? 200 : 409).json({ id: existing.id, status: existing.status, errorCode: existing.error_code }); return;
+  }
+  const customers = queryRow<{ count: number }>("SELECT COUNT(*) count FROM customers WHERE id IN (?,?) AND merged_into_customer_id IS NULL", [fromId, toId]);
+  if (customers?.count !== 2) { res.status(404).json({ error: "customer_not_found" }); return; }
+  try {
+    const result = runTransaction(() => {
+      const source = wallet(fromId, type), target = wallet(toId, type);
+      if (!/^\d+$/.test(source.balance) || !/^\d+$/.test(target.balance)) throw new Error("invalid_wallet_balance");
+      // Plan-attributed credit may only leave through its own purchase ledger.
+      // Generic transfers remain possible for the preserved unassigned bucket.
+      const assigned = type === "credit" ? queryRows<{ balance_toman: string }>("SELECT balance_toman FROM goods_plan_wallets WHERE customer_id=?", [fromId]).reduce((sum,row)=>sum+BigInt(row.balance_toman),0n) : 0n;
+      const enough = BigInt(source.balance) - assigned >= BigInt(amount);
+      const failure = BigInt(source.balance) < assigned ? "credit_attribution_requires_reconciliation" : "insufficient_balance";
+      const id = execute(
+        "INSERT INTO wallet_transfers(from_customer_id,to_customer_id,wallet_type,amount_toman,status,error_code,reason,actor_user_id,idempotency_key,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        [fromId, toId, type, amount, enough ? "completed" : "failed", enough ? null : failure, reason, actor.id, key, now()]);
+      if (enough) {
+        executeChanges("UPDATE wallet_accounts_v2 SET balance=? WHERE id=?", [(BigInt(source.balance) - BigInt(amount)).toString(), source.id]);
+        executeChanges("UPDATE wallet_accounts_v2 SET balance=? WHERE id=?", [(BigInt(target.balance) + BigInt(amount)).toString(), target.id]);
+        for (const [walletId, kind] of [[source.id, "transfer_out"], [target.id, "transfer_in"]] as const) {
+          execute("INSERT INTO wallet_ledger_v2(wallet_id,amount,kind,idempotency_key,actor_user_id,created_at) VALUES(?,?,?,?,?,?)",
+            [walletId, amount, kind, `wallet-transfer:${id}:${kind}`, actor.id, now()]);
+        }
+      }
+      return { id, status: enough ? "completed" : "failed", errorCode: enough ? null : "insufficient_balance" };
+    });
+    res.status(result.status === "completed" ? 201 : 409).json(result);
+  } catch (e) {
+    req.log.error({ err: e }, "wallet transfer failed");
+    res.status(500).json({ error: "transfer_failed" });
+  }
+});
+
+export default router;

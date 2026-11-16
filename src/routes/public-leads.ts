@@ -1,0 +1,296 @@
+import express, { type Express, type NextFunction, type Request, type Response, Router } from "express";
+import { trustedClientIp } from "../lib/client-ip";
+import { logger } from "../lib/logger";
+import { notifyNewCustomer, type NewCustomerNotificationOptions } from "../lib/customer-notifications";
+import { alertNewCallback } from "../lib/callback-requests";
+import {
+  hashLeadIp, leadCounts, recordPublicLead, validatePublicLead, ensurePublicLeadSchema,
+  publicIntakeType, recordPublicCallback, validatePublicCallback, leadContactTimeFa, leadRequestDetails,
+  type PublicLead,
+} from "../lib/public-leads";
+import { recordSiteApply, siteApplySummary, validateSiteApply } from "../lib/site-apply";
+import { crmDb } from "../lib/crm-db";
+import { claimSiteLeadSms, finishSiteLeadSms } from "../lib/site-lead-sms";
+
+export const PUBLIC_LEADS_PATH = "/api/public/leads";
+/**
+ * The production site plus the local Astro preview origins (product decision). CORS only lets a browser read the
+ * response; validation, honeypot/timing and the per-IP limits apply to every caller.
+ */
+export const PUBLIC_LEAD_ORIGINS = new Set([
+  "https://nafisvam.com",
+  "https://www.nafisvam.com",
+  "http://localhost:4321",
+  "http://127.0.0.1:4321",
+]);
+
+const WINDOW_MS = 10 * 60 * 1000;
+const MAX_ATTEMPTS_PER_WINDOW = 8;
+const MAX_LEADS_PER_IP_DAY = 10;
+const MAX_LEADS_PER_PHONE_DAY = 3;
+const MAX_TRACKED_IPS = 10_000;
+
+/** In-memory attempt limiter (counts every POST, valid or not). Bounded and self-evicting. */
+export class AttemptLimiter {
+  private readonly hits = new Map<string, number[]>();
+  constructor(private readonly windowMs = WINDOW_MS, private readonly max = MAX_ATTEMPTS_PER_WINDOW) {}
+
+  /** Returns seconds to wait, or 0 if the attempt is allowed (and recorded). */
+  take(key: string, now = Date.now()): number {
+    const since = now - this.windowMs;
+    const recent = (this.hits.get(key) ?? []).filter((t) => t > since);
+    if (recent.length >= this.max) {
+      this.hits.set(key, recent);
+      return Math.max(1, Math.ceil((recent[0] + this.windowMs - now) / 1000));
+    }
+    recent.push(now);
+    this.hits.delete(key);
+    this.hits.set(key, recent);
+    if (this.hits.size > MAX_TRACKED_IPS) this.evict(since);
+    return 0;
+  }
+
+  private evict(since: number): void {
+    for (const [key, times] of this.hits) {
+      if (times[times.length - 1] <= since) this.hits.delete(key);
+    }
+    // Still full: drop the least recently used keys (Map keeps insertion order).
+    for (const key of this.hits.keys()) {
+      if (this.hits.size <= MAX_TRACKED_IPS) break;
+      this.hits.delete(key);
+    }
+  }
+
+  get size(): number {
+    return this.hits.size;
+  }
+}
+
+/**
+ * Notification options for a lead created through this endpoint: no customer SMS by default (notifyWebsiteLead turns it
+ * on for a NEW customer when flag.site_lead_customer_sms is ON), Telegram labelled «سایت».
+ * `type`/`preferredTime` are read structurally so a callback variant of the form carries its time automatically.
+ */
+export function websiteLeadNotification(lead: object): NewCustomerNotificationOptions {
+  const extra = lead as { type?: unknown; preferredTime?: unknown };
+  return {
+    customerSms: false,
+    source: "website",
+    kind: extra.type === "callback" ? "callback" : "request",
+    ...(typeof extra.preferredTime === "string" && extra.preferredTime.trim() ? { preferredTime: extra.preferredTime } : {}),
+  };
+}
+
+/**
+ * SITESMS (t754s2995): sends the staff Telegram exactly as before and, only when the switch flag.site_lead_customer_sms
+ * is ON and this submission CREATED the customer (once per customer, no backfill), also the «مشتری جدید» customer SMS.
+ * When the SMS is attempted, the Telegram no longer says «پیامک خودکار برای مشتری ارسال نشد». Never throws.
+ */
+export async function notifyWebsiteLead(customerId: number, created: boolean, options: NewCustomerNotificationOptions): Promise<void> {
+  let decision = "off";
+  try { decision = claimSiteLeadSms(crmDb, customerId, created); } catch (error) {
+    logger.warn({ customerId, err: error instanceof Error ? error.message : "unknown" }, "Site lead SMS claim failed");
+    decision = "error";
+  }
+  const send = decision === "send";
+  await notifyNewCustomer(customerId, send ? { ...options, customerSms: true } : options);
+  if (send) {
+    let status = "unknown";
+    try { status = finishSiteLeadSms(crmDb, customerId); } catch { status = "finish_failed"; }
+    logger.info({ customerId, status }, "Site lead customer SMS");
+  } else if (decision !== "off") {
+    logger.info({ customerId, decision }, "Site lead customer SMS not sent");
+  }
+}
+
+function fail(res: Response, status: number, error: string, extra: Record<string, unknown> = {}): void {
+  res.status(status).json({ ok: false, error, ...extra });
+}
+
+/**
+ * Options for a request-form lead whose phone already belongs to a customer: one staff Telegram marked
+ * «مشتری قبلی» + file number, with this submission's details and contact time; still no customer SMS.
+ */
+export function existingCustomerLeadNotification(lead: PublicLead): NewCustomerNotificationOptions {
+  let requestDetails: string | undefined;
+  try { requestDetails = leadRequestDetails(lead); } catch { requestDetails = undefined; }
+  return {
+    ...websiteLeadNotification(lead),
+    preferredTime: leadContactTimeFa(lead),
+    existingCustomer: true,
+    ...(requestDetails ? { requestDetails } : {}),
+  };
+}
+
+/** CORS for the public site only: no credentials, no reflection of other origins. */
+function publicLeadCors(req: Request, res: Response, next: NextFunction): void {
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Cache-Control", "no-store");
+  const origin = req.get("Origin");
+  if (!origin || !PUBLIC_LEAD_ORIGINS.has(origin)) {
+    fail(res, 403, "origin_not_allowed");
+    return;
+  }
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  if (req.method === "OPTIONS") {
+    res.setHeader("Access-Control-Allow-Methods", "POST");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Max-Age", "600");
+    res.status(204).end();
+    return;
+  }
+  next();
+}
+
+/** type=callback: same validation gate, caps and duplicate window as a lead; never creates a customer. */
+function handleCallback(req: Request, res: Response): void {
+  const validation = validatePublicCallback(req.body);
+  if (!validation.ok) {
+    fail(res, validation.status, validation.error, validation.fields ? { fields: validation.fields } : {});
+    return;
+  }
+  const { callback } = validation;
+  const ipHash = hashLeadIp(trustedClientIp(req));
+  ensurePublicLeadSchema();
+  const counts = leadCounts(ipHash, callback.phone);
+  if (counts.phoneRecent > 0) {
+    res.status(200).json({ ok: true });
+    return;
+  }
+  if (counts.ipDay >= MAX_LEADS_PER_IP_DAY || counts.phoneDay >= MAX_LEADS_PER_PHONE_DAY) {
+    res.setHeader("Retry-After", "3600");
+    fail(res, 429, "rate_limited");
+    return;
+  }
+  const result = recordPublicCallback(callback, ipHash);
+  logger.info({ callbackId: result.id, linked: result.customerId != null, src: callback.src }, "Website callback request recorded");
+  res.status(201).json({ ok: true, trackingCode: result.trackingCode });
+  // Staff Telegram «درخواست تماس» with the requested contact time; never an SMS. Outcome goes on the request's history.
+  void alertNewCallback(result.id);
+}
+
+/**
+ * v82 type=apply (7-step «ثبت درخواست»): its own validator (8 s minimum fill), then the same caps and 10-minute duplicate
+ * window as a lead. Staff get the usual single Telegram (customerSms:false) whose «این درخواست» part is only the
+ * customer's own answers; never an SMS, never a priority/rate/amount offer in the alert.
+ */
+function handleApply(req: Request, res: Response): void {
+  const validation = validateSiteApply(req.body);
+  if (!validation.ok) {
+    fail(res, validation.status, validation.error, validation.fields ? { fields: validation.fields } : {});
+    return;
+  }
+  const { apply } = validation;
+  const ipHash = hashLeadIp(trustedClientIp(req));
+  ensurePublicLeadSchema();
+  const counts = leadCounts(ipHash, apply.phone);
+  if (counts.phoneRecent > 0) {
+    res.status(200).json({ ok: true });
+    return;
+  }
+  if (counts.ipDay >= MAX_LEADS_PER_IP_DAY || counts.phoneDay >= MAX_LEADS_PER_PHONE_DAY) {
+    res.setHeader("Retry-After", "3600");
+    fail(res, 429, "rate_limited");
+    return;
+  }
+  const result = recordSiteApply(apply, ipHash, req.get("User-Agent") ?? null);
+  logger.info({ customerId: result.customerId, created: result.created, src: apply.src }, "Website apply form recorded");
+  res.status(201).json({ ok: true, trackingCode: result.trackingCode });
+  const requestDetails = siteApplySummary(apply.answers, result.planName, apply.planId, apply.term);
+  void notifyWebsiteLead(result.customerId, result.created, {
+    customerSms: false, source: "website", kind: "request", requestDetails,
+    ...(result.created ? {} : { existingCustomer: true }),
+  });
+}
+
+export function createPublicLeadsRouter(limiter = new AttemptLimiter()): Router {
+  const router = Router();
+  router.use(publicLeadCors);
+  router.post(
+    "/",
+    (req, res, next): void => {
+      const wait = limiter.take(trustedClientIp(req));
+      if (wait) {
+        res.setHeader("Retry-After", String(wait));
+        fail(res, 429, "rate_limited");
+        return;
+      }
+      if (!req.is("application/json")) {
+        fail(res, 415, "unsupported_media_type");
+        return;
+      }
+      next();
+    },
+    express.json({ limit: "4kb", strict: true }),
+    (req, res): void => {
+      const kind = publicIntakeType(req.body);
+      if (!kind) {
+        fail(res, 400, "invalid", { fields: ["type"] });
+        return;
+      }
+      if (kind === "callback") {
+        handleCallback(req, res);
+        return;
+      }
+      if (kind === "apply") {
+        handleApply(req, res);
+        return;
+      }
+      const validation = validatePublicLead(req.body);
+      if (!validation.ok) {
+        fail(res, validation.status, validation.error, validation.fields ? { fields: validation.fields } : {});
+        return;
+      }
+      const { lead } = validation;
+      const ipHash = hashLeadIp(trustedClientIp(req));
+      ensurePublicLeadSchema();
+      const counts = leadCounts(ipHash, lead.phone);
+      if (counts.phoneRecent > 0) {
+        // Same person resubmitting within minutes: already recorded, do not duplicate. No tracking code here:
+        // the earlier one is never re-issued to whoever knows the phone number.
+        res.status(200).json({ ok: true });
+        return;
+      }
+      if (counts.ipDay >= MAX_LEADS_PER_IP_DAY || counts.phoneDay >= MAX_LEADS_PER_PHONE_DAY) {
+        res.setHeader("Retry-After", "3600");
+        fail(res, 429, "rate_limited");
+        return;
+      }
+      const result = recordPublicLead(lead, ipHash);
+      logger.info({ customerId: result.customerId, created: result.created, src: lead.src }, "Website lead recorded");
+      // Only the fresh, random reference: nothing from the request is echoed back.
+      res.status(201).json({ ok: true, trackingCode: result.trackingCode });
+      // Product decision (website leads): staff Telegram only, never the automatic customer SMS. An existing
+      // customer gets the same single alert, marked «مشتری قبلی» (decision 2026-10-23). The 10-minute duplicate
+      // window above returns before this point, so a resubmission never alerts twice.
+      // SITESMS: a NEW customer also gets the «مشتری جدید» SMS when flag.site_lead_customer_sms is ON (see notifyWebsiteLead).
+      void notifyWebsiteLead(
+        result.customerId,
+        result.created,
+        result.created ? websiteLeadNotification(lead) : existingCustomerLeadNotification(lead),
+      );
+    },
+  );
+  router.all("/", (_req, res): void => {
+    res.setHeader("Allow", "POST, OPTIONS");
+    fail(res, 405, "method_not_allowed");
+  });
+  // Body-parser and unexpected errors: generic codes, never the input or stack.
+  router.use((error: unknown, _req: Request, res: Response, _next: NextFunction): void => {
+    const type = (error as { type?: string } | null)?.type;
+    if (type === "entity.too.large") return fail(res, 413, "payload_too_large");
+    if (type === "entity.parse.failed") return fail(res, 400, "invalid", { fields: ["body"] });
+    logger.error({ err: error instanceof Error ? error.message : "unknown" }, "Website lead failed");
+    fail(res, 500, "server_error");
+  });
+  return router;
+}
+
+/**
+ * Must be mounted before the app-wide `cors({ origin: true, credentials: true })`
+ * and the same-host Origin check, both of which would otherwise reflect any
+ * origin or reject the public site's cross-origin POST.
+ */
+export function mountPublicLeads(app: Express): void {
+  app.use(PUBLIC_LEADS_PATH, createPublicLeadsRouter());
+}

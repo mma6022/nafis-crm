@@ -1,0 +1,169 @@
+import { Router, type IRouter } from "express";
+import healthRouter from "./health";
+import crmRouter from "./crm";
+import consultationReportRouter from "./consultation-report";
+import { staffChatRouter } from "./customer-chat";
+import { startDatabaseBackupScheduler } from "../lib/database-backup";
+import contractsRouter from "./contracts";
+import loanApplicationsRouter from "./loan-applications";
+import walletsRouter from "./wallets";
+import walletManagementRouter from "./wallet-management";
+import companyWalletRouter from "./company-wallet";
+import voipRouter from "./voip";
+import simotelRecordingsRouter from "./simotel-recordings";
+import releasesRouter from "./releases";
+import releaseRegistryRouter from "./release-registry";
+import goodsPurchasesRouter from "./goods-purchases";
+import callbackRequestsRouter from "./callback-requests";
+import goodsDocumentsRouter from "./goods-documents";
+import contractUpdatesRouter from "./contract-updates";
+import paymentOrdersRouter from "./payment-orders";
+import accountingRouter from "./accounting";
+import glReportsRouter from "./gl-reports";
+import instagramRouter from "./instagram";
+import voipAfterCallRouter from "./voip-after-call";
+import recordingTranscriptsRouter from "./recording-transcripts";
+import voipCallRouter from "./voip-call";
+import callTranscriptsRouter from "./call-transcripts";
+import callSummaryFieldsRouter from "./call-summary-fields";
+import voiceNotesRouter from "./voice-notes";
+import smartFilingRouter from "./smart-filing";
+import assistantsRouter from "./assistants";
+import baleRouter from "./bale";
+import expertIntroSmsRouter from "./expert-intro-sms";
+import { startInstagramWorker } from "../lib/instagram";
+import callReportsRouter from "./call-reports";
+import mobileCallsRouter from "./mobile-calls";
+import { createSiteNotificationRouter } from "../lib/site-notifications";
+import planRatesRouter from "./plan-rates";
+import salesReportsRouter from "./sales-reports";
+import { createInternalChatRouter } from "../lib/internal-chat";
+import { createAvatarRouter } from "../lib/avatars";
+import { requireAuth } from "../lib/auth";
+import { requirePermission } from "../lib/access-control";
+import { crmDb } from "../lib/crm-db";
+import { saveChatObject, readChatObject, deleteChatObject } from "../lib/chat-storage";
+import { validateInternalChatFile } from "../lib/internal-chat-files";
+import { socialMonitorFeature } from "../lib/social-monitor";
+import teamSalesRouter from "./team-sales";
+import salesAssistRouter from "./sales-assist";
+import callQueueRouter from "./call-queue";
+import dailyPlanRouter from "./daily-plan";
+import filesCarouselRouter from "./files-carousel";
+import reminderMustRouter from "./reminder-must";
+import reminderVoipRouter from "./reminder-voip";
+import { ensureCallQueueSchema } from "../lib/call-queue";
+import defaultOwnerRouter from "./default-owner";
+import leadAnnotatorRouter from "./lead-annotator";
+import registrarViewRouter from "./registrar-view";
+import expertLockdownRouter from "./expert-lockdown";
+import leadIntakeRouter from "./lead-intake";
+import { startCallQueueJobs } from "../lib/call-queue-r2";
+import { ensureDailyPlanSchema, startDailyPlanJobs } from "../lib/daily-plan";
+import { ensureTeamSalesSchema } from "../lib/team-sales";
+import teamCommissionRouter from "./team-commission";
+import { backfillFollowUpAt, ensureManualOutcomeSchema } from "../lib/call-outcome";
+import { ensureQuestionsSkippedColumn } from "../lib/team-sales";
+import staffWalletRouter from "./staff-wallet";
+import loanRequestDraftsRouter from "./loan-request-drafts";
+import multiCaseRouter from "./multi-case";
+import dailyCustomerInlineRouter from "./daily-customer-inline";
+import reminderFollowRouter from "./reminder-follow";
+import salesShellRouter from "./sales-shell";
+import fileDetailV1Router from "./file-detail-v1";
+import { ensureReminderFollowSchema } from "../lib/reminder-follow";
+import linkPageRouter from "./link-page";
+import salesTeamsRouter from "./sales-teams";
+import salesPerformanceRouter from "./sales-performance";
+import baleBotRouter from "./bale-bot";
+import voipTaskHoldRouter from "./voip-task-hold";
+import customerNameEditRouter from "./customer-name-edit";
+
+const router: IRouter = Router();
+startDatabaseBackupScheduler();
+// The salesperson call-history scope reads team_sales_qualifications (first-call form authors).
+ensureTeamSalesSchema();
+// crm-call-queue R1: additive columns/tables, every flag seeded OFF.
+ensureCallQueueSchema();
+// Release 81: call_logs.call_result (additive, old rows NULL).
+ensureManualOutcomeSchema();
+try { ensureQuestionsSkippedColumn(); } catch { /* table created lazily by team-sales; the submit path ensures it too */ }
+// Release 81 (v1.0.1): additive call_logs.follow_up_at + one idempotent fill from the old «follow_up» result's reminder (never alters outcome/reminders).
+try { ensureCallQueueSchema(); const n = backfillFollowUpAt(); if (n) console.log(`[release81] follow_up_at filled for ${n} old follow_up call logs`); } catch (e) { console.error("[release81] follow_up_at backfill skipped", (e as Error)?.message); }
+// R2: daily discipline snapshot / 3-workday alerts; does nothing while flag.discipline is OFF.
+startCallQueueJobs();
+ensureDailyPlanSchema();
+// REMINDERS-FOLLOW: columns/tables, one-time data step (backed up), then the follow / one-open triggers.
+ensureReminderFollowSchema();
+startDailyPlanJobs();
+startInstagramWorker();
+
+router.use(healthRouter);
+router.use(createAvatarRouter());
+router.use(socialMonitorFeature.reportRouter);
+router.use(salesReportsRouter);
+router.use("/internal-chat",createInternalChatRouter({db:crmDb,requireAuth,requirePermission:requirePermission("internal_chat.use"),
+  saveFile:saveChatObject,readFile:readChatObject,deleteFile:deleteChatObject,validateFile:validateInternalChatFile}));
+// Before crmRouter: «/consultations/report» must not reach «/consultations/:id».
+router.use(consultationReportRouter);
+router.use(leadAnnotatorRouter);
+router.use(registrarViewRouter);
+router.use(expertLockdownRouter);
+router.use(planRatesRouter);
+router.use(leadIntakeRouter);
+router.use(crmRouter);
+router.use(teamSalesRouter);
+router.use(salesAssistRouter);
+router.use(callQueueRouter);
+router.use(dailyPlanRouter);
+router.use(filesCarouselRouter);
+router.use(reminderMustRouter);
+router.use(reminderVoipRouter); // REMINDER-VOIP (flag.reminder_voip, default OFF → 404)
+router.use(reminderFollowRouter);
+router.use(salesShellRouter); // SALES-SHELL v2 (per-user flag, read-only)
+router.use(fileDetailV1Router); // FILE-DETAIL v1.0 (per-user flag; resend link guarded)
+router.use(defaultOwnerRouter);
+router.use(teamCommissionRouter);
+router.use(staffWalletRouter);
+router.use(callReportsRouter);
+router.use(mobileCallsRouter);
+router.use("/chat", staffChatRouter);
+router.use(contractsRouter);
+router.use(loanRequestDraftsRouter);
+router.use(multiCaseRouter);
+router.use(customerNameEditRouter); // customer-name-edit (flag.customer_name_edit, default OFF → 404)
+router.use(dailyCustomerInlineRouter); // daily-customer-inline v1.1 (flag.daily_customer_inline_v1, default OFF → 404)
+router.use(loanApplicationsRouter);
+router.use(walletsRouter);
+router.use(walletManagementRouter);
+router.use(companyWalletRouter);
+router.use(voipRouter);
+router.use(simotelRecordingsRouter);
+router.use(voipAfterCallRouter);
+router.use(recordingTranscriptsRouter);
+router.use(callTranscriptsRouter); // call-transcripts v1.1 (flag.call_transcripts.ui, OFF → 404)
+router.use(callSummaryFieldsRouter); // «موارد اجباری» v1.2 (flag.call_summary_fields_v1[.user.<id>], OFF → 404)
+router.use(voipCallRouter); // VOIP-CALL (flag.voip_call[.user.<id>], OFF → 404)
+router.use(voipTaskHoldRouter); // VOIP-TASK-HOLD (flag.voip_task_hold_v1, default OFF → 404)
+router.use(voiceNotesRouter);
+router.use(smartFilingRouter);
+router.use(assistantsRouter);
+router.use(baleRouter);
+router.use(expertIntroSmsRouter);
+router.use(releasesRouter);
+router.use(releaseRegistryRouter);
+router.use(goodsPurchasesRouter);
+router.use(callbackRequestsRouter);
+router.use(goodsDocumentsRouter);
+router.use(contractUpdatesRouter);
+router.use(paymentOrdersRouter);
+router.use(accountingRouter);
+router.use(glReportsRouter);
+router.use(instagramRouter);
+router.use(createSiteNotificationRouter());
+router.use(linkPageRouter); // links v1.0 (flag.links_page, OFF → falls through)
+router.use(salesTeamsRouter); // multi-team v1 (flag.multi_team_v1, OFF → falls through)
+router.use(salesPerformanceRouter); // sales-performance v1 (flag.sales_performance_v1, OFF → 404)
+router.use(baleBotRouter); // Bale bot inbox v1.0 (flag.bale_bot, OFF → falls through, no network)
+
+export default router;
