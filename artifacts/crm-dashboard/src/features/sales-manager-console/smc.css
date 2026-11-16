@@ -316,15 +316,20 @@
   .smc-root .smc-idx h2,.smc-root .smc-idx .smc-who{display:block}
   .smc-root .smc-idx a{flex:none;background:transparent;border:0;width:auto}
   .smc-root .smc-idx a.smc-on{background:#fff;box-shadow:var(--sh-card)}
+  /* Two team columns are too narrow for name + «انتقال به تیم…» + edit on one row. */
+  .smc-root .smc-mem{grid-template-columns:20px 36px minmax(0,1fr) auto;overflow:visible}
+  .smc-root .smc-mem select.smc-tok{grid-column:3;justify-self:start;width:max-content;max-width:100%;min-width:calc(140px + 12px + 28px)}
+  .smc-root .smc-mem .smc-ib{grid-row:1;grid-column:4}
 }
+
 @container smc (max-width:640px){
   .smc-root .smc-idx{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;
-    -webkit-mask-image:linear-gradient(to left,transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
-    mask-image:linear-gradient(to left,transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%)}
+    -webkit-mask-image:linear-gradient(to left,transparent 0,#000 20px);
+    mask-image:linear-gradient(to left,transparent 0,#000 20px)}
   .smc-root .smc-idx::-webkit-scrollbar{display:none}
   .smc-root .smc-mem{column-gap:8px}
-  .smc-root .smc-mem .smc-av{margin-inline-end:0}
-  .smc-root .smc-mem .smc-mn{min-width:0;padding-inline-start:0}
+  .smc-root .smc-mem .smc-av{margin:0}
+  .smc-root .smc-mem .smc-mn{min-width:0;margin:0;padding-inline-start:8px}
   .smc-root .smc-draft-full{display:none}
   .smc-root .smc-draft-short{display:inline}
   .smc-root .smc-draftbar{position:fixed;z-index:45;inset-inline:0;bottom:calc(var(--ss-dock-h, var(--dock-h, 68px)) + env(safe-area-inset-bottom, 0px));
