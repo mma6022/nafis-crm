@@ -146,7 +146,7 @@ body { font-size: var(--nf-font-body); line-height: 1.75; color: var(--nf-ink); 
 .brand-lockup img { width: 52px; height: 52px; object-fit: contain; }
 .brand-lockup strong { font-size: 16.5px; color: var(--nf-ink); }
 .brand-lockup span { font-size: 13px; color: var(--nf-ink-muted); margin-top: 0; }
-.side-nav { gap: 2px; padding-top: 6px; padding-inline-end: 2px; }
+.side-nav { gap: 2px; padding-top: 6px; padding-inline-end: 10px; scrollbar-gutter: stable; }
 .side-nav-groups { gap: 4px; }
 .side-group-label { padding: 10px 12px 4px; color: var(--nf-ink-faint); font-size: 12.5px; font-weight: 700; }
 .side-group-toggle {
@@ -169,11 +169,13 @@ body { font-size: var(--nf-font-body); line-height: 1.75; color: var(--nf-ink); 
 .side-link:hover { background: var(--nf-brand-50); color: var(--nf-ink); }
 .side-link.active, .side-link.active:hover { background: var(--nf-brand-600); color: #fff; font-weight: 700; box-shadow: 0 4px 12px -4px rgba(41, 54, 155, .45); }
 .side-link svg { width: 20px; height: 20px; flex: none; }
-.side-link span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-link { min-width: 0; }
+.side-link span { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side-link:focus-visible, .side-group-toggle:focus-visible { outline: 2px solid var(--nf-brand-500); outline-offset: 1px; }
 .side-badge, .sn-nav-badge { /* release 69 .nb contrast: --nf-ink on gold 5.0:1 (white was 2.85:1) — never white on gold */
   margin-inline-start: auto; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 999px;
   display: inline-grid; place-items: center; background: var(--nf-gold-500); color: var(--nf-ink); font-size: 12px; font-weight: 700; line-height: 1;
+  flex: none; /* keep count pills inside the rail; overflow-x on .side-nav was clipping the left edge (a half «)») */
 }
 .side-link.active .side-badge, .side-link.active .sn-nav-badge { background: #fff; color: var(--nf-brand-700); }
 .side-foot { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 12px; border: 0; border-radius: var(--nf-radius-lg); background: var(--nf-surface); font-size: 13px; line-height: 1.6; color: var(--nf-ink-muted); }

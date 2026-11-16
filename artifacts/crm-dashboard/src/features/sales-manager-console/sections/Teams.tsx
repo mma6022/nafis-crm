@@ -61,7 +61,7 @@ export function TeamsSection({ st, doc, set }: SectionProps<'teams'>) {
                 <span className={c('hdl')} aria-hidden="true"><I n="grip" /></span>
                 <span className={c('av sm')}>{short(e.displayName)[0]}</span>
                 <span className={c('mn')}>
-                  <b>{e.displayName} <Chip k={e.status === 'active' ? 'ok' : 'g'}>{statusFa(e, st.today)}</Chip>{e.role === 'lead' ? <Chip k="b">سرپرست</Chip> : null}</b>
+                  <b>{e.displayName}<span className={c('mchips')}><Chip k={e.status === 'active' ? 'ok' : 'g'}>{statusFa(e, st.today)}</Chip>{e.role === 'lead' ? <Chip k="b">سرپرست</Chip> : null}</span></b>
                   <small>{e.extension ? `داخلی ${fa(e.extension)}` : 'بدون داخلی'}، {e.role === 'lead' ? 'سرپرست' : 'کارشناس فروش'}، {fa(p?.customers ?? 0)} مشتری{e.userId ? '' : '، بدون حساب کاربری'}</small>
                 </span>
                 <select className={c('tok n sel')} aria-label={`انتقال ${e.displayName} به تیم دیگر`} value="" onChange={(ev) => { if (ev.target.value) setMoving({ id: e.id, to: ev.target.value, keep: true }); }}>

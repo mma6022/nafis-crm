@@ -222,7 +222,7 @@
 .smc-root .smc-btn.smc-wide{width:100%}
 @container smc (max-width:1023.98px){
 .smc-root .smc-pg{grid-template-columns:minmax(0,1fr)}
-.smc-root .smc-idx{position:sticky;top:var(--top-h);z-index:25;flex-direction:row;overflow-x:auto;background:var(--surface);margin:0 -24px;padding:8px 24px;gap:6px;scrollbar-width:none}
+.smc-root .smc-idx{position:sticky;top:var(--top-h);z-index:25;flex-direction:row;flex-wrap:wrap;overflow-x:visible;background:var(--surface);margin:0 -24px;padding:8px 24px;gap:6px;scrollbar-width:none}
 .smc-root .smc-idx h2,.smc-root .smc-idx .smc-who{display:none}
 .smc-root .smc-idx a{flex:none;background:#fff;border:1px solid var(--line)}
 .smc-root .smc-medit,.smc-root .smc-dgrid{grid-template-columns:minmax(0,1fr)}
@@ -301,7 +301,36 @@
 }
 .smc-root .smc-nexg{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
 .smc-root .smc-nexg .smc-inp{width:100%}
-.smc-root .smc-mem select.smc-tok{min-width:140px}
+.smc-root .smc-mem select.smc-tok{min-width:calc(140px + 12px + 28px);flex:none}
 .smc-root .smc-nex .smc-row1{flex-wrap:wrap}
 .smc-root .smc-pick{min-width:44px;justify-content:center}
 .smc-root .smc-vals .smc-tok{min-width:44px;justify-content:center}
+
+/* ---- Armita visual review (local, pre-release): 1280 side index, 390 tab fade + compact draft bar, expert row, transfer select ---- */
+.smc-root .smc-mchips{display:inline-flex;align-items:center;gap:6px;flex-wrap:nowrap;flex:none;margin-inline-start:6px}
+.smc-root .smc-draft-short{display:none}
+@media (min-width:1280px){
+  /* Viewport 1280 keeps the sticky side list even though the page container is ~1008px (272px sidebar). */
+  .smc-root .smc-pg{grid-template-columns:232px minmax(0,1fr)}
+  .smc-root .smc-idx{position:sticky;top:calc(var(--top-h) + 20px);align-self:start;z-index:auto;flex-direction:column;flex-wrap:nowrap;overflow:visible;background:transparent;margin:0;padding:0;gap:4px}
+  .smc-root .smc-idx h2,.smc-root .smc-idx .smc-who{display:block}
+  .smc-root .smc-idx a{flex:none;background:transparent;border:0;width:auto}
+  .smc-root .smc-idx a.smc-on{background:#fff;box-shadow:var(--sh-card)}
+}
+@container smc (max-width:640px){
+  .smc-root .smc-idx{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;
+    -webkit-mask-image:linear-gradient(to left,transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
+    mask-image:linear-gradient(to left,transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%)}
+  .smc-root .smc-idx::-webkit-scrollbar{display:none}
+  .smc-root .smc-mem{column-gap:8px}
+  .smc-root .smc-mem .smc-av{margin-inline-end:0}
+  .smc-root .smc-mem .smc-mn{min-width:0;padding-inline-start:0}
+  .smc-root .smc-draft-full{display:none}
+  .smc-root .smc-draft-short{display:inline}
+  .smc-root .smc-draftbar{position:fixed;z-index:45;inset-inline:0;bottom:calc(var(--ss-dock-h, var(--dock-h, 68px)) + env(safe-area-inset-bottom, 0px));
+    flex-wrap:nowrap;align-items:center;gap:8px;margin:0;padding:6px 12px;border-radius:0;border-width:1px 0 0;min-height:56px;
+    background:var(--gold-50);box-shadow:0 -6px 16px -8px rgba(11,20,80,.18)}
+  .smc-root .smc-draftbar .smc-grow{min-width:0;flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .smc-root .smc-draftbar .smc-btn{min-width:44px;min-height:44px;height:44px;padding:0 12px;flex:none}
+  .smc-root:has(.smc-draftbar) .smc-pg{padding-bottom:calc(var(--ss-dock-h, var(--dock-h, 68px)) + 16px + 56px + env(safe-area-inset-bottom, 0px))}
+}
