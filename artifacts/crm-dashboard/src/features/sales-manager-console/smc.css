@@ -249,10 +249,7 @@
 .smc-root .smc-qr .smc-acts .smc-ib.smc-x2{display:none}
 .smc-root .smc-qr .smc-acts .smc-mo{display:grid}
 .smc-root .smc-vgrid,.smc-root .smc-teams,.smc-root .smc-nexg{grid-template-columns:minmax(0,1fr)}
-.smc-root .smc-mem{grid-template-columns:36px minmax(0,1fr) auto}
-.smc-root .smc-mem .smc-hdl{display:none}
-.smc-root .smc-mem .smc-tok{grid-column:2;justify-self:start;width:max-content}
-.smc-root .smc-mem .smc-ib{grid-row:1}
+/* 390 member grid is set in the Armita visual-review block below (edit | avatar | text). */
 .smc-root .smc-mixr{grid-template-columns:16px 90px minmax(0,1fr);}
 .smc-root .smc-mixr .smc-stp{grid-column:2 / -1}
 .smc-root .smc-tbl thead{display:none}
@@ -327,9 +324,14 @@
     -webkit-mask-image:linear-gradient(to left,transparent 0,#000 20px);
     mask-image:linear-gradient(to left,transparent 0,#000 20px)}
   .smc-root .smc-idx::-webkit-scrollbar{display:none}
-  .smc-root .smc-mem{column-gap:8px}
-  .smc-root .smc-mem .smc-av{margin:0}
-  .smc-root .smc-mem .smc-mn{min-width:0;margin:0;padding-inline-start:8px}
+  /* Explicit columns so the 44px edit button cannot collapse the name track under the avatar. */
+  .smc-root .smc-mem{grid-template-columns:44px 36px minmax(0,1fr);column-gap:8px;row-gap:6px;overflow:visible}
+  .smc-root .smc-mem .smc-hdl{display:none}
+  .smc-root .smc-mem .smc-ib{grid-column:1;grid-row:1;flex-shrink:0}
+  .smc-root .smc-mem .smc-av{grid-column:2;grid-row:1;flex-shrink:0;width:36px;height:36px;margin:0}
+  .smc-root .smc-mem .smc-mn{grid-column:3;grid-row:1;min-width:0;margin:0;padding:0}
+  .smc-root .smc-mem .smc-mn b{min-width:0}
+  .smc-root .smc-mem .smc-tok,.smc-root .smc-mem select.smc-tok{grid-column:3;grid-row:2;justify-self:stretch;width:auto;max-width:100%;min-width:0}
   .smc-root .smc-draft-full{display:none}
   .smc-root .smc-draft-short{display:inline}
   .smc-root .smc-draftbar{position:fixed;z-index:45;inset-inline:0;bottom:calc(var(--ss-dock-h, var(--dock-h, 68px)) + env(safe-area-inset-bottom, 0px));
@@ -337,5 +339,6 @@
     background:var(--gold-50);box-shadow:0 -6px 16px -8px rgba(11,20,80,.18)}
   .smc-root .smc-draftbar .smc-grow{min-width:0;flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .smc-root .smc-draftbar .smc-btn{min-width:44px;min-height:44px;height:44px;padding:0 12px;flex:none}
-  .smc-root:has(.smc-draftbar) .smc-pg{padding-bottom:calc(var(--ss-dock-h, var(--dock-h, 68px)) + 16px + 56px + env(safe-area-inset-bottom, 0px))}
+  /* Variable is set on .smc-pg (a descendant) so the container query can apply it. Fallback keeps the calc valid. */
+  .smc-root:has(.smc-draftbar) .smc-pg{--smc-draft-h:56px;padding-bottom:calc(var(--ss-dock-h, var(--dock-h, 68px)) + var(--smc-draft-h, 56px) + 16px + env(safe-area-inset-bottom, 0px))}
 }
