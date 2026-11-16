@@ -17,6 +17,7 @@ import { TeamSalesError, firstCallEditAccess, teamConfigFor, latestFirstCall, lo
 import { normalizeFirstCallAnswers, validateAnswers, type QualifierAnswers } from "./team-sales-rules";
 import { FC_STAGE_GROUPS, FC_GROUP_CODES, FC_GROUP_LABELS, FC_WAIT_GROUPS } from "./files-carousel";
 import { realCallSql } from "./real-call";
+import { sf480OwnerPriority } from "./sales-fixes-480000";
 import { CS_KEYS, csCheckView, csLegacyTolerate, csMarked, csOn, csPrepare, csValuesOfAnswers, ensureCsSchema } from "./call-summary-fields-core";
 
 export const HX_REASON_MAX = null;
@@ -116,13 +117,23 @@ function lastP1Source(customerId: number): string | null {
 export const hxCanSee = (a: { id: number; role: string; salespersonId: number | null } | null | undefined): boolean =>
   Boolean(a && (hxExpert(a) || isAdmin(a as any) || EL_ADMIN_USER_IDS.includes(Number(a.id))));
 
-export function assertP1RevertAllowed(customerId: number, newPriority: number | null | undefined, actor: { id: number; role: string } | null | undefined) {
+export function assertP1RevertAllowed(customerId: number, newPriority: number | null | undefined, actor: { id: number; role: string; salespersonId?: number | null } | null | undefined) {
   if (newPriority === undefined || newPriority === 1) return;
   if (actor && (isAdmin(actor) || EL_ADMIN_USER_IDS.includes(Number(actor.id)))) return;
   const cur = queryRow<{ priority: number | null }>("SELECT priority FROM customers WHERE id=?", [customerId]);
   if (!cur || cur.priority !== 1) return;
   const src = lastP1Source(customerId);
-  if (src && (HX_UPGRADE_SOURCES as readonly string[]).includes(src)) throw new TeamSalesError(403, HX_REVERT_MSG);
+  if (src && (HX_UPGRADE_SOURCES as readonly string[]).includes(src)) {
+    // SALES-FIXES 480000 (Mohammad t810u «اولویت‌ها … کارشناس فروش نمی‌تونه عوض کنه»): the customer's CURRENT expert may lower it too
+    // (still logged in customer_priority_history by the PATCH handler). Another expert never reaches here (assigned scope → 404).
+    // flag.sf480_owner_priority = '0' restores the admin-only rule.
+    if (actor && sf480OwnerPriority()) {
+      const own = queryRow<{ sp: number | null }>("SELECT salesperson_id sp FROM customers WHERE id=?", [customerId]);
+      const sp = (actor as { salespersonId?: number | null }).salespersonId;
+      if (own && sp != null && Number(own.sp) === Number(sp)) return;
+    }
+    throw new TeamSalesError(403, HX_REVERT_MSG);
+  }
 }
 
 /* ---------------- history summary ---------------- */

@@ -1,0 +1,93 @@
+/**
+ * SALES-FIXES 480000 (Mohammad t810u, 2026-11-16). Code-level switches, ON by default — no DB row is written to turn them on.
+ * Each one can be turned back to the old rule with ONE call_queue_settings row set to '0' (rollback without a redeploy):
+ *   flag.sf480_owner_priority = '0' → P1 set by «ارتقا» can again be lowered only by an admin (HISTORY-A, old rule).
+ *   flag.sf480_owner_status   = '0' → a cancelled customer leaves «لغوشده» again only through POST /customers/:id/reactivate (old rule).
+ *   flag.sf480_open_lists     = '0' → «مشتریان من» / «پرونده‌های من» go back to the lockdown rule (CustLocked card, files lock, board turn).
+ *   flag.sf480_no_popups      = '0' → the mandatory reminder popup (REMINDER-B) feed comes back for 8/2/3 (the client host stays removed).
+ * Nothing here sends SMS / Bale / a bell, or touches user 29, contracts, templates, loan_plans, team_sales_config or notification_settings.
+ */
+import { queryRow, queryRows } from "./crm-db";
+
+const setting = (key: string): string | null => {
+  try { return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [key])?.value ?? null; }
+  catch { return null; }
+};
+const onByDefault = (key: string) => setting(key) !== "0";
+export const sf480OwnerPriority = () => onByDefault("flag.sf480_owner_priority");
+export const sf480OwnerStatus = () => onByDefault("flag.sf480_owner_status");
+export const sf480OpenLists = () => onByDefault("flag.sf480_open_lists");
+export const sf480NoPopups = () => onByDefault("flag.sf480_no_popups");
+
+type U = { id: number; role: string; salespersonId: number | null; customerScope?: string };
+const FD = "۰۱۲۳۴۵۶۷۸۹";
+const toLatin = (s: string) => s.replace(/[۰-۹]/g, (d) => String(FD.indexOf(d))).replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
+const normName = (s: string) => s.replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/\u200c/g, " ").replace(/\s+/g, " ").trim();
+
+/** Own scope for a sales expert = customers whose salesperson is theirs. Admin / manager (never user 29) = everyone. Anyone else = nothing. */
+function scopeSql(u: U): { sql: string; args: any[] } | null {
+  if (Number(u.id) === 29) return null;
+  if (u.role === "admin" || u.role === "manager") return { sql: "1=1", args: [] };
+  if (u.salespersonId == null) return null;
+  return { sql: "c.salesperson_id=?", args: [Number(u.salespersonId)] };
+}
+
+const LIFE = (status: string | null, stage: string | null) => status === "rejected" ? "cancelled" : stage === "completed" ? "completed" : "in_progress";
+
+/** GET /sales-fixes/search?q= — the centred search: matching OWN customers and their existing cases (پرونده‌های تسهیلات). */
+export function sf480Search(u: U, rawQ: unknown): { status: number; body: any } {
+  const sc = scopeSql(u);
+  if (!sc) return { status: 403, body: { error: "forbidden", message: "جست‌وجو برای این حساب باز نیست." } };
+  const q = normName(toLatin(String(rawQ ?? "")));
+  if (q.length < 2) return { status: 200, body: { q, items: [] } };
+  const digits = q.replace(/\D/g, "");
+  const byId = /^#?\d{1,7}$/.test(q) ? Number(q.replace("#", "")) : null;
+  const like = `%${q.replace(/[%_]/g, "")}%`;
+  const rows = queryRows<any>(
+    `SELECT c.id, c.name, c.phone, c.priority, c.status FROM customers c
+     WHERE c.merged_into_customer_id IS NULL AND ${sc.sql}
+       AND (replace(replace(replace(c.name,'ي','ی'),'ك','ک'),char(8204),' ') LIKE ?
+            ${digits.length >= 4 ? "OR c.phone LIKE ?" : ""} ${byId ? "OR c.id=?" : ""})
+     ORDER BY CASE WHEN c.name LIKE ? THEN 0 ELSE 1 END, c.id DESC LIMIT 20`,
+    [...sc.args, like, ...(digits.length >= 4 ? [`%${digits}%`] : []), ...(byId ? [byId] : []), `${q}%`]);
+  const ids = rows.map((r) => Number(r.id));
+  const cases = ids.length ? queryRows<any>(
+    `SELECT la.id, la.customer_id, la.stage, la.status, la.requested_amount, la.created_at, p.name plan_name
+     FROM loan_applications la LEFT JOIN loan_plans p ON p.id=la.plan_id
+     WHERE la.deleted_at IS NULL AND la.customer_id IN (${ids.map(() => "?").join(",")}) ORDER BY la.id DESC`, ids) : [];
+  const items = rows.map((r) => ({
+    id: Number(r.id), name: String(r.name ?? ""), phoneLast4: String(r.phone ?? "").slice(-4), priority: r.priority == null ? null : Number(r.priority),
+    status: String(r.status ?? "in_progress"),
+    cases: cases.filter((x) => Number(x.customer_id) === Number(r.id)).map((x) => ({
+      id: Number(x.id), stage: String(x.stage ?? ""), status: String(x.status ?? ""), life: LIFE(x.status, x.stage),
+      planName: x.plan_name ? String(x.plan_name) : null, amount: x.requested_amount == null ? null : String(x.requested_amount), createdAt: x.created_at ?? null,
+    })),
+  }));
+  // customers that have a case first (the search is mainly for «پرونده‌های تسهیلات»)
+  items.sort((a, b) => Number(b.cases.length > 0) - Number(a.cases.length > 0));
+  return { status: 200, body: { q, items } };
+}
+
+/** GET /sales-fixes/my-customers?q=&offset= — «مشتریان من» for a sales expert: own customers only, newest activity first. */
+export function sf480MyCustomers(u: U, rawQ: unknown, rawOffset: unknown): { status: number; body: any } {
+  const sc = scopeSql(u);
+  if (!sc) return { status: 403, body: { error: "forbidden", message: "این فهرست برای این حساب باز نیست." } };
+  const q = normName(toLatin(String(rawQ ?? "")));
+  const offset = Math.max(0, Math.min(100000, Number(rawOffset) || 0));
+  const digits = q.replace(/\D/g, "");
+  const where = [`c.merged_into_customer_id IS NULL`, sc.sql];
+  const args: any[] = [...sc.args];
+  if (q) {
+    where.push(`(replace(replace(replace(c.name,'ي','ی'),'ك','ک'),char(8204),' ') LIKE ? ${digits.length >= 4 ? "OR c.phone LIKE ?" : ""})`);
+    args.push(`%${q.replace(/[%_]/g, "")}%`); if (digits.length >= 4) args.push(`%${digits}%`);
+  }
+  const total = Number(queryRow<{ n: number }>(`SELECT COUNT(*) n FROM customers c WHERE ${where.join(" AND ")}`, args)?.n ?? 0);
+  const rows = queryRows<any>(
+    `SELECT c.id, c.name, c.phone, c.priority, c.status,
+       (SELECT MAX(l.created_at) FROM call_logs l WHERE l.customer_id=c.id) last_call,
+       (SELECT COUNT(*) FROM loan_applications la WHERE la.customer_id=c.id AND la.deleted_at IS NULL) cases
+     FROM customers c WHERE ${where.join(" AND ")}
+     ORDER BY COALESCE(last_call, c.created_at) DESC, c.id DESC LIMIT 30 OFFSET ?`, [...args, offset]);
+  return { status: 200, body: { total, offset, items: rows.map((r) => ({ id: Number(r.id), name: String(r.name ?? ""), phoneLast4: String(r.phone ?? "").slice(-4),
+    priority: r.priority == null ? null : Number(r.priority), status: String(r.status ?? "in_progress"), lastCallAt: r.last_call ?? null, cases: Number(r.cases) })) } };
+}

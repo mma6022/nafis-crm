@@ -10,6 +10,7 @@ import { noteText } from "./note-text";
 import { vcFollowupCheck, vcFollowupSaved } from "./voip-call";
 import { vthRedactCarousel } from "./voip-task-hold";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
+import { sf480OpenLists } from "./sales-fixes-480000";
 import { cqRaw, isWorkDay, tParts, tYmd, fromTehran, CQ_OUTCOMES } from "./call-queue";
 import { EL_USERS, elUsers } from "./expert-lockdown";
 import { tsOnSp } from "./today-split";
@@ -410,7 +411,7 @@ export function fcExpertFollowup(u: U, body: any, now = new Date(), opts?: { aut
   // own closed files are read-only (PM defaults 1, 2). After the list opened this also holds for tasks appended to today's order (t673 wins).
   // Flag off → this line does nothing.
   if ((!card || (deck.listOpen && card.state !== "done")) && fbOn(Number(u.id))) { const f = fileById(fid);
-    if (f && Number(f.owner) === sp) { const b = !f.open ? { error: "board_closed", message: "پرونده‌ی بسته فقط‌خواندنی است؛ ویرایش یا اقدامی ندارد." } : fbState(sp, now).turn !== fid ? { error: "board_turn", message: "نوبت این پرونده نیست؛ پرونده‌ها به ترتیب باز می‌شوند." } : null;
+    if (f && Number(f.owner) === sp) { const b = !f.open ? { error: "board_closed", message: "پرونده‌ی بسته فقط‌خواندنی است؛ ویرایش یا اقدامی ندارد." } : (fbState(sp, now).turn !== fid && !sf480OpenLists()) ? { error: "board_turn", message: "نوبت این پرونده نیست؛ پرونده‌ها به ترتیب باز می‌شوند." } : null;
       if (b) return err(423, b.error, b.message, { fileId: fid }); } }
   // REL-83 (ب): once the list is open, «پیگیری» works on any OWN file of the list (no lock; one result per file per day).
   // v1.0.1 PM 5: completed / cancelled rows keep today's access — a result + note is fine, «لغو» of an already closed file is not.
@@ -555,6 +556,8 @@ export function filesCarouselGuard(req: any, res: any, next: any): void {
   const sentLink = fcLinksSentContractOfFile(req, Number(m[1]));
   try {
     // FILES-BOARD (stage 3): with the user's own flag.files_board the whole-board turn replaces the stage-1/2 checks (reads stay open).
+    // SALES-FIXES 480000 (t810u): «پرونده‌های من» opens at any step — no turn order / files lock on writes; closed files stay read-only.
+    if (sf480OpenLists()) { const b = fbOn(Number(u!.id)) ? fbWriteBlock(u!, Number(m[1])) : null; if (b && b.error === "board_closed") { res.status(423).json(b); return; } next(); return; }
     if (fbOn(Number(u!.id))) { const b = fbWriteBlock(u!, Number(m[1])); if (b && !(sentLink && b.error === "board_turn")) { res.status(423).json(b); return; } next(); return; }
     if (sentLink) { next(); return; }
     if (fcWriteLocked(u!, Number(m[1])) && !fcNewToday(u!, Number(m[1]))) {

@@ -11,6 +11,7 @@
 import { queryRow, queryRows } from "./crm-db";
 import { tParts, fromTehran } from "./call-queue";
 import { flOn } from "./files-lock";
+import { sf480OpenLists } from "./sales-fixes-480000";
 import { catCore, dayRow, ensureFcSchema, fcDeck, fcListOrder, fcToday, fcFullPhone, FILE_SELECT, FC_SALES_STAGES, FC_WAIT_GROUPS, fileById, lastFollowUp, type FileRow } from "./files-carousel";
 
 export const FB_FLAG_PREFIX = "flag.files_board.user.";
@@ -97,15 +98,16 @@ export type FbState = ReturnType<typeof fbState>;
 /** GET /files-carousel/board (fbOn only). No full number on cards in the UI; `phone` is for the card sheet (own files, UNMASK-EXPERT t674u). */
 export function fbBoard(u: U, now = new Date()) {
   const sp = Number(u.salespersonId); const s = fbState(sp, now);
+  const open480 = sf480OpenLists(); // SALES-FIXES 480000: every own open file is clickable (no turn lock)
   const rank = new Map(s.queue.map((id, i) => [id, i + 1]));
   const t = s.turn != null ? s.byId.get(s.turn) ?? null : null;
   const cards = s.onBoard.map(id => {
     const r = s.byId.get(id)!; const c = s.cats.get(id)!; const closed = s.isClosed(id); const fu = s.followed(id);
     return { fileId: id, customerId: Number(r.cur_customer_id), customerName: r.name ?? "", phone: fcFullPhone(r.phone), stage: r.stage, status: r.status,
-      createdAt: r.created_at, state: closed ? "closed" : id === s.turn ? "turn" : fu ? "later" : "locked", rank: rank.get(id) ?? null,
+      createdAt: r.created_at, state: closed ? "closed" : id === s.turn ? "turn" : fu ? "later" : open480 ? "open" : "locked", rank: rank.get(id) ?? null,
       followedToday: fu, lastFollowUp: lastFollowUp(r), closedAt: closed ? c.closed_at : null, fc: catCore(c) };
   });
-  return { on: true as const, date: s.day, closedDays: FB_CLOSED_DAYS, turn: t ? { fileId: t.id, customerId: Number(t.cur_customer_id), customerName: t.name ?? "", stage: t.stage, status: t.status } : null,
+  return { on: true as const, openLists: open480, date: s.day, closedDays: FB_CLOSED_DAYS, turn: t ? { fileId: t.id, customerId: Number(t.cur_customer_id), customerName: t.name ?? "", stage: t.stage, status: t.status } : null,
     total: cards.length, cards };
 }
 

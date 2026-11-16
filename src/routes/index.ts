@@ -51,6 +51,7 @@ import callQueueRouter from "./call-queue";
 import dailyPlanRouter from "./daily-plan";
 import filesCarouselRouter from "./files-carousel";
 import reminderMustRouter from "./reminder-must";
+import salesFixes480Router from "./sales-fixes-480000";
 import reminderVoipRouter from "./reminder-voip";
 import { ensureCallQueueSchema } from "../lib/call-queue";
 import defaultOwnerRouter from "./default-owner";
@@ -118,6 +119,7 @@ router.use(callQueueRouter);
 router.use(dailyPlanRouter);
 router.use(filesCarouselRouter);
 router.use(reminderMustRouter);
+router.use(salesFixes480Router);
 router.use(reminderVoipRouter); // REMINDER-VOIP (flag.reminder_voip, default OFF → 404)
 router.use(reminderFollowRouter);
 router.use(salesShellRouter); // SALES-SHELL v2 (per-user flag, read-only)

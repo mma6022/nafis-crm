@@ -28,6 +28,7 @@ import { insertCustomerRecord } from "./customer-create";
 import { normalizeCustomerMobile } from "./customer-integrity";
 import { ssOn } from "./sales-shell";
 import { csOn } from "./call-summary-fields-core";
+import { sf480OpenLists } from "./sales-fixes-480000";
 import { psFlagOn, psIsStatusPriorityOnlyBody } from "./sales-experts-priority-status";
 const csOnSafe = (id: number) => { try { return csOn(id); } catch { return false; } };
 
@@ -45,6 +46,9 @@ export const EL_BELL_WINDOW_MS = 30 * 60_000; // at most one owner bell per call
 export const EL_ADMIN_USER_IDS = [1, 5];
 /** Dashboard routes (hrefs) the locked experts keep. */
 export const EL_ALLOWED_PAGES = ["/today", "/loan-applications", "/payment-orders", "/goods-purchases", "/messengers", "/internal-chat", "/bale-bot", "/sales-performance"];
+/** SALES-FIXES 480000 (t810u «محدودیت … مشتریان من رو فعلا بردار»): «مشتریان من» (/customers, own customers only) opens at any step.
+ *  Only these pages change; the rest of the lockdown stays. flag.sf480_open_lists = '0' → the old list. */
+export const elAllowedPages = (): string[] => sf480OpenLists() ? [...EL_ALLOWED_PAGES, "/customers"] : [...EL_ALLOWED_PAGES];
 
 type U = { id: number; role: string; salespersonId: number | null; fullName?: string | null; customerScope?: string };
 
@@ -130,6 +134,8 @@ const ALLOW: RegExp[] = [
   /^\/sales\/next-closer$/,
   // sales-performance v1: own report only (handlers re-check; other experts stay 403).
   /^\/sales-performance(\/|$)/,
+  // SALES-FIXES 480000: centred search + «مشتریان من» (handlers scope to the caller's own customers).
+  /^\/sales-fixes\/(search|my-customers|me)$/,
 ];
 /** REMINDER-68: the expert's own (not merged) customer — opens READ of the file/history/notes, «ثبت یادآور» and «ارتقا به اولویت ۱»
  *  for every own customer (not only today's list). The customers list/menu stays closed; other experts' customers stay 403/404. */

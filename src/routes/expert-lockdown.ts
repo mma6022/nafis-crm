@@ -4,7 +4,7 @@ import type { AuthUser } from "../lib/auth";
 import { dpIncomingFirstCallMirror, dpToday } from "../lib/daily-plan";
 import { firstCallIncomplete } from "../lib/first-call-incomplete";
 import { tcOn } from "../lib/today-carousel";
-import { EL_ADMIN_USER_IDS, EL_ALLOWED_PAGES, EL_GRANT_MINUTES, elDailyCounts, elIncomingChoose, elIncomingOpen, elIncomingSearch, elIncomingRefer, elLocked, elNewCheck, elNewCreate, elIncomingSuggest, elIncomingPick, elCtxOf } from "../lib/expert-lockdown";
+import { EL_ADMIN_USER_IDS, elAllowedPages, EL_GRANT_MINUTES, elDailyCounts, elIncomingChoose, elIncomingOpen, elIncomingSearch, elIncomingRefer, elLocked, elNewCheck, elNewCreate, elIncomingSuggest, elIncomingPick, elCtxOf } from "../lib/expert-lockdown";
 
 const router: IRouter = Router();
 const me = (res: any) => res.locals.authUser as AuthUser | undefined;
@@ -14,7 +14,7 @@ const incomingOk = (u: AuthUser | undefined) => elLocked(u) || tcOn(u);
 router.get("/expert-lockdown/me", (_req, res): void => {
   const u = me(res);
   if (!elLocked(u)) { res.json({ locked: false }); return; }
-  res.json({ locked: true, allowedPages: EL_ALLOWED_PAGES, grantMinutes: EL_GRANT_MINUTES });
+  res.json({ locked: true, allowedPages: elAllowedPages(), grantMinutes: EL_GRANT_MINUTES });
 });
 router.post("/expert-lockdown/incoming/open", (_req, res): void => {
   const u = me(res);

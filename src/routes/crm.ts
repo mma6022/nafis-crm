@@ -193,6 +193,7 @@ import { verifyCustomer } from "../lib/sapi";
 import { NO_CREDIT_FA, ProviderNoCreditError } from "../lib/provider-credit";
 import { TeamSalesError, latestFirstCall, latestNoPlanFit, latestSelectedPlans, logPriorityChange } from "../lib/team-sales";
 import { assertP1RevertAllowed } from "../lib/history-a";
+import { sf480OwnerStatus } from "../lib/sales-fixes-480000";
 import { applyNonP1TransferInTx, setNonP1TransferredHeader, type NonP1Result } from "../lib/nonp1-transfer";
 import { kazemiSourceFilterSql, kazemiSourceOf, kazemiSources } from "../lib/kazemi-source";
 import { ACTIVE_SITE_LEAD_EXISTS_SQL, activeSiteLeads, siteLeadHistory, siteLeadQueue, siteLeadsTableReady, topOfList, topOrderSql } from "../lib/site-leads";
@@ -3250,6 +3251,9 @@ const customerPatchHandler = (req: express.Request, res: express.Response): void
     let nonP1: NonP1Result | null = null;
     const nonP1Reactivation = body.status === "in_progress" &&
       (existingCustomer.status === "cancelled" || existingCustomer.status === "completed");
+    // SALES-FIXES 480000 (Mohammad t810u «وضعیت … هر چقدر خواست بتونه عوض کنه»): the customer's current expert (or a manager)
+    // may move a cancelled customer to «اتمام» with a plain PATCH as well; audited as a reactivation (customer_patch). flag.sf480_owner_status='0' = old rule.
+    const sfCancelledExit = existingCustomer.status === "cancelled" && body.status !== undefined && body.status !== "cancelled" && sf480OwnerStatus();
     // REMINDERS-FOLLOW item 10: reactivation only by the customer's current expert or a manager (server-side), reason ≤120 kept
     // with who / when / previous status and priority (customer_reactivations). The stored priority is kept (= the previous one).
     let rfReason: string | null = null;
@@ -3260,10 +3264,10 @@ const customerPatchHandler = (req: express.Request, res: express.Response): void
     if (rfRx && existingCustomer.mergedIntoCustomerId != null) {
       res.status(409).json({ error: "این مشتری در مشتری دیگری ادغام شده و دوباره فعال نمی‌شود.", code: "reactivation_merged" }); return;
     }
-    if (!rfRx && existingCustomer.status === "cancelled" && body.status !== undefined && body.status !== "cancelled") {
+    if (!rfRx && !sfCancelledExit && existingCustomer.status === "cancelled" && body.status !== undefined && body.status !== "cancelled") {
       res.status(409).json({ error: "مشتری لغوشده فقط با «فعال‌سازی دوباره» و نوشتن دلیل برمی‌گردد.", code: "reactivation_required" }); return;
     }
-    if (nonP1Reactivation) {
+    if (nonP1Reactivation || (sfCancelledExit && !rfRx)) {
       const isManager = (user.role === "admin" || user.role === "manager") && Number(user.id) !== 29;
       const isOwner = user.salespersonId != null && Number(existingCustomer.salespersonId) === Number(user.salespersonId);
       if (!isManager && !isOwner) { res.status(403).json({ error: "فقط کارشناس فعلی مشتری یا مدیر می‌تواند مشتری را دوباره فعال کند.", code: "reactivation_forbidden" }); return; }
@@ -3307,7 +3311,7 @@ const customerPatchHandler = (req: express.Request, res: express.Response): void
            VALUES (?,?,?,?,'customer_update',?,?)`,
           [params.data.id, nationalCodeLog.previous || null, nationalCodeLog.next, identityStampChanged ? 1 : 0, user.id, new Date().toISOString()]);
         if (changed && body.salespersonId !== undefined && user.role === "admin") rfTagHandoff(params.data.id, "customer_update");
-        if (changed && nonP1Reactivation) rfRecordReactivation({ customerId: params.data.id, actorUserId: user.id, reason: rfReason,
+        if (changed && (nonP1Reactivation || (sfCancelledExit && !rfRx))) rfRecordReactivation({ customerId: params.data.id, actorUserId: user.id, reason: rfReason,
           prevStatus: String(existingCustomer.status), prevPriority: existingCustomer.priority ?? null, source: rfRx?.source ?? "customer_patch" });
         // crm-nonp1-to-kazemi: a non-1 priority on a closer's customer moves it to Kazemi in this same transaction.
         // Reactivation (cancelled / completed → in_progress) with a non-1 priority does the same (PM 16:48).

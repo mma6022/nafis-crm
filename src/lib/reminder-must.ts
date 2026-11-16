@@ -15,6 +15,7 @@ import { noteText } from "./note-text";
  *    next reminder (in-app only: reminder_sms_deliveries rejected/in_app_only). No SMS, Bale, customer message or staff bell.
  */
 import { crmDb, execute, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
+import { sf480NoPopups } from "./sales-fixes-480000";
 import { cqRaw, fromTehran, nextWorkDayAt, toWorkingTime, tParts, tYmd, isWorkDay, WORK_END_MIN, REMINDER_START_MIN, rmBeforeOpen, rmOpenAt } from "./call-queue";
 import { listOfficialHolidays } from "./official-holidays";
 import { EL_USERS, elUsers, elCustomerAccess, elLocked, elOwnCustomer } from "./expert-lockdown";
@@ -72,7 +73,9 @@ function flagRow(): { value: string; updated_at: string } | null {
   try { return queryRow<{ value: string; updated_at: string }>("SELECT value, updated_at FROM call_queue_settings WHERE key=?", [RM_FLAG_KEY]) ?? null; } catch { return null; }
 }
 export const rmFlagOn = (): boolean => { try { return cqRaw(RM_FLAG_KEY) === "1"; } catch { return false; } };
-export const rmOn = (u: U): boolean => rmTarget(u) && rmFlagOn();
+// SALES-FIXES 480000 (t810u «هیچ پاپ‌آپی»): the mandatory reminder popup is retired; reminders are done in «کارهای امروز من» in order.
+// flag.sf480_no_popups = '0' brings the feed back (the client host is removed either way).
+export const rmOn = (u: U): boolean => rmTarget(u) && rmFlagOn() && !sf480NoPopups();
 
 let ready = false;
 function ensure(): void {
