@@ -34,7 +34,7 @@ const facts = planFacts(LOAN_PLANS_SNAPSHOT);
             <li><a class="ft-ext" href={contactTelHref(e.ext)}><span>{e.name}</span><span class="ext ltr" dir="ltr">داخلی {e.extFa}</span></a></li>
           ))}
           <li><a href="/request/?src=footer"><I name="callback" size={18} /><span>ثبت درخواست</span></a></li>
-          <li><I name="clock" size={18} /><span>{WORK_HOURS.daysFa}، {WORK_HOURS.fa}</span></li>
+          <li><span class="ft-hours"><I name="clock" size={18} /><span>{WORK_HOURS.daysFa}، {WORK_HOURS.fa}</span></span></li>
           <li><address class="not-italic" data-address>{SITE.address}</address></li>
           <li><a href={SOCIAL.instagram.href} target="_blank" rel="noopener" aria-label="اینستاگرام نفیس وام"><I name="ig" size={18} /><span>اینستاگرام <span class="ltr">@{SOCIAL.instagram.handle}</span></span></a></li>
           <li>
