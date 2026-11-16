@@ -409,17 +409,26 @@ export function useDqMemo(q: DqQueue | null | undefined) { return useMemo(() => 
  *  new number → «ثبت نام و شروع تماس اول» (the name step, then the first-call form). No popup, no overlay. */
 export function DqNowIncoming({ q, openId, onPick }: { q: DqQueue; openId: string | null; onPick: (it: DqItem) => void }) {
   const rows = q.items.filter((x) => x.kind === "incoming_call" && !x.done && (x.live || x.urgent))
-    .sort((a, b) => Number(b.live) - Number(a.live) || String(b.due_at ?? "").localeCompare(String(a.due_at ?? ""))).slice(0, 3);
+    .sort((a, b) => Number(b.live) - Number(a.live) || String(b.due_at ?? "").localeCompare(String(a.due_at ?? "")));
+  // Same threshold as the 450000 queue strip (§7): more than groupOver (default 2) → one grouped card with an expand toggle.
+  const grouped = rows.length > (q.groupOver ?? 2);
+  const [expanded, setExpanded] = useState(false);
   if (!rows.length) return null;
   const hm = (iso: string | null) => { if (!iso) return ""; const d = new Date(iso); return Number.isNaN(d.getTime()) ? "" : new Intl.DateTimeFormat("fa-IR", { timeZone: "Asia/Tehran", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d); };
+  const showRows = !grouped || expanded;
   return <section className="sf-now" aria-label="اکنون، تماس ورودی" data-testid="sf-now-incoming">
-    {rows.map((it) => { const unknown = it.customer_id == null; const open = openId === it.id;
+    {grouped ? <div className={`sf-now-row sf-now-group${rows.some((x) => x.live) ? " live" : ""}`} data-testid="sf-now-group">
+      <span className="sf-now-k"><i className="sf-now-dot" aria-hidden="true" />اکنون</span>
+      <span className="sf-now-t"><b>{fd(rows.length)} تماس ورودی</b><span>{rows.some((x) => x.live) ? "در حال تماس" : "فوری"}</span></span>
+      <button type="button" className="btn pri sf-now-btn" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)} data-testid="sf-now-expand">{expanded ? "بستن" : "باز کردن"}</button>
+    </div> : null}
+    {showRows ? rows.map((it) => { const unknown = it.customer_id == null; const open = openId === it.id;
       return <div key={it.id} className={`sf-now-row${it.live ? " live" : ""}${open ? " open" : ""}`} data-testid="sf-now-row" data-unknown={unknown ? "1" : "0"}>
         <span className="sf-now-k"><i className="sf-now-dot" aria-hidden="true" />اکنون</span>
         <span className="sf-now-t"><b>{unknown ? "شماره‌ی ناشناس" : fd(it.name)}</b>
           <span>تماس ورودی{it.live ? "، در حال تماس" : `، ساعت ${hm(it.due_at)}`}{unknown && it.phone_masked ? <> · <bdi dir="ltr">{fd(it.phone_masked)}</bdi></> : null}{!unknown && it.customer_id ? <> · #{fd(it.customer_id)}</> : null}</span></span>
         {open ? <span className="sf-now-open" data-testid="sf-now-opened">{unknown ? "نام را پایین ثبت کن" : "صفحه‌ی مشتری باز است"}</span>
           : <button type="button" className="btn pri sf-now-btn" onClick={() => onPick(it)} data-testid="sf-now-open">{unknown ? "ثبت نام و شروع تماس اول" : "باز کردن صفحه‌ی مشتری"}</button>}
-      </div>; })}
+      </div>; }) : null}
   </section>;
 }

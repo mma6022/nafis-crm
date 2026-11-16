@@ -26,6 +26,7 @@ except sqlite3.OperationalError: pass
 c.commit()
 now = datetime.datetime(2026,11,17,7,49,20,tzinfo=datetime.timezone.utc)
 own = c.execute("SELECT id, phone FROM customers WHERE salesperson_id=6 AND merged_into_customer_id IS NULL AND status='in_progress' ORDER BY id DESC LIMIT 1 OFFSET 3").fetchone()
+own2 = c.execute("SELECT id, phone FROM customers WHERE salesperson_id=6 AND merged_into_customer_id IS NULL AND status='in_progress' AND id<>? ORDER BY id DESC LIMIT 1 OFFSET 5", (own[0],)).fetchone()
 mx = c.execute("SELECT COALESCE(MAX(id),0) FROM voip_after_call_events").fetchone()[0]
 def ev(eid, phone, cust, at):
     c.execute("""INSERT INTO voip_after_call_events(id,external_id,phone,direction,status,started_at,ended_at,extension,extensions_json,expert_user_id,expert_name,salesperson_id,customer_id,has_recording,is_live)
@@ -33,4 +34,5 @@ def ev(eid, phone, cust, at):
 if os.environ.get("SEED_INCOMING", "1") == "1":
     ev(mx+1, own[1], own[0], now)
     ev(mx+2, "09120000480", None, now + datetime.timedelta(seconds=20))
-c.commit(); print("seeded", own[0], mx+1, mx+2)
+    if own2: ev(mx+3, own2[1], own2[0], now + datetime.timedelta(seconds=40))
+c.commit(); print("seeded", own[0], own2[0] if own2 else None, mx+1, mx+2, (mx+3) if own2 else None)

@@ -10,14 +10,14 @@
   .app-shell.ssv2 .ss-top:has(.sf-sbtn) .ss-ttl h1{font-size:16px;overflow:hidden;text-overflow:ellipsis}
 }
 body.sf-noscroll{overflow:hidden}
-.sf-ov{position:fixed;inset:0;z-index:1200;background:rgba(17,24,39,.62);backdrop-filter:blur(3px);display:flex;justify-content:center;align-items:flex-start;padding:14vh 16px 16px}
+.sf-ov{position:fixed;inset:0;z-index:1200;background:rgba(17,24,39,.62);backdrop-filter:blur(3px);display:flex;justify-content:center;align-items:flex-start;padding:14vh 16px calc(var(--ss-dock-h, var(--dock-h, 72px)) + 16px + env(safe-area-inset-bottom, 0px))}
 .sf-sbox{width:min(680px,100%);max-height:76vh;display:flex;flex-direction:column;gap:10px}
 .sf-sinp{display:flex;align-items:center;gap:10px;background:#fff;border-radius:18px;padding:0 14px;min-height:60px;box-shadow:var(--nf-shadow-pop,0 20px 50px rgba(0,0,0,.25));color:var(--nf-ink-muted)}
 .sf-sinp input{flex:1;border:0;outline:none;font:inherit;font-size:18px;color:var(--nf-ink);background:transparent;min-width:0;height:58px}
 .sf-sx{background:none;border:0;color:var(--nf-ink-muted);cursor:pointer;min-width:40px;min-height:40px;border-radius:50%}
 .sf-sx:hover{background:var(--nf-surface-2)}
 .sf-shint{margin:0;color:#E5E7EB;font-size:13px;text-align:center}
-.sf-sres{overflow-y:auto;display:flex;flex-direction:column;gap:8px}
+.sf-sres{overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-bottom:calc(var(--ss-dock-h, var(--dock-h, 72px)) + 16px + env(safe-area-inset-bottom, 0px))}
 .sf-sempty{margin:0;background:rgba(255,255,255,.92);border-radius:14px;padding:14px;text-align:center;color:var(--nf-ink-muted)}
 .sf-serr{margin:0;background:var(--nf-danger-50,#fef2f2);color:var(--nf-danger,#b91c1c);border-radius:14px;padding:12px}
 .sf-shit{background:#fff;border-radius:16px;padding:6px;box-shadow:var(--nf-shadow-card)}
@@ -34,7 +34,7 @@ body.sf-noscroll{overflow:hidden}
 .sf-life.completed{background:var(--nf-success-50);color:var(--nf-success)}
 .sf-life.cancelled{background:var(--nf-danger-50);color:var(--nf-danger)}
 /* kanban */
-.sf-kb-page,.sf-mc-page{padding:16px var(--nf-gutter,20px) 28px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.sf-kb-page,.sf-mc-page{padding:16px var(--nf-gutter,20px) calc(var(--ss-dock-h, var(--dock-h, 72px)) + 16px + env(safe-area-inset-bottom, 0px));display:flex;flex-direction:column;gap:12px;min-width:0}
 .sf-kb-h{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px}
 .sf-kb-h h1{margin:0;font-size:22px;color:var(--nf-ink)}
 .sf-sp{flex:1}
@@ -60,7 +60,7 @@ body.sf-noscroll{overflow:hidden}
 .sf-ke{display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 6px;color:var(--nf-ink-faint,var(--nf-ink-muted));font-size:13px;text-align:center}
 .sf-kb-foot{margin:0}
 @media (max-width:699.98px){
-  .sf-kb-page,.sf-mc-page{padding:12px 12px 24px}
+  .sf-kb-page,.sf-mc-page{padding:12px 12px calc(var(--ss-dock-h, var(--dock-h, 72px)) + 16px + env(safe-area-inset-bottom, 0px))}
   .sf-kb-h h1{font-size:19px}
   .sf-kb-h .btn{flex:1 1 auto;justify-content:center}
   .sf-kb-chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
@@ -97,7 +97,8 @@ body.sf-noscroll{overflow:hidden}
 .sf-rp-chev.on{transform:rotate(-90deg)}
 /* «اکنون» incoming call row (DCI) */
 .sf-now{display:flex;flex-direction:column;gap:6px;margin:0 0 10px}
-.sf-now-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;background:var(--nf-call-ok-50,#ecfdf5);border:1px solid var(--nf-call-ok,#059669);border-radius:14px;padding:10px 14px}
+.sf-now-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;background:var(--nf-call-ok-50,#ecfdf5);border:1px solid var(--nf-call-ok,#059669);border-radius:14px;padding:8px 14px;min-height:60px}
+.sf-now-group .sf-now-btn{min-width:44px}
 .sf-now-row.open{background:#fff}
 .sf-now-k{display:inline-flex;align-items:center;gap:6px;font-weight:800;color:var(--nf-call-ok,#047857);font-size:14px}
 .sf-now-dot{width:10px;height:10px;border-radius:50%;background:var(--nf-call-ok,#059669);box-shadow:0 0 0 0 rgba(5,150,105,.5);animation:sfpulse 1.6s infinite}
