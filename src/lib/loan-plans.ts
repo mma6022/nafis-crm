@@ -64,7 +64,12 @@ export function applyPlanOverrides(p: LoanPlan): LoanPlan {
   if (g.pages) out.guaranteePages = g.pages;
   if (g.retireesOnly) out.retireesOnly = true;
   if (g.documents) out.documentsNote = g.documents;
-  if (typeof g.noGuarantorShare === 'number' && g.noGuarantorShare > 0 && g.noGuarantorShare < 1) out.noGuarantorShare = g.noGuarantorShare;
+  if (typeof g.noGuarantorPayout === 'number' && g.noGuarantorPayout > 0) {
+    const max = Math.max(0, ...p.installmentTerms.map((term) => term.payout));
+    if (max > 0) out.noGuarantorShare = Math.min(1, g.noGuarantorPayout / max);
+  } else if (typeof g.noGuarantorShare === 'number' && g.noGuarantorShare > 0 && g.noGuarantorShare < 1) {
+    out.noGuarantorShare = g.noGuarantorShare;
+  }
   return out;
 }
 
@@ -162,7 +167,7 @@ export const PROCESS_MODE_LABEL: Record<string, string> = {
   in_person: 'حضوری',
   online: 'غیرحضوری',
 };
-export const GRANT_DAYS_LABEL: Record<string, string> = { under_7: 'کمتر از ۷ روز', '10_to_15': '۱۰ تا ۱۵ روز' };
+export const GRANT_DAYS_LABEL: Record<string, string> = { under_7: 'کمتر از ۷ روز', '7_to_10': '۷ تا ۱۰ روز', '10_to_15': '۱۰ تا ۱۵ روز' };
 export const label = (map: Record<string, string>, key: string) => map[key] ?? key;
 
 /** Validate and drop individually-invalid plans instead of failing the whole list. */

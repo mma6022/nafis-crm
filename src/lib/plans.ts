@@ -371,7 +371,7 @@ export const FINDER_LABEL = {
   band: ['کمتر از ۱۰۰ میلیون', '۱۰۰ تا ۲۰۰ میلیون', 'بیش از ۲۰۰ میلیون'],
   prio: { fast: 'زودتر برسد', cheap: 'مدت بازپرداخت کوتاه‌تر', online: 'بدون مراجعه حضوری' } as Record<FinderPrio, string>,
 };
-export const DAYS_LABEL: Record<string, string> = { under_7: 'کمتر از ۷ روز', '10_to_15': '۱۰ تا ۱۵ روز' };
+export const DAYS_LABEL: Record<string, string> = { under_7: 'کمتر از ۷ روز', '7_to_10': '۷ تا ۱۰ روز', '10_to_15': '۱۰ تا ۱۵ روز' };
 /** Card «روش» label. Never «کاملاً آنلاین»: there is no data for it (ANSWERS-1 §4). */
 export const MODE_LABEL: Record<string, string> = { both: 'آنلاین یا حضوری', in_person: 'حضوری', online: 'آنلاین' };
 
@@ -392,7 +392,7 @@ export const planQualifies = (p: LoanPlan, page: GuaranteePage) => qualifiesFor(
 export const guaranteePagePlans = (plans: LoanPlan[], page: GuaranteePage) =>
   plans.filter((p) => qualifiesFor(p, page)).sort((a, b) => a.id - b.id);
 /** review-time order of the CRM's grantDays buckets (smaller = faster) */
-export const DAYS_RANK: Record<string, number> = { under_7: 0, '10_to_15': 1 };
+export const DAYS_RANK: Record<string, number> = { under_7: 0, '7_to_10': 1, '10_to_15': 2 };
 /**
  * «فوری بدون چک / بدون ضامن» (PM 2026-10-23; copy A2/A3 2026-10-28): never empty. The plans meeting the base
  * guarantee condition (no-cheque / no-guarantor), max 3, sorted by the real review-time data (grantDays, DAYS_RANK).

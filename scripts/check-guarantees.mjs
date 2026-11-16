@@ -50,10 +50,10 @@ const CONFIRMED = {
   /** 2026-10-29: 5, 7, 11, 15 inactive in the CRM (live export = 14 active plans; snapshot refreshed at build) → removed
    *  everywhere below. Only removals; new plan 23 has no confirmed guarantee layer → on no guarantee page. */
   'no-guarantor': [3, 8, 9, 12, 14, 17, 18, 19, 21, 22],
-  /** copy A3 (2026-10-28) rule on the 17 live plans: all qualifying plans are 10_to_15 → ties by the highest مبلغ واریزی
-   *  without a guarantor: 19 چابک, 8, 9 (9 capped at ۳۰۰ میلیون). DERIVED FROM DATA 2026-10-28 — flagged for PM / Mohammad
-   *  confirmation (the 2026-10-23 per-type answer was [19, 15]). */
-  'fast-no-guarantor': [19, 8, 9],
+  /** copy A3 rule, refreshed from live data 2026-11-16: all current qualifying plans are 10_to_15 → ties by the highest
+   *  مبلغ واریزی without a guarantor: 19 چابک (214M), 8 ترنم (189M), 22 فراسا (180M). Plan 9 مروارید stays capped at 174M
+   *  (0.6 × 290M) so it drops to 4th. New plans 24/25/26 have no guarantee overlay (fail-closed). */
+  'fast-no-guarantor': [19, 8, 22],
   'no-cheque': [20, 21],
   /** fastest ≤3 qualifying plans (all 10_to_15 → ties by id) */
   'fast-no-cheque': [20, 21],
@@ -65,7 +65,7 @@ const CONFIRMED = {
 const uniq = (a) => [...new Set(a)].sort((x, y) => x - y);
 const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 const expected = {};
-const RANK = { under_7: 0, '10_to_15': 1 };
+const RANK = { under_7: 0, '7_to_10': 1, '10_to_15': 2 };
 /** independent re-implementation of lib/plans topPlanPerType */
 const baseName = (n) => {
   let s = String(n).replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();

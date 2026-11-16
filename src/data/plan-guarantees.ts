@@ -10,7 +10,7 @@
  * - A plan that is missing here has NO guarantee data: it is never listed on a guarantee page and the site states
  *   nothing about its guarantee (fail-closed for plans the CRM adds later).
  * - noGuarantorShare: share of the payout obtainable WITHOUT a guarantor when that way has a lower loan cap (plan 3:
- *   56/169 = the CRM whole-million card values 56M / 169M (PLANS-49), plan 9: 0.6). The public text states only مبلغ واریزی (Mohammad 2026-10-28: never the principal); the build
+ *   plan 3: confirmed 56M no-guarantor مبلغ واریزی (noGuarantorPayout; was 56/169 when the with-guarantor card was 169M, PLANS-49), plan 9: 0.6). The public text states only مبلغ واریزی (Mohammad 2026-10-28: never the principal); the build
  *   checks the «بدون ضامن … حدود N میلیون» figure against the data. Absent = no lower cap. Used by «سریع‌ترین بدون ضامن».
  * - retireesOnly: the plan is offered ONLY to retirees (plan 21, DB condition #437 job = بازنشسته, note «فقط مخصوص
  *   بازنشسته ها»): the finder shows it only when «بازنشسته» is chosen and its card carries «ویژه‌ی بازنشستگان».
@@ -29,8 +29,10 @@ export interface PlanGuarantee {
   documents?: string;
   pages?: GuaranteePage[];
   retireesOnly?: boolean;
-  /** share (0–1) of the payout obtainable without a guarantor, when lower than with one (plan 3: 1/3, plan 9: 0.6) */
+  /** share (0–1) of the payout obtainable without a guarantor, when lower than with one (plan 9: 0.6) */
   noGuarantorShare?: number;
+  /** absolute no-guarantor مبلغ واریزی in toman (plan 3: confirmed 56M card). Share is derived from the plan's current max payout so the public figure stays 56M when payouts change. */
+  noGuarantorPayout?: number;
 }
 
 const CHEQUE_3P = 'اگر خودتان چک ندارید، چک شخص دیگری هم پذیرفته می‌شود.';
@@ -41,9 +43,9 @@ export const PLAN_GUARANTEES: Record<number, PlanGuarantee> = {
   7: { guaranteeOptions: [['cheque']], summary: 'چک شخصی خود متقاضی؛ اگر چک ندارید، چک شخص دیگری هم پذیرفته می‌شود' },
   3: {
     guaranteeOptions: [['cheque', 'guarantor'], ['cheque']],
-    summary: 'چک صیادی؛ با ضامن مبلغ واریزی حدود ۱۶۹ میلیون تومان، بدون ضامن حدود ۵۶ میلیون تومان',
+    summary: 'چک صیادی؛ با ضامن مبلغ واریزی حدود ۱۸۰ میلیون تومان، بدون ضامن حدود ۵۶ میلیون تومان',
     why: { 'no-guarantor': 'بدون ضامن، فقط با چک صیادی (مبلغ واریزی حدود ۵۶ میلیون تومان)' },
-    noGuarantorShare: 56 / 169,
+    noGuarantorPayout: 56_000_000,
   },
   4: { guaranteeOptions: [['cheque', 'guarantor']], summary: 'چک صیادی به‌همراه ضامن' },
   5: { guaranteeOptions: [['cheque', 'guarantor']], summary: 'چک صیادی به‌همراه ضامن' },
