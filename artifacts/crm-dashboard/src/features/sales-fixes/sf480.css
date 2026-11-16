@@ -60,7 +60,9 @@ body.sf-noscroll{overflow:hidden}
 .sf-ke{display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 6px;color:var(--nf-ink-faint,var(--nf-ink-muted));font-size:13px;text-align:center}
 .sf-kb-foot{margin:0}
 @media (max-width:699.98px){
-  .sf-kb-page,.sf-mc-page{padding:12px 12px calc(var(--ss-dock-h, var(--dock-h, 72px)) + 16px + env(safe-area-inset-bottom, 0px))}
+  /* Fit under the sticky top bar (~70px); padding-bottom is already dock+16 so the hint stays in the first viewport. */
+  .sf-kb-page,.sf-mc-page{padding:12px 12px calc(var(--ss-dock-h, var(--dock-h, 72px)) + 16px + env(safe-area-inset-bottom, 0px));max-height:calc(100dvh - 70px);overflow:hidden;box-sizing:border-box}
+  .sf-kb,.sf-mc-list{flex:1 1 auto;min-height:0;overflow:auto}
   .sf-kb-h h1{font-size:19px}
   .sf-kb-h .btn{flex:1 1 auto;justify-content:center}
   .sf-kb-chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
