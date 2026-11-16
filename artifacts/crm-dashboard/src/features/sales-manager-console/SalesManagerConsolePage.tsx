@@ -117,6 +117,10 @@ function Console({ st }: { st: SmcState }) {
     const first = [...initialOpen][0];
     if (first && first !== 'teams') requestAnimationFrame(() => document.getElementById(`s-${first}`)?.scrollIntoView({ block: 'start' }));
   }, [initialOpen]);
+  // 390 section tabs: keep the active tab in view when the row scrolls horizontally (Armita visual review).
+  useEffect(() => {
+    document.querySelector<HTMLElement>('.smc-idx a.smc-on')?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+  }, [active]);
 
   const dirty = SECTION_IDS.filter((s) => changesOf(s) > 0);
   const toggle = (id: string) => setOpen((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -148,7 +152,10 @@ function Console({ st }: { st: SmcState }) {
         <div className={c('main')}>
           {dirty.length ? (
             <div className={c('draftbar')} role="status">
-              <span className={c('grow')}>{fa(dirty.length)} بخش تغییر ذخیره‌نشده دارد. تا «ذخیره و اعمال» نزنید، روی کارشناس‌ها اثری ندارد.</span>
+              <span className={c('grow')}>
+                <span className={c('draft-full')}>{fa(dirty.length)} بخش تغییر ذخیره‌نشده دارد. تا «ذخیره و اعمال» نزنید، روی کارشناس‌ها اثری ندارد.</span>
+                <span className={c('draft-short')}>{fa(dirty.length)} بخش ذخیره‌نشده</span>
+              </span>
               <button className={c('btn gh')} type="button" onClick={() => void cancel(dirty)}>لغو همه</button>
               <button className={c('btn pri')} type="button" onClick={() => void askApply(dirty)}>ذخیره و اعمال همه</button>
             </div>
