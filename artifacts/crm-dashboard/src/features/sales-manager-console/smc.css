@@ -224,7 +224,7 @@
 .smc-root .smc-pg{grid-template-columns:minmax(0,1fr)}
 .smc-root .smc-idx{position:sticky;top:var(--top-h);z-index:25;flex-direction:row;flex-wrap:wrap;overflow-x:visible;background:var(--surface);margin:0 -24px;padding:8px 24px;gap:6px;scrollbar-width:none}
 .smc-root .smc-idx h2,.smc-root .smc-idx .smc-who{display:none}
-.smc-root .smc-idx a{flex:none;background:#fff;border:1px solid var(--line)}
+.smc-root .smc-idx a{flex:none;background:#fff;border:1px solid var(--line);scroll-margin-inline:12px}
 .smc-root .smc-medit,.smc-root .smc-dgrid{grid-template-columns:minmax(0,1fr)}
 }
 @container smc (max-width:640px){

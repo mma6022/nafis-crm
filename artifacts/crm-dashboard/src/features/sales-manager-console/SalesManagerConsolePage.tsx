@@ -113,14 +113,25 @@ function Console({ st }: { st: SmcState }) {
     els.forEach((e) => io.observe(e));
     return () => io.disconnect();
   }, []);
+  const scrollTabIntoRow = (id: string) => {
+    requestAnimationFrame(() => {
+      const row = document.querySelector<HTMLElement>('.smc-idx');
+      const el = row?.querySelector<HTMLElement>(`a[href="#s-${id}"]`);
+      if (!row || !el) return;
+      const rr = row.getBoundingClientRect(), er = el.getBoundingClientRect();
+      if (er.left < rr.left + 2 || er.right > rr.right - 2) {
+        el.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
+      }
+    });
+  };
   useEffect(() => { // ?open=model → scroll to it once (shots and links from the history)
     const first = [...initialOpen][0];
-    if (first && first !== 'teams') requestAnimationFrame(() => document.getElementById(`s-${first}`)?.scrollIntoView({ block: 'start' }));
+    if (!first) return;
+    requestAnimationFrame(() => {
+      if (first !== 'teams') document.getElementById(`s-${first}`)?.scrollIntoView({ block: 'start' });
+      scrollTabIntoRow(first);
+    });
   }, [initialOpen]);
-  // 390 section tabs: keep the active tab in view when the row scrolls horizontally (Armita visual review).
-  useEffect(() => {
-    document.querySelector<HTMLElement>('.smc-idx a.smc-on')?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
-  }, [active]);
 
   const dirty = SECTION_IDS.filter((s) => changesOf(s) > 0);
   const toggle = (id: string) => setOpen((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -143,7 +154,7 @@ function Console({ st }: { st: SmcState }) {
         <nav className={c('idx')} aria-label="بخش‌های این صفحه">
           <h2>بخش‌ها</h2>
           {SECS.map(([id, t], i) => (
-            <a key={id} href={`#s-${id}`} className={c(active === id && 'on')} onClick={() => setOpen((o) => new Set(o).add(id))}>
+            <a key={id} href={`#s-${id}`} className={c(active === id && 'on')} onClick={() => { setOpen((o) => new Set(o).add(id)); scrollTabIntoRow(id); }}>
               <span className={c('n')}>{fa(i + 1)}</span>{t}{id !== 'audit' && changesOf(id as SectionId) > 0 ? <span className={c('dot')} aria-label="تغییر ذخیره‌نشده" /> : null}
             </a>
           ))}
