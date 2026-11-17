@@ -1,5 +1,34 @@
 /** plan-advisor v1 display helpers. No new calculator math — amounts come from the server quote. */
-export const faNum = (n: number) => n.toLocaleString("fa-IR");
+const FA = "۰۱۲۳۴۵۶۷۸۹";
+/** Persian thousands separator (U+066C). Never a Latin comma. */
+const FA_SEP = "٬";
+const FA_DEC = "٫";
+
+function faDigits(s: string): string {
+  return s.replace(/\d/g, (d) => FA[Number(d)] ?? d);
+}
+
+/**
+ * Same grouping as the rest of the CRM (fa-IR + «٬»), but the separator is
+ * inserted explicitly so Chrome/ICU cannot emit a Latin comma.
+ */
+export function faNum(n: number): string {
+  if (!Number.isFinite(n)) return "—";
+  const sign = n < 0 ? "−" : "";
+  const abs = Math.abs(n);
+  let intRaw: string;
+  let fracRaw = "";
+  if (Number.isInteger(abs)) {
+    intRaw = String(abs);
+  } else {
+    const rounded = Math.round(abs * 10) / 10 === abs ? abs.toFixed(1) : String(abs);
+    const [i, f = ""] = rounded.split(".");
+    intRaw = i;
+    fracRaw = f.replace(/0+$/, "");
+  }
+  const grouped = intRaw.replace(/\B(?=(\d{3})+(?!\d))/g, FA_SEP);
+  return sign + faDigits(grouped) + (fracRaw ? FA_DEC + faDigits(fracRaw) : "");
+}
 export const faToman = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "—" : `${faNum(n)} تومان`);
 
 export function paTotalPayable(installment: number, count: number, downPayment: number, filingFee: number): number {
@@ -18,7 +47,7 @@ export function paStepLabel(step: PaStep): string {
 export function formatPrincipalInput(raw: string): string {
   const d = raw.replace(/[۰-۹]/g, (c) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(c))).replace(/[٠-٩]/g, (c) => String("٠١٢٣٤٥٦٧٨٩".indexOf(c))).replace(/[^\d]/g, "");
   if (!d) return "";
-  return Number(d).toLocaleString("fa-IR");
+  return faNum(Number(d));
 }
 export function parsePrincipalInput(raw: string): number | null {
   const d = raw.replace(/[۰-۹]/g, (c) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(c))).replace(/[٠-٩]/g, (c) => String("٠١٢٣٤٥٦٧٨٩".indexOf(c))).replace(/[^\d]/g, "");

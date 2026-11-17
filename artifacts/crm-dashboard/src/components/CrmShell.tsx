@@ -797,12 +797,12 @@ function SsNavHost(p: SsHostProps) {
   const toItems = (hrefs: string[]) => hrefs.map(itemOf).filter((x): x is SsItem => x !== null);
   const astItem: SsItem | null = p.ast && !(p.bnv2 && slots.kind === 'admin') ? { key: 'ast', label: 'دستیار', full: `چت دستیار (${p.ast.name})`, icon: <>{p.ast.name.slice(0, 1)}</>, avatar: true, testId: 'ast', onSelect: p.ast.open, moon: p.ast.dnd,
     badge: p.ast.unread ? { n: p.ast.unread, tone: 'n', what: 'پیام تازه از دستیار' } : null } : null;
-  // plan-advisor v1: dock «دستیار» opens the advisor sheet (no FAB). If AI chat is also present, keep it as «چت دستیار» in بیشتر.
+  // plan-advisor v1: dock «دستیار» opens the advisor sheet (no FAB). If AI chat is also present, it is «چت هوش مصنوعی» in بیشتر.
   const paCtl = usePlanAdvisorOptional();
   const paOn = usePaOn();
   const paItem: SsItem | null = paOn && paCtl ? { key: 'pa', label: 'دستیار', full: 'دستیار مشاوره', icon: ic(MessageSquare), testId: 'pa-dock', onSelect: () => paCtl.openSheet() } : null;
   const astOnDock: SsItem | null = paItem ? null : astItem;
-  const astInMore: SsItem | null = paItem && astItem ? { ...astItem, label: 'چت دستیار' } : null;
+  const astInMore: SsItem | null = paItem && astItem ? { ...astItem, label: 'چت هوش مصنوعی', full: `چت هوش مصنوعی (${p.ast?.name ?? ''})`.trim() } : null;
   const todayHref = slots.before[0] === '/' || slots.before[0] === '/today' ? slots.before[0] : (itemOf('/today') ? '/today' : itemOf('/') ? '/' : null);
   const lists: SsItem[] = [
     ...toItems(slots.listsFirst),
@@ -820,11 +820,25 @@ function SsNavHost(p: SsHostProps) {
     ? [ ...(moreRest.length ? [{ title: 'فهرست‌ها', items: moreRest }] : []), { title: 'حساب من', items: account } ]
     : [{ title: 'پرونده و پرداخت', items: moreRest }, { title: 'حساب من', items: account }];
   const primary = slots.primary ? () => { ssRequestIncoming(); if (p.location !== '/today') setLocation('/today'); } : null;
-  const withAst = (hrefs: string[], includeAst: boolean) => [...toItems(hrefs), ...(paItem ? [paItem] : []), ...(includeAst && astOnDock ? [astOnDock] : [])];
   const showAst = Boolean(astOnDock) && slots.kind !== 'admin';
+  // 390 tab bar is a fixed 5-column grid. Put «دستیار» on it while the flag is ON; the last tab moves to «بیشتر» so the row stays 5.
+  const rawTabs = toItems(slots.tabs);
+  let tabItems = rawTabs;
+  let extraDaily: SsItem[] = [];
+  if (paItem && p.mobile) {
+    if (rawTabs.length >= 3) {
+      const moved = rawTabs[rawTabs.length - 1];
+      tabItems = [...rawTabs.slice(0, -1), paItem];
+      if (moved && !(moved.href && slots.daily.includes(moved.href))) extraDaily = [moved];
+    } else {
+      tabItems = [...rawTabs, paItem];
+    }
+  }
+  const afterItems = [...toItems(slots.after), ...(paItem ? [paItem] : []), ...(showAst && astOnDock ? [astOnDock] : [])];
+  const dailyItems = [...toItems(slots.daily), ...extraDaily, ...(showAst && astOnDock ? [astOnDock] : [])];
   return <SalesShellNav
-    before={toItems(slots.before)} after={withAst(slots.after, showAst)} midSep={slots.midSep}
-    tabs={toItems(slots.tabs)} daily={withAst(slots.daily, showAst)} groups={groups}
+    before={toItems(slots.before)} after={afterItems} midSep={slots.midSep}
+    tabs={tabItems} daily={dailyItems} groups={groups}
     primary={primary} isActive={p.isActive} healthOk={p.healthOk} onLogout={p.onLogout} logoutPending={p.logoutPending}
     location={p.location} mobile={p.mobile} blocked={ov.any} userId={p.userId} />;
 }

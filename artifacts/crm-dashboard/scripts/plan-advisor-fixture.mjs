@@ -15,11 +15,31 @@ ok("§6.3 total payable is installment×count + down payment + file fee (commiss
 });
 
 ok("Persian grouping and month list", () => {
-  assert.equal(faNum(350_000_000), (350_000_000).toLocaleString("fa-IR"));
+  assert.equal(faNum(350_000_000), "۳۵۰٬۰۰۰٬۰۰۰");
   assert.ok(faToman(245_000_000).includes("تومان"));
   assert.equal(faMonths([]), "");
   assert.ok(faMonths([18]).includes("۱۸"));
   assert.ok(faMonths([12, 18, 24]).includes("و"));
+});
+
+ok("rendered numbers use the Persian thousands separator ٬, never a Latin comma", () => {
+  const samples = [
+    faNum(300_000_000), faNum(2301), faNum(18), faNum(12_300_000),
+    faToman(19_864_314), faToman(357_857_652), faToman(12_300_000),
+    formatPrincipalInput("300000000"), formatPrincipalInput("۳۰۰۰۰۰۰۰۰"),
+    `سقف ${faToman(300_000_000)}`, `#${faNum(2301)}`,
+  ];
+  for (const s of samples) {
+    assert.equal(s.includes(","), false, `Latin comma in ${JSON.stringify(s)}`);
+    assert.equal(s.includes(","), false, s);
+  }
+  assert.equal(faNum(300_000_000), "۳۰۰٬۰۰۰٬۰۰۰");
+  assert.equal(faNum(2301), "۲٬۳۰۱");
+  assert.equal(faNum(18), "۱۸");
+  assert.equal(faNum(12_300_000), "۱۲٬۳۰۰٬۰۰۰");
+  assert.equal(formatPrincipalInput("300000000"), "۳۰۰٬۰۰۰٬۰۰۰");
+  assert.ok(faNum(300_000_000).includes("٬"));
+  assert.ok(faNum(2301).includes("٬"));
 });
 
 ok("principal input parses Western and Persian digits", () => {

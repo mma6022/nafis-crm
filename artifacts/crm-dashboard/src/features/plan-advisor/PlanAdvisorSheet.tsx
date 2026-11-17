@@ -67,9 +67,20 @@ export function PlanAdvisorSheet() {
   return (
     <div className="pa pa-mask" data-testid="pa-sheet" role="dialog" aria-modal="true" aria-labelledby="pa-sheet-title" dir="rtl" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
       <div className="pa-sheet" onClick={(e) => e.stopPropagation()}>
-        <div className="pa-sheet-hd">
-          <h2 id="pa-sheet-title">دستیار مشاوره</h2>
-          <button type="button" className="pa-btn gh" aria-label="بستن" data-testid="pa-sheet-close" onClick={close}>×</button>
+        <div className="pa-sheet-sticky" data-testid="pa-sheet-sticky">
+          <div className="pa-sheet-hd">
+            <h2 id="pa-sheet-title">دستیار مشاوره</h2>
+            <button type="button" className="pa-btn gh" aria-label="بستن" data-testid="pa-sheet-close" onClick={close}>×</button>
+          </div>
+          {cid && pa.step >= 1 ? (
+            <div className="pa-picked" data-testid="pa-picked">
+              <div>
+                <b>{suggest.data?.customer.name ?? "…"}</b>
+                <span>#{faNum(cid)}{credit?.rank ? ` · رتبه ${credit.rank}` : ""}{credit?.chequeColor ? ` · رنگ چک ${colorFa[credit.chequeColor] ?? credit.chequeColor}` : ""}</span>
+              </div>
+            </div>
+          ) : null}
+          {pa.step === 3 && cid ? <h3 className="pa-plan-title">{selected?.name ?? quote?.planName ?? "طرح"}</h3> : null}
         </div>
         <div className="pa-prog">
           <p>{paStepLabel(pa.step)}</p>
@@ -85,15 +96,6 @@ export function PlanAdvisorSheet() {
                 <li key={c.id}><button type="button" data-testid={`pa-cust-${c.id}`} onClick={() => { pa.setCustomerId(c.id); pa.setStep(1); }}>{c.name} <span>#{faNum(c.id)}</span></button></li>
               ))}
             </ul>
-          </div>
-        ) : null}
-
-        {cid && pa.step >= 1 ? (
-          <div className="pa-picked" data-testid="pa-picked">
-            <div>
-              <b>{suggest.data?.customer.name ?? "…"}</b>
-              <span>#{faNum(cid)}{credit?.rank ? ` · رتبه ${credit.rank}` : ""}{credit?.chequeColor ? ` · رنگ چک ${colorFa[credit.chequeColor] ?? credit.chequeColor}` : ""}</span>
-            </div>
           </div>
         ) : null}
 
@@ -178,7 +180,6 @@ export function PlanAdvisorSheet() {
 
         {pa.step === 3 && cid ? (
           <div data-testid="pa-step-calc">
-            <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 800, color: "var(--nf-ink, #0B1450)" }}>{selected?.name ?? quote?.planName ?? "طرح"}</h3>
             <label className="pa-field">
               <span>اصل مبلغ (تومان)</span>
               <input inputMode="numeric" className={quote?.overCeiling ? "bad" : undefined} value={prinText} data-testid="pa-principal"
