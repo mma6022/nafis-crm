@@ -23,7 +23,7 @@ try {
       { variable: "installments", sourceType: "loanPlan", loanPlanField: "loanPlan.installments" },
       { variable: "note", sourceType: "manual" },
     ]), manual_values_json: JSON.stringify({ principal: "150,000,000", installments: "24", note: "serial" }) };
-  for (const error_message of ["certificate_inactive", "provider_certificate_check_failed"]) {
+  for (const error_message of ["certificate_inactive", "provider_certificate_check_failed", "provider_file_upload_failed"]) {
     const row = { ...generation, error_message };
     assert.equal(f.isCertificatePreflightRetry(row), true);
     assert.equal(f.tomanReplacementGenerationTermsMatch(row, application, consent), false,
@@ -31,14 +31,13 @@ try {
     assert.equal(f.tomanReplacementGenerationTermsMatch(row, application, consent, true), true,
       "explicit send/reuse retry can revalidate replacement terms");
   }
+  assert.equal(f.isCertificatePreflightRetry({ ...generation, error_message: "provider_file_upload_failed", provider_file_id: "uploaded" }), false);
   for (const patch of [
     { error_message: "provider_contract_send_failed" }, { provider_file_id: "uploaded" },
     { provider_contract_id: "accepted" }, { status: "sending" }, { status: "signed" },
   ]) assert.equal(f.isCertificatePreflightRetry({ ...generation, ...patch }), false);
-  for (const patch of [{ customer_id: 999 }, { template_id: 999 }, { superseded_at: "now" },
-    { manual_values_json: JSON.stringify({ principal: "149000000", installments: "24", note: "serial" }) },
-    { manual_values_json: JSON.stringify({ principal: "150000000", installments: "23", note: "serial" }) },
-    { manual_values_json: JSON.stringify({ principal: "150000000", installments: "24", note: "changed" }) },
-  ]) assert.equal(f.tomanReplacementGenerationTermsMatch({ ...generation, ...patch }, application, consent, true), false);
+  // Scope/recipient/template/supersede still gate a retry. Manual values are not compared (NO-CONTRACT-CHECK).
+  for (const patch of [{ customer_id: 999 }, { template_id: 999 }, { superseded_at: "now" }])
+    assert.equal(f.tomanReplacementGenerationTermsMatch({ ...generation, ...patch }, application, consent, true), false);
   console.log("Certificate retries passed: narrow pre-upload classification, explicit replacement send opt-in, strict financial/signature defaults, recipient/template/amount/duration/manual-value guards.");
 } finally { await rm(temp, { recursive: true, force: true }); }

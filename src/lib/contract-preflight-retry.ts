@@ -4,8 +4,10 @@
 export function isCertificatePreflightRetry(generation: {
   status?: unknown; error_message?: unknown; provider_file_id?: unknown; provider_contract_id?: unknown;
 }): boolean {
+  // provider_file_upload_failed with no saved file/contract id is the same situation:
+  // nothing reached Emzame, so the expert may retry send (or generate-and-reuse) after a filename/title fix.
   return generation.status === "failed" &&
-    ["certificate_inactive", "provider_certificate_check_failed"].includes(String(generation.error_message)) &&
+    ["certificate_inactive", "provider_certificate_check_failed", "provider_file_upload_failed"].includes(String(generation.error_message)) &&
     !generation.provider_file_id && !generation.provider_contract_id;
 }
 

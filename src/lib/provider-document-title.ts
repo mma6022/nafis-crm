@@ -38,18 +38,31 @@ export function providerContractTitle(planName: string, customerName: string): s
   return clipProviderText(`${prefix}${planPart}${mid}${customerPart}`);
 }
 
+/** Full filename (stem + extension) cap. Cut the stem only, on whole characters, never mid-codepoint.
+ *  95 characters is the requested Emzame filename limit. The 111-byte ceiling is the proven live
+ *  success cap for the sibling form `name`/title; appending ".pdf" after a 111-byte title clip
+ *  used to produce a 115-byte filename (live gen 299 pattern), which can still be rejected. */
+export const PROVIDER_FILENAME_MAX_CHARS = 95;
+export const PROVIDER_FILENAME_EXT = ".pdf";
 export function safeProviderPdfFilename(title: string, fallback: string): string {
-  const basename = clipProviderText(
-    title
-      .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, "_")
-      .replace(/\s+/g, " ")
-      .trim()
-      .replace(/[. ]+$/g, ""),
-    63,
-    111,
-  );
-  const stem = basename || clipProviderText(fallback, 40, 80) || "contract";
-  return `${stem}.pdf`;
+  const ext = PROVIDER_FILENAME_EXT;
+  const maxStemChars = Math.max(1, PROVIDER_FILENAME_MAX_CHARS - [...ext].length);
+  const maxStemBytes = Math.max(1, PROVIDER_TITLE_MAX_BYTES - Buffer.byteLength(ext, "utf8"));
+  const clean = (value: string) => value
+    .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[. ]+$/g, "");
+  const stem = clipProviderText(clean(title), maxStemChars, maxStemBytes)
+    || clipProviderText(clean(fallback), Math.min(40, maxStemChars), Math.min(80, maxStemBytes))
+    || "contract";
+  const filename = `${stem}${ext}`;
+  // Belt: the complete name, including the extension, must stay inside both caps.
+  if ([...filename].length <= PROVIDER_FILENAME_MAX_CHARS && Buffer.byteLength(filename, "utf8") <= PROVIDER_TITLE_MAX_BYTES) {
+    return filename;
+  }
+  const again = clipProviderText(stem, maxStemChars, maxStemBytes) || "contract";
+  return `${again}${ext}`;
 }
 
 /** Read a short provider error, including errorCode when the message fields are empty. */
