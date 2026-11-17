@@ -114,3 +114,9 @@ body.sf-noscroll{overflow:hidden}
 .sf-now-open{margin-inline-start:auto;font-size:13px;font-weight:700;color:var(--nf-call-ok,#047857)}
 @media (max-width:699.98px){.sf-now-btn{width:100%;justify-content:center}}
 .sf-rp-rem{align-self:flex-start;min-height:40px}
+
+@media (max-width: 1023.98px) {
+  .sf-mc-page.cpk-on-board { max-height: none; overflow: visible; }
+  .sf-mc-page.cpk-on-board .sf-kb-h h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .sf-mc-page.cpk-on-board .sf-kb-h { margin-bottom: 0; }
+}

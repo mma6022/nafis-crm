@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import {
   CPK_COLUMNS, CPK_PAGE, cpkColumnsForFilter, cpkMoreLabel, cpkUndoMessage,
-  cpkViewKey, formatFollowUp, readCpkView, writeCpkView,
+  cpkViewKey, formatFollowUp, formatLastCall, readCpkView, writeCpkView,
 } from "../src/features/customers-priority-kanban/helpers.ts";
 
 const store = new Map();
@@ -24,9 +24,9 @@ ok("column order from the right is P1, P2, P3, none; page size is 15", () => {
   assert.deepEqual(CPK_COLUMNS.map((c) => c.value), [1, 2, 3, null]);
   assert.equal(CPK_PAGE, 15);
   assert.equal(CPK_COLUMNS[0].color, "#B42318");
-  assert.equal(CPK_COLUMNS[1].color, "#E07A2A");
+  assert.equal(CPK_COLUMNS[1].color, "#B54708");
   assert.equal(CPK_COLUMNS[2].color, "#1F7A4D");
-  assert.equal(CPK_COLUMNS[3].color, "#9AA3B8");
+  assert.equal(CPK_COLUMNS[3].color, "#667085");
 });
 
 ok("a single priority filter keeps only that column", () => {
@@ -63,4 +63,14 @@ ok("follow-up is Jalali month + Tehran clock; undo names the destination column"
   assert.equal(cpkUndoMessage("نمونه", null), "اولویتِ نمونه به بدون اولویت تغییر کرد.");
 });
 
-console.log(`customers-priority-kanban helpers ${passed}/5`);
+ok("last call stays relative («X روز پیش») and never a calendar date", () => {
+  const now = new Date("2026-11-17T07:35:00.000Z");
+  assert.equal(formatLastCall("2026-11-17T07:34:30.000Z", now), "همین حالا");
+  assert.equal(formatLastCall("2026-11-16T07:35:00.000Z", now), "دیروز");
+  assert.equal(formatLastCall("2026-11-12T07:35:00.000Z", now), "۵ روز پیش");
+  assert.equal(formatLastCall("2026-10-27T07:35:00.000Z", now), "۲۱ روز پیش");
+  assert.ok(!String(formatLastCall("2026-10-27T07:35:00.000Z", now)).includes("/"));
+  assert.equal(formatLastCall(null, now), null);
+});
+
+console.log(`customers-priority-kanban helpers ${passed}/6`);

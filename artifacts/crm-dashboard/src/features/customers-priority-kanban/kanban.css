@@ -1,7 +1,10 @@
 /* customers-priority-kanban v1 (flag.customers_priority_kanban_v1). Scoped to .cpk so today's board is untouched while OFF. */
 .cpk {
-  --cpk-p1: #B42318; --cpk-p2: #E07A2A; --cpk-p3: #1F7A4D; --cpk-p0: #9AA3B8;
-  --cpk-p1-bg: #FEF0EE; --cpk-p2-bg: #FFF3E8; --cpk-p3-bg: #E8F5EE; --cpk-p0-bg: #EFF1F8;
+  --cpk-p1: #B42318; --cpk-p2: #B54708; --cpk-p3: #1F7A4D; --cpk-p0: #667085;
+  --cpk-p1-bg: color-mix(in srgb, var(--cpk-p1) 10%, white);
+  --cpk-p2-bg: color-mix(in srgb, var(--cpk-p2) 10%, white);
+  --cpk-p3-bg: color-mix(in srgb, var(--cpk-p3) 10%, white);
+  --cpk-p0-bg: color-mix(in srgb, var(--cpk-p0) 10%, white);
   --cpk-ink: var(--nf-ink, #0B1450);
   --cpk-muted: var(--nf-ink-muted, #5F6B85);
   --cpk-soft: var(--nf-ink-soft, #3D4A6B);
@@ -98,8 +101,18 @@
   display: grid; place-items: center; border: 0; background: transparent; cursor: pointer; padding: 0;
 }
 .cpk-menu:hover, .cpk-menu[aria-expanded="true"] { background: var(--cpk-surface-2); color: var(--cpk-ink); }
+.cpk-phn-mask { direction: ltr; unicode-bidi: isolate; font-weight: 700; letter-spacing: .04em; }
 .cpk-phn { display: block; direction: ltr; unicode-bidi: isolate; font-weight: 700; color: var(--cpk-ink); font-size: 14px; letter-spacing: .02em; margin: 2px 0 6px; }
 .cpk-phn .cn, .cpk-phn [data-testid] { direction: ltr; unicode-bidi: isolate; }
+/* Visual size stays the list's sm (40×36 copy, 36-tall number); hit area grows to 44×44 via padding. */
+.cpk-phn .cn-sm .cn-c {
+  box-sizing: content-box; width: 40px; height: 36px; flex-basis: 40px;
+  padding: 4px 2px; margin: -4px -2px;
+}
+.cpk-phn .cn-sm .cn-n { min-height: 36px; padding-top: 4px; padding-bottom: 4px; margin-top: -4px; margin-bottom: -4px; box-sizing: content-box; }
+.cpk .cpk-menu, .cpk .nf-rowmenu-trigger.cpk-menu {
+  box-sizing: border-box; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0;
+}
 .cpk-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12px; font-weight: 600; color: var(--cpk-muted); }
 .cpk-fu { color: var(--cpk-soft); }
 .cpk-empty { padding: 16px 8px; text-align: center; color: var(--cpk-muted); font-size: 14px; font-weight: 600; }
@@ -116,7 +129,7 @@
 .cpk-seg { display: none; }
 .cpk-snack {
   position: fixed; z-index: 60; left: 50%; transform: translateX(-50%);
-  bottom: calc(var(--dock-h, 0px) + var(--dock-gap, 0px) + 20px);
+  bottom: calc(var(--ss-dock-h, var(--dock-h, 90px)) + var(--ss-gap, var(--dock-gap, 16px)) + 12px);
   display: flex; align-items: center; gap: 12px; min-height: 48px;
   padding: 8px 8px 8px 16px; background: var(--cpk-ink); color: #fff;
   border-radius: 16px; box-shadow: 0 8px 24px rgba(11, 20, 80, .2);

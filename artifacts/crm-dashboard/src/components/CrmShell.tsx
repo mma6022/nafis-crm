@@ -31,7 +31,6 @@ import { sfScope } from '@/features/smart-filing/access';
 import { baleNavVisible } from '@/features/bale/api';
 import { layoutFor, menuKindFor, TRAINEE_SALESPERSON_IDS } from './nav-layout';
 import { EL_UIDS, elPageAllowed, useLockdownMe } from '@/features/expert-lockdown/api';
-import { useCpkOn } from '@/features/customers-priority-kanban/api';
 import { navHrefAllowedWhenLocked } from '@/features/expert-lockdown/guard';
 import { LockdownNotice } from '@/features/expert-lockdown/LockdownNotice';
 import { asFetch, asVisibleTo } from '@/features/assistant/api';
@@ -196,7 +195,6 @@ export function CrmShell({ children }: { children: ReactNode }) {
   // Ask /expert-lockdown/me for every signed-in user; the server decides who is locked
   // (EL_USERS + team members via flag.multi_team_v1). Trainee exclusion is unchanged on the server.
   const elMe = useLockdownMe(Boolean(user)).data;
-  const cpkOn = useCpkOn(); // customers-priority-kanban v1: when ON, a locked expert gets the full «مشتریان من» page (columns) instead of the short sf480 list.
   const elLocked = elMe?.locked === true;
   const { visible, leader } = useTabState();
   const mayPoll = visible || leader;
@@ -517,8 +515,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
 
   // SALES-FIXES 480000 (t810u «محدودیت مشتریان من و پرونده‌های من رو فعلا بردار»): with flag.sf480_open_lists on, a locked expert's /customers
   // is «مشتریان من» (own customers only, server-scoped GET /sales-fixes/my-customers) at any step. Other locked pages are unchanged.
-  const sfMyCustomers = elLocked && sf.openLists && location === '/customers' && !cpkOn ? <MyCustomersPage /> : null;
-  const ssLockedPage = sfMyCustomers ?? (ssV2 && elLocked ? (location === '/customers' && !cpkOn ? <CustLocked /> : location === '/reminders' ? <RemLocked /> : null) : null);
+  const sfMyCustomers = elLocked && sf.openLists && location === '/customers' ? <MyCustomersPage /> : null;
+  const ssLockedPage = sfMyCustomers ?? (ssV2 && elLocked ? (location === '/customers' ? <CustLocked /> : location === '/reminders' ? <RemLocked /> : null) : null);
   if (panelMode) return (
     <DiagnosticsProvider actorId={user?.id ?? 'anon'} isAdmin={user?.role === 'admin'}>
     <NotificationProvider user={user}>

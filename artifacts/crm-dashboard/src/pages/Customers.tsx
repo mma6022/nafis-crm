@@ -442,7 +442,7 @@ export default function Customers() {
 
   const sortIcon = lastCallSort === 'asc' ? <ArrowUp size={15} /> : lastCallSort === 'desc' ? <ArrowDown size={15} /> : <ArrowUpDown size={15} />;
 
-  return <section className="csx" dir="rtl" data-testid="page-customers">
+  return <section className={`csx${cpkOn && isBoard ? ' cpk-on-board' : ''}`} dir="rtl" data-testid="page-customers">
     <h1 className="csx-sr">مشتریان</h1>
     {sessionReady ? <SalesAssistBox user={session.data?.user} onCall={(id) => calledThenForm(id, 'customer', () => { void getCustomer(id).then((c) => openCall(c)).catch(() => setTsToast('پرونده‌ی مشتری باز نشد؛ دوباره تلاش کنید.')); }, setTsToast)} /> : null}
     <div className="csx-top">
@@ -453,14 +453,14 @@ export default function Customers() {
           <input type="search" value={search} onChange={(e) => { setSearch(e.target.value); resetPaging(); }} placeholder='جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)' aria-label="جستجوی نام، شماره تماس یا شناسه‌ی مشتری" data-testid="input-search-customers" />
         </label>
         {!isDesktop ? <button type="button" className="csx-fbtn" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog" data-testid="button-open-filters"><SlidersHorizontal size={20} aria-hidden="true" /> فیلتر{activeFilters.length ? <span className="n">{fa(activeFilters.length)}</span> : null}</button> : null}
-        {canCreate ? <button type="button" className={isDesktop ? 'csx-primary' : 'csx-primary csx-fab'} onClick={openCreate} data-testid="button-create-customer"><Plus size={20} aria-hidden="true" /> مشتری جدید</button> : null}
+        {canCreate && !(cpkOn && isBoard && !isDesktop) ? <button type="button" className={isDesktop ? 'csx-primary' : 'csx-primary csx-fab'} onClick={openCreate} data-testid="button-create-customer"><Plus size={20} aria-hidden="true" /> مشتری جدید</button> : null}
       </div>
       {(!isBoard || cpkOn) ? <div className="csx-tabs" role="tablist" aria-label="وضعیت پیگیری" data-testid="select-filter-status">
         {STATUS_TABS.map(tab => {
           const n = canSummary ? tabCount(tab.value) : null;
           return <button key={tab.value || 'all'} type="button" role="tab" className="csx-tab" aria-selected={status === tab.value} data-s={tab.value || undefined} onClick={() => { setStatus(tab.value); resetPaging(); }} data-testid={`tab-status-${tab.value || 'all'}`}>
             {tab.value ? <span className="dot" aria-hidden="true" /> : null}{tab.label}
-            {canSummary ? <span className="n" aria-label={n == null ? 'در حال شمارش' : `${fa(n)} مشتری`}>{n == null ? '…' : fa(n)}</span> : null}
+            {canSummary && summary.isError ? null : canSummary && n == null ? <span className="n sk" aria-hidden="true" /> : canSummary ? <span className="n" aria-label={`${fa(n)} مشتری`}>{fa(n)}</span> : null}
           </button>;
         })}
       </div> : <p className="csx-meta" style={{ padding: '0 16px 12px', margin: 0 }}>نمای بورد فقط مشتریان «در حال انجام» را بر اساس اولویت نشان می‌دهد؛ کارت‌ها را برای تغییر اولویت بکشید.</p>}

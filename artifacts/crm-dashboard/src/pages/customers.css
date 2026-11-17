@@ -25,6 +25,8 @@
 .csx-tabs::-webkit-scrollbar { display: none; }
 .csx-tab { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 14px; border-radius: 999px; border: 1.5px solid var(--csx-line-strong); background: #fff; color: var(--nf-ink-soft); font-weight: 600; font-size: 15px; cursor: pointer; white-space: nowrap; }
 .csx-tab .n { min-width: 24px; height: 24px; padding: 0 6px; border-radius: 999px; background: var(--nf-surface-2); display: grid; place-items: center; font-size: 13px; font-weight: 800; color: var(--nf-ink); }
+.csx-tab .n.sk { width: 22px; min-width: 22px; height: 12px; padding: 0; border-radius: 6px; background: linear-gradient(90deg, var(--nf-surface-2), #fff, var(--nf-surface-2)); background-size: 200% 100%; animation: cpk-sh 1.2s ease-in-out infinite; color: transparent; }
+
 .csx-tab .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
 .csx-tab[aria-selected="true"] { background: var(--nf-brand-600); border-color: var(--nf-brand-600); color: #fff; }
 .csx-tab[aria-selected="true"] .n { background: rgba(255, 255, 255, .22); color: #fff; }
@@ -454,3 +456,10 @@ a.csx-primary, a.csx-ghost, a.csx-call { text-decoration: none; }
 .mc-acts { display: flex; gap: 8px; flex-wrap: wrap; }
 .mc-err { color: #b42318; margin: 0; }
 @media (min-width: 800px) { .mc-pick { place-items: center; } .mc-pick-card { border-radius: 18px; } }
+
+@media (max-width: 1023.98px) {
+  .csx.cpk-on-board .csx-fab { display: none !important; }
+  .csx.cpk-on-board .csx-tabs { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .sf-mc-page.cpk-on-board .csx-tabs { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding: 4px 0 10px; }
+  .sf-mc-page.cpk-on-board .csx-tab { min-height: 44px; }
+}

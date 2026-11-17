@@ -6,18 +6,27 @@ import { keepPreviousData, useInfiniteQuery, useQueryClient, type QueryClient } 
 import { listCustomers, type Customer, type ListCustomersParams } from "@workspace/api-client-react";
 import { CallNumber } from "@/features/call-number/CallNumber";
 import { RowActionsMenu, type RowMenuItem } from "@/components/row-menu/RowActionsMenu";
-import { Sheet, StatusPill, relativeTime } from "@/pages/customers-ui";
+import { Sheet, StatusPill } from "@/pages/customers-ui";
 import {
   CPK_COLUMNS, CPK_PAGE, CPK_UNDO_MS,
-  cpkColumnLabel, cpkColumnsForFilter, cpkMoreLabel, cpkUndoMessage, faNum, formatFollowUp,
+  cpkColumnLabel, cpkColumnsForFilter, cpkMoreLabel, cpkUndoMessage, faNum, formatFollowUp, formatLastCall,
 } from "./helpers";
 import "./kanban.css";
 
-export type CpkCustomer = Customer & { nextReminderAt?: string | null };
+export type CpkCustomer = Customer & { nextReminderAt?: string | null; phoneLast4?: string | null };
+
+export type CpkPage = { items: CpkCustomer[]; total: number };
+
+export type CpkFetchPage = (args: {
+  priority?: number;
+  hasPriority?: boolean;
+  offset: number;
+  limit: number;
+} & Filters) => Promise<CpkPage>;
 
 type InfPages = { pages: Array<{ items: CpkCustomer[]; total: number } & Record<string, unknown>>; pageParams: unknown[] };
 
-function colKeyOf(p: number | null) { return p == null ? "none" : String(p); }
+function colKeyOf(p: number | null) { return p == null ? "0" : String(p); }
 
 function moveCardInCache(qc: QueryClient, customer: CpkCustomer, from: number | null, to: number | null) {
   const fromK = colKeyOf(from);
@@ -51,17 +60,20 @@ type Filters = Omit<ListCustomersParams, "priority" | "hasPriority" | "limit" | 
 export function CustomersKanban({
   filters, priorityFilter, isDesktop, canDrag, canCall,
   onCall, menuItems, onChangePriority, onClearFilters, hasQuery,
+  fetchPage, cardHref,
 }: {
   filters: Filters;
   priorityFilter: string;
   isDesktop: boolean;
   canDrag: boolean;
   canCall: boolean;
-  onCall: (customer: CpkCustomer) => void;
+  onCall?: (customer: CpkCustomer) => void;
   menuItems: (customer: CpkCustomer) => RowMenuItem[];
   onChangePriority: (customer: CpkCustomer, next: number | null) => Promise<"saved" | "deferred" | "error">;
   onClearFilters: () => void;
   hasQuery: boolean;
+  fetchPage?: CpkFetchPage;
+  cardHref?: (customer: CpkCustomer) => string;
 }) {
   const columns = cpkColumnsForFilter(priorityFilter);
   const qc = useQueryClient();
@@ -153,6 +165,7 @@ export function CustomersKanban({
         {columns.map((col) => (
           <KanbanColumn key={col.key} column={col} filters={filters} isDesktop={isDesktop} active={!isDesktop ? tab === col.key : true}
             canDrag={canDrag && isDesktop} canCall={canCall} onCall={onCall} menuItems={menuItems}
+            fetchPage={fetchPage} cardHref={cardHref}
             onChangePriority={canDrag ? (c) => setPriFor(c) : undefined}
             onDrop={canDrag && isDesktop ? (c) => { void applyPriority(c, col.value); } : undefined}
             onTotal={(n) => reportTotal(col.key, n)} movedId={undo?.customer.id} />
@@ -183,31 +196,36 @@ export function CustomersKanban({
   );
 }
 
-function KanbanColumn({ column, filters, isDesktop, active, canDrag, canCall, onCall, menuItems, onChangePriority, onDrop, onTotal, movedId }: {
+function KanbanColumn({ column, filters, isDesktop, active, canDrag, canCall, onCall, menuItems, onChangePriority, onDrop, onTotal, movedId, fetchPage, cardHref }: {
   column: typeof CPK_COLUMNS[number];
   filters: Filters;
   isDesktop: boolean;
   active: boolean;
   canDrag: boolean;
   canCall: boolean;
-  onCall: (customer: CpkCustomer) => void;
+  onCall?: (customer: CpkCustomer) => void;
   menuItems: (customer: CpkCustomer) => RowMenuItem[];
   onChangePriority?: (customer: CpkCustomer) => void;
   onDrop?: (customer: CpkCustomer) => void;
   onTotal: (total: number) => void;
   movedId?: number;
+  fetchPage?: CpkFetchPage;
+  cardHref?: (customer: CpkCustomer) => string;
 }) {
   const query = useInfiniteQuery({
-    queryKey: ["cpk-customers", column.key, filters],
+    queryKey: ["cpk-customers", column.key, filters, fetchPage ? "short" : "full"],
     initialPageParam: 0,
-    queryFn: ({ pageParam }) => listCustomers({
-      ...filters,
-      sortBy: "boardTags",
-      priority: column.value ?? undefined,
-      hasPriority: column.value === null ? false : undefined,
-      offset: pageParam,
-      limit: CPK_PAGE,
-    }),
+    queryFn: ({ pageParam }) => {
+      const args = {
+        ...filters,
+        sortBy: "boardTags" as const,
+        priority: column.value ?? undefined,
+        hasPriority: column.value === null ? false : undefined,
+        offset: pageParam as number,
+        limit: CPK_PAGE,
+      };
+      return fetchPage ? fetchPage(args) : listCustomers(args);
+    },
     getNextPageParam: (lastPage, pages) => {
       const loaded = pages.reduce((sum, page) => sum + page.items.length, 0);
       return loaded < lastPage.total ? loaded : undefined;
@@ -258,8 +276,9 @@ function KanbanColumn({ column, filters, isDesktop, active, canDrag, canCall, on
         ) : customers.length ? customers.map((customer) => {
           const items: RowMenuItem[] = [];
           if (onChangePriority) items.push({ key: "pri", onSelect: () => onChangePriority(customer), label: "تغییر اولویت", testId: `cpk-menu-pri-${customer.id}` });
-          if (canCall) items.push({ key: "call", onSelect: () => onCall(customer), icon: <PhoneCall size={17} aria-hidden="true" />, label: "تماس", testId: `cpk-menu-call-${customer.id}` });
-          items.push({ key: "file", href: `/customers/${customer.id}`, label: "باز کردن پرونده", testId: `cpk-menu-file-${customer.id}` });
+          if (canCall && onCall) items.push({ key: "call", onSelect: () => onCall(customer), icon: <PhoneCall size={17} aria-hidden="true" />, label: "تماس", testId: `cpk-menu-call-${customer.id}` });
+          const href = cardHref ? cardHref(customer) : `/customers/${customer.id}`;
+          items.push({ key: "file", href, label: "باز کردن پرونده", testId: `cpk-menu-file-${customer.id}` });
           for (const it of menuItems(customer)) {
             if (it.key === "file") continue;
             items.push(it);
@@ -278,17 +297,17 @@ function KanbanColumn({ column, filters, isDesktop, active, canDrag, canCall, on
               onDragEnd={canDrag ? (e) => e.currentTarget.classList.remove("dragging") : undefined}
             >
               {canDrag ? <span className="cpk-grab" aria-hidden="true" /> : null}
-              <Link href={`/customers/${customer.id}`} className="cpk-card-main">
+              <Link href={href} className="cpk-card-main">
                 <div className="cpk-card-hd">
                   <h3>{customer.name}<span className="cpk-cid">#{faNum(customer.id)}</span></h3>
                 </div>
                 <div className="cpk-phn">
-                  <CallNumber phone={customer.phone} customerId={customer.id} via="customers" size="sm" testId={`cpk-ph-${customer.id}`} />
+                  {customer.phone ? <CallNumber phone={customer.phone} customerId={customer.id} via="customers" size="sm" testId={`cpk-ph-${customer.id}`} /> : customer.phoneLast4 ? <span className="cpk-phn-mask" dir="ltr">•••{customer.phoneLast4}</span> : null}
                 </div>
                 <div className="cpk-meta">
                   <StatusPill status={customer.status} />
                   <span data-testid={`cpk-last-${customer.id}`}>
-                    {customer.lastCallAt ? `آخرین تماس: ${relativeTime(customer.lastCallAt)}` : "هنوز تماسی ثبت نشده"}
+                    {customer.lastCallAt ? `آخرین تماس: ${formatLastCall(customer.lastCallAt) ?? "—"}` : "هنوز تماسی ثبت نشده"}
                   </span>
                   {follow ? <span className="cpk-fu" data-testid={`cpk-fu-${customer.id}`}>پیگیری بعدی: {follow}</span> : null}
                 </div>
