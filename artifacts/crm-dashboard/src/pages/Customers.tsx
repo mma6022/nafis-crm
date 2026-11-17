@@ -31,6 +31,9 @@ import { KAZEMI_SOURCE_FILTERS, KazemiSourceChip, kazemiSourceOf } from '@/featu
 import { SalesAssistBox } from '@/features/sales-assist/SalesAssistBox';
 import { notifySalesAssistCallSaved } from '@/features/sales-assist/api';
 import { useRegistrarMe } from '@/features/registrar-view/api';
+import { useCpkOn } from '@/features/customers-priority-kanban/api';
+import { CustomersKanban, type CpkCustomer } from '@/features/customers-priority-kanban/CustomersKanban';
+import { readCpkView, writeCpkView, type CpkView } from '@/features/customers-priority-kanban/helpers';
 import { DeadlineCountdown, PreferredTimeNote, SiteLeadChips, hideTagForSiteLead, topOfListOf } from '@/features/site-leads/SiteLead';
 import { VoipCallAnywhere, useVoipAnywhereRegistrarOwn } from '@/features/voip-call/VoipAnywhere'; // VOIP-ANYWHERE (design v1.0 search_list: .vi on own rows)
 
@@ -73,13 +76,25 @@ export default function Customers() {
   const canConsult = can('consultations.create');
   const canSummary = can('dashboard.view');
   const readOnly = sessionReady && !canCreate && !canUpdate;
+  // customers-priority-kanban v1 (flag.customers_priority_kanban_v1, OFF → today's board / list exactly).
+  const cpkOn = useCpkOn();
+  const cpkUserId = session.data?.user.id;
   const priorityColors = {
     none: session.data?.user.priorityColors?.none ?? '#fff7d6',
     '1': session.data?.user.priorityColors?.['1'] ?? '#fee2e2',
     '2': session.data?.user.priorityColors?.['2'] ?? '#ffedd5',
     '3': session.data?.user.priorityColors?.['3'] ?? '#dcfce7',
   };
-  const [view, setView] = useTableState<'table' | 'board'>('customers.view', 'table');
+  const [view, setViewState] = useTableState<'table' | 'board'>('customers.view', 'table');
+  useEffect(() => {
+    if (!cpkOn || !cpkUserId) return;
+    const saved = readCpkView(cpkUserId);
+    setViewState((current) => (current === saved ? current : saved));
+  }, [cpkOn, cpkUserId, setViewState]);
+  const setView = (next: CpkView) => {
+    setViewState(next);
+    if (cpkOn) writeCpkView(cpkUserId, next);
+  };
   const [search, setSearch] = useTableState('customers.search', '');
   const [customerId, setCustomerId] = useTableState('customers.customerId', '');
   const [status, setStatus] = useTableState('customers.status', 'in_progress');
@@ -118,8 +133,8 @@ export default function Customers() {
   // Desktop (≥1024) shows the table + pager; phones/tablets show cards with «نمایش بیشتر».
   const isDesktop = useMinWidth(1024);
   const [mobileCount, setMobileCount] = useState(MOBILE_STEP);
-  // The board is desktop-only and optional (PM decision); the list is the default everywhere else.
-  const isBoard = view === 'board' && isDesktop && !reg;
+  // Today's board is desktop-only and hidden in «ثبت‌های من». The flagged column view works on mobile too and is read-only in that scope.
+  const isBoard = view === 'board' && (cpkOn ? true : (isDesktop && !reg));
   const resetPaging = () => { setOffset(0); setMobileCount(MOBILE_STEP); };
 
   const pHasPriority = priority === 'null' ? false : undefined;
@@ -165,9 +180,10 @@ export default function Customers() {
   const createConsult = useCreateConsultation();
   const [, setLocation] = useLocation();
 
-  const invalidateAll = () => {
+  const invalidateAll = (opts?: { skipCpk?: boolean }) => {
     queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() });
     queryClient.invalidateQueries({ queryKey: ['board-customers'] });
+    if (!opts?.skipCpk) queryClient.invalidateQueries({ queryKey: ['cpk-customers'] });
     queryClient.invalidateQueries({ queryKey: ['calls-customers'] });
     queryClient.invalidateQueries({ queryKey: getListCallsQueryKey() });
     queryClient.invalidateQueries({ queryKey: getListConsultationsQueryKey() });
@@ -293,6 +309,13 @@ export default function Customers() {
     }
     updateCustomer.mutate({ id, data: { priority: priorityValue } }, { onSuccess: invalidateAll });
   };
+  const changeKanbanPriority = (customer: CpkCustomer, priorityValue: number | null) => new Promise<'saved' | 'deferred' | 'error'>((resolve) => {
+    if (priorityValue === 1 && canUpgrade(customer)) { setUpgradeFor(customer); resolve('deferred'); return; }
+    updateCustomer.mutate({ id: customer.id, data: { priority: priorityValue } }, {
+      onSuccess: () => { invalidateAll({ skipCpk: true }); resolve('saved'); },
+      onError: () => resolve('error'),
+    });
+  });
   /** «ثبت تماس» (openCall / useCallLauncher rule) and «ثبت مشاوره» (CreateConsultationForm). No tel: on list rows. */
   const rowActions = (customer: Customer) => {
     const form = callLauncher.choose(customer);
@@ -432,7 +455,7 @@ export default function Customers() {
         {!isDesktop ? <button type="button" className="csx-fbtn" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog" data-testid="button-open-filters"><SlidersHorizontal size={20} aria-hidden="true" /> فیلتر{activeFilters.length ? <span className="n">{fa(activeFilters.length)}</span> : null}</button> : null}
         {canCreate ? <button type="button" className={isDesktop ? 'csx-primary' : 'csx-primary csx-fab'} onClick={openCreate} data-testid="button-create-customer"><Plus size={20} aria-hidden="true" /> مشتری جدید</button> : null}
       </div>
-      {!isBoard ? <div className="csx-tabs" role="tablist" aria-label="وضعیت پیگیری" data-testid="select-filter-status">
+      {(!isBoard || cpkOn) ? <div className="csx-tabs" role="tablist" aria-label="وضعیت پیگیری" data-testid="select-filter-status">
         {STATUS_TABS.map(tab => {
           const n = canSummary ? tabCount(tab.value) : null;
           return <button key={tab.value || 'all'} type="button" role="tab" className="csx-tab" aria-selected={status === tab.value} data-s={tab.value || undefined} onClick={() => { setStatus(tab.value); resetPaging(); }} data-testid={`tab-status-${tab.value || 'all'}`}>
@@ -449,18 +472,18 @@ export default function Customers() {
     </div> : null}
     {reg ? <div className="csx-note warn" role="note" data-testid="rv-note"><Eye size={20} aria-hidden="true" /><p>«ثبت‌های من»: مشتریانی که شما ثبت کرده‌اید، با هر کارشناسی که الان دارند. فقط مشاهده — ویرایش، انتقال، ثبت تماس و تغییر وضعیت یا اولویت بسته است.</p></div>
       : readOnly ? <div className="csx-note warn" role="note"><Eye size={20} aria-hidden="true" /><p>دسترسی شما «فقط مشاهده» است؛ ثبت، ویرایش و تماس غیرفعال است.</p></div>
-      : isSalesperson ? <div className="csx-note" role="note"><UserRound size={20} aria-hidden="true" /><p>فقط مشتریانی که به شما تخصیص داده شده‌اند نمایش داده می‌شوند. <Link href="/my-transfers" data-testid="link-my-transfers">تاریخچه‌ی انتقال‌های من</Link></p></div> : null}
+      : isSalesperson && !(cpkOn && isBoard) ? <div className="csx-note" role="note"><UserRound size={20} aria-hidden="true" /><p>فقط مشتریانی که به شما تخصیص داده شده‌اند نمایش داده می‌شوند. <Link href="/my-transfers" data-testid="link-my-transfers">تاریخچه‌ی انتقال‌های من</Link></p></div> : null}
 
     <div className="csx-tools">
       {isDesktop ? <button type="button" className="csx-fbtn" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog" data-testid="button-open-filters"><SlidersHorizontal size={20} aria-hidden="true" /> فیلتر{activeFilters.length ? <span className="n">{fa(activeFilters.length)}</span> : null}</button> : null}
       {!isBoard ? <p className="csx-cnt" aria-live="polite">{customers.isLoading ? 'در حال دریافت…' : `${fa(total)} مشتری`}{isDesktop ? ' · به‌روزرسانی خودکار هر ۳۰ ثانیه' : ''}</p> : null}
       <span className="grow" />
-      {isDesktop ? <div className="csx-viewseg" role="group" aria-label="نوع نمایش">
+      {(isDesktop || cpkOn) ? <div className={`csx-viewseg${cpkOn ? " cpk-show" : ""}`} role="group" aria-label="نوع نمایش">
         <button type="button" className={view === 'table' ? 'active' : ''} aria-pressed={view === 'table'} onClick={() => setView('table')} data-testid="btn-view-table"><LayoutList size={17} aria-hidden="true" /> فهرست</button>
-        <button type="button" className={view === 'board' ? 'active' : ''} aria-pressed={view === 'board'} onClick={() => setView('board')} data-testid="btn-view-board"><Kanban size={17} aria-hidden="true" /> بورد</button>
+        <button type="button" className={view === 'board' ? 'active' : ''} aria-pressed={view === 'board'} onClick={() => setView('board')} data-testid="btn-view-board"><Kanban size={17} aria-hidden="true" /> {cpkOn ? 'ستون‌ها' : 'بورد'}</button>
       </div> : null}
       {isAdmin ? <button type="button" className="csx-ghost sm" onClick={() => setDuplicateReviewOpen(true)} data-testid="button-open-duplicate-customers"><UsersRound size={17} aria-hidden="true" /> ادغام تکراری‌ها</button> : null}
-      <button type="button" className="csx-ghost sm" onClick={() => setColorSettingsOpen(true)} data-testid="button-open-priority-colors" aria-label="رنگ اولویت‌ها"><Palette size={17} aria-hidden="true" />{isDesktop ? ' رنگ اولویت‌ها' : ''}</button>
+      {!(cpkOn && isBoard) ? <button type="button" className="csx-ghost sm" onClick={() => setColorSettingsOpen(true)} data-testid="button-open-priority-colors" aria-label="رنگ اولویت‌ها"><Palette size={17} aria-hidden="true" />{isDesktop ? ' رنگ اولویت‌ها' : ''}</button> : null}
     </div>
 
     {activeFilters.length || lastCallSort ? <div className="csx-activef" aria-label="فیلترهای فعال">
@@ -471,7 +494,18 @@ export default function Customers() {
 
     {inlineError ? <div className="csx-note bad" role="alert" data-testid="error-update-customer"><AlertTriangle size={20} aria-hidden="true" /><p>{inlineError}</p></div> : null}
 
-    {isBoard ? <div className="board-grid">
+    {isBoard && cpkOn ? <CustomersKanban
+      filters={{ ...sharedParams, status: (status || undefined) as ListCustomersParams['status'] }}
+      priorityFilter={priority}
+      isDesktop={isDesktop}
+      canDrag={canUpdate && !reg && !readOnly}
+      canCall={canCall}
+      onCall={openCall}
+      menuItems={(c) => legacyActions(c)}
+      onChangePriority={changeKanbanPriority}
+      onClearFilters={clearFilters}
+      hasQuery={hasQuery}
+    /> : isBoard ? <div className="board-grid">
       {priorityColumns.map((column) => <BoardColumn key={String(column.value)} column={column} color={priorityColors[String(column.value ?? 'none') as keyof typeof priorityColors]} filters={sharedParams} tagLabels={tagCatalog.data ?? []} onReview={setReviewing} onCall={openCall} onConsult={setNewConsultFor} onEdit={openEdit} onManualIdentity={isAdmin ? setManualIdentity : undefined} onDelete={isAdmin ? removeCustomer : undefined} onMove={(id, priorityValue) => { void boardMove(id, priorityValue); }} onUpgrade={(c) => (canUpdate && showsUpgradeButton(callLauncher.config, session.data?.user, c) ? () => setUpgradeFor(c) : undefined)} />)}
     </div> : customers.isLoading ? (
       isDesktop ? <div className="csx-sktable" aria-busy="true" aria-label="در حال دریافت فهرست مشتریان" data-testid="customers-loading">{Array.from({ length: 7 }, (_, i) => <div className="row" key={i}><span className="csx-sk" /><span className="csx-sk" /><span className="csx-sk" /><span className="csx-sk" /><span className="csx-sk" /></div>)}</div>

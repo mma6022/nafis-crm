@@ -29,7 +29,8 @@
     "test:today-layout-v13": "node --experimental-strip-types scripts/today-layout-v13-fixture.mjs",
     "test:today-layout-v20-dossier": "node --experimental-strip-types scripts/today-layout-v20-dossier-fixture.mjs",
     "test:lockdown-redirect": "node --experimental-strip-types scripts/lockdown-redirect-fixture.mjs",
-    "test:page-scroll": "node --experimental-strip-types scripts/page-scroll-fixture.mjs"
+    "test:page-scroll": "node --experimental-strip-types scripts/page-scroll-fixture.mjs",
+    "test:customers-priority-kanban": "node --experimental-strip-types scripts/customers-priority-kanban-fixture.mjs"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

@@ -1,4 +1,5 @@
 import { registrarCanTag } from "../lib/registrar-view";
+import { cpkOn, cpkNextReminderAt } from "../lib/customers-priority-kanban";
 import { caseChoiceErrorBody, mcFlagOn, resolveCaseLink } from "../lib/multi-case";
 import { rfCleanNote, rfCleanReactivationReason, rfCleanReactivationSource, rfRecordReactivation, rfTagHandoff, type RfReactivationSource } from "../lib/reminder-follow";
 import { cqAfterCall, cqParseCall, type CqCallResult, rmBeforeOpen, toReminderTime, tParts, REMINDER_START_MIN, rmAfterClose } from "../lib/call-queue";
@@ -1867,12 +1868,16 @@ router.get(
     const sources = kazemiSources(listBody.items.map((item) => Number(item.id)));
     const siteLeads = activeSiteLeads(listBody.items.map((item) => Number(item.id)));
     const topById = new Map(top.map((t) => [t.customerId, { kind: t.kind, startedAt: t.startedAt, dueAt: t.dueAt, windowNow: t.windowNow }]));
+    // customers-priority-kanban v1: additive nextReminderAt, only while the flag is ON. OFF keeps today's list JSON.
+    const cpkRem = cpkOn() ? cpkNextReminderAt(listBody.items.map((item) => Number(item.id)), Number(user.id)) : null;
+    const withCpkRem = <T extends { id: number }>(item: T): T | (T & { nextReminderAt: string | null }) =>
+      cpkRem ? { ...item, nextReminderAt: cpkRem.get(Number(item.id)) ?? null } : item;
     if (registeredScope) {
       // registrar_view: read-only card fields only — no national code, address, KYC, credit or description; phone masked.
       res.json({
         ...listBody,
         registrarReadOnly: true,
-        items: listBody.items.map((item) => ({
+        items: listBody.items.map((item) => withCpkRem({
           id: item.id, name: item.name, phone: maskCustomerPhone(item.phone), isUrgent: item.isUrgent, createdAt: item.createdAt,
           salespersonId: item.salespersonId, salespersonName: item.salespersonName, priority: item.priority, status: item.status,
           activityCount: item.activityCount, lastActivityAt: item.lastActivityAt, lastCallAt: item.lastCallAt, mergedIntoCustomerId: null,
@@ -1884,7 +1889,7 @@ router.get(
     }
     res.json({
       ...listBody,
-      items: listBody.items.map((item) => ({ ...item, suggestedPlans: suggested.get(Number(item.id)) ?? [], noPlanFit: noPlan.has(Number(item.id)),
+      items: listBody.items.map((item) => withCpkRem({ ...item, suggestedPlans: suggested.get(Number(item.id)) ?? [], noPlanFit: noPlan.has(Number(item.id)),
         kazemiSource: sources.get(Number(item.id)) ?? null, siteLead: siteLeads.get(Number(item.id)) ?? null,
         topOfList: topById.get(Number(item.id)) ?? null })),
       ...(crossOwner ? { otherOwnerMatches: crossOwner.items, otherOwnerLimited: crossOwner.limited } : {}),

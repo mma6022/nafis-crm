@@ -70,6 +70,7 @@ import multiCaseRouter from "./multi-case";
 import dailyCustomerInlineRouter from "./daily-customer-inline";
 import reminderFollowRouter from "./reminder-follow";
 import salesShellRouter from "./sales-shell";
+import customersPriorityKanbanRouter from "./customers-priority-kanban";
 import fileDetailV1Router from "./file-detail-v1";
 import { ensureReminderFollowSchema } from "../lib/reminder-follow";
 import linkPageRouter from "./link-page";
@@ -123,6 +124,7 @@ router.use(reminderMustRouter);
 router.use(reminderVoipRouter); // REMINDER-VOIP (flag.reminder_voip, default OFF → 404)
 router.use(reminderFollowRouter);
 router.use(salesShellRouter); // SALES-SHELL v2 (per-user flag, read-only)
+router.use(customersPriorityKanbanRouter); // customers-priority-kanban v1 (flag.customers_priority_kanban_v1, OFF → 404)
 router.use(fileDetailV1Router); // FILE-DETAIL v1.0 (per-user flag; resend link guarded)
 router.use(defaultOwnerRouter);
 router.use(teamCommissionRouter);

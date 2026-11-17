@@ -136,6 +136,8 @@ button.csx-tag { cursor: pointer; font: inherit; font-size: 14px; }
 .csx-viewseg { display: none; background: var(--nf-surface-2); border-radius: 14px; padding: 4px; gap: 4px; }
 .csx-viewseg button { min-height: 44px; padding: 0 12px; border: 0; background: none; border-radius: 10px; font-weight: 700; color: var(--nf-ink-soft); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
 .csx-viewseg button.active { background: #fff; color: var(--nf-brand-800); box-shadow: var(--csx-shadow-xs); }
+/* customers-priority-kanban v1: the list/columns toggle stays visible under 1024 while the flag is on. */
+.csx-viewseg.cpk-show { display: inline-flex; }
 
 /* notes, empty, skeleton */
 .csx-note { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 14px; background: var(--nf-brand-50); color: var(--nf-brand-800); font-size: 15px; }
