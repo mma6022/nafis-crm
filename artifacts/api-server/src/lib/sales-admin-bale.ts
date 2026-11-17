@@ -202,16 +202,20 @@ export function sabUntranscribed(limit = 500): VRow[] {
   return queryRows<VRow>(`${V_SQL} ORDER BY e.started_at DESC LIMIT ?`, [new Date(CALL_LIST_START).toISOString(), limit]);
 }
 const pendingIds = (): string[] => { try { const a = JSON.parse(setting(K.voicePending) ?? "[]"); return Array.isArray(a) ? a.map(String) : []; } catch { return []; } };
-export function sabVoiceView() {
+/** Armita review (v1.3 shots 20): 20 rows a page; total and «تبدیل همه» still cover every page (the 10-in-flight cap stays in queueTranscript). */
+export const SAB_VOICE_PER = 20;
+export function sabVoiceView(pageIn: unknown = 1) {
   const pend = new Set(pendingIds());
   const all = sabUntranscribed(2000);
-  const rows = all.slice(0, 200).map((r) => ({
+  const pages = Math.max(1, Math.ceil(all.length / SAB_VOICE_PER));
+  const page = Math.min(pages, Math.max(1, Math.floor(Number(pageIn)) || 1));
+  const rows = all.slice((page - 1) * SAB_VOICE_PER, page * SAB_VOICE_PER).map((r) => ({
     id: r.id, at: r.started_at, direction: r.direction === "in" || r.direction === "incoming" || r.direction === "inbound" ? "in" : "out",
     expert: r.expert_name ?? null, customer: r.customer_name ?? lastFour(r.phone),
     durationS: r.duration_seconds ?? Math.max(0, Math.round((Date.parse(r.ended_at) - Date.parse(r.started_at)) / 1000)),
     state: r.t_state === "queued" || r.t_state === "processing" ? r.t_state : pend.has(r.provider_id) ? "waiting" : r.t_state === "failed" ? "failed" : "none",
   }));
-  return { mode: sabVoiceMode(), modeSet: setting(K.voiceMode) != null, total: all.length, pending: pend.size, rows };
+  return { mode: sabVoiceMode(), modeSet: setting(K.voiceMode) != null, total: all.length, pending: pend.size, page, pages, per: SAB_VOICE_PER, rows };
 }
 
 /* ---------------- writes ---------------- */

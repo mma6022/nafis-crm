@@ -5,8 +5,15 @@
 import { useState, type ReactNode } from 'react';
 import type { FoldKey, MergeState } from './api';
 import { useMerge } from './merge-ctx';
-const jDay = (iso: string) => { try { return new Intl.DateTimeFormat('fa-IR-u-ca-persian', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Asia/Tehran' }).format(new Date(iso + 'T12:00:00+03:30')); } catch { return iso; } };
-import { c, clone, fa, I, Chip, Pick, Seg, Stp, Tgl } from './ui';
+import { useEffect, useRef } from 'react';
+import { c, clone, fa, I, Chip, Pick, Seg, Stp, Tgl, hasPair } from './ui';
+/** «چهارشنبه ۲۷ آبان»: Jalali, Persian digits, never Gregorian; weekday alone if the day would show the forbidden pair. */
+const jDay = (iso: string) => {
+  const d = new Date(iso + 'T12:00:00+03:30'); const fmt = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('fa-IR-u-ca-persian-nu-arabext', { timeZone: 'Asia/Tehran', ...o }).format(d).replace(/[٠-٩]/g, (x) => '۰۱۲۳۴۵۶۷۸۹'['٠١٢٣٤٥٦٧٨٩'.indexOf(x)]!);
+  try { const j = fmt({ weekday: 'long', day: 'numeric', month: 'long' }); return hasPair(j) ? fmt({ weekday: 'long' }) : j; } catch { return ''; }
+};
+/** Armita review (13b): an opened form scrolls itself above the dock + unsaved bar (scroll-margin-bottom in smc.css). */
+const useLift = (on: unknown) => { const r = useRef<HTMLDivElement>(null); useEffect(() => { if (on) requestAnimationFrame(() => r.current?.scrollIntoView({ block: 'nearest', behavior: 'auto' })); }, [on]); return r; };
 
 const RO = () => <p className={c('hint ro')}><I n="lock" />مقدار زنده، فقط نمایش.</p>;
 const Row = ({ k, children }: { k: string; children: ReactNode }) => <div className={c('mrow')}><span className={c('lbl')}>{k}</span><b>{children}</b></div>;
@@ -22,6 +29,7 @@ function EditBlock<T>({ fk, title, init, view, form, body, okMsg }: {
 }) {
   const mg = useMerge(); const [d, setD] = useState<T | null>(null);
   const can = Boolean(mg?.m.canWriteFolded);
+  const lift = useLift(d ? fk : null);
   return (
     <div className={c('mblock', d && 'editing')} data-testid={`sam-block-${fk}`}>
       <div className={c('mbh')}>
@@ -31,8 +39,8 @@ function EditBlock<T>({ fk, title, init, view, form, body, okMsg }: {
       {d ? (
         <>
           {form(d, (x) => setD(clone(x)))}
-          <div className={c('row1 mact')}>
-            <span className={c('hint')}>همان جایی ذخیره می‌شود که صفحه‌ی قدیم ذخیره می‌کرد؛ در «تاریخچه» با «برگرداندن» می‌ماند.</span><span className={c('sp')} />
+          <div className={c('row1 mact lift')} ref={lift}>
+            <span className={c('sp')} />
             <button className={c('btn gh')} type="button" onClick={() => setD(null)}>لغو</button>
             <button className={c('btn pri')} type="button" data-testid={`sam-save-${fk}`} disabled={mg?.saving === fk} onClick={async () => { if (mg && await mg.save(fk, body(d), okMsg)) setD(null); }}>ذخیره</button>
           </div>
@@ -72,6 +80,7 @@ function CapacityBlock({ m }: { m: MergeState }) {
   const mg = useMerge(); const cap = m.capacity;
   const [sp, setSp] = useState<number | null>(null); const [n, setN] = useState(10); const [reason, setReason] = useState(''); const [pv, setPv] = useState<CapPreview['preview'] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const lift = useLift(sp != null ? `${sp}-${pv ? 1 : 0}-${err ?? ''}` : null);
   if (!cap.day || !cap.experts.length) return null;
   const can = Boolean(mg?.m.canWriteFolded);
   const pick = (id: number) => { const e = cap.experts.find((x) => x.salespersonId === id); setSp(id); setN(e?.capacity ?? 10); setPv(null); setErr(null); };
@@ -98,7 +107,7 @@ function CapacityBlock({ m }: { m: MergeState }) {
         </div>
       ))}
       {sp != null ? (
-        <div className={c('mvc')} data-testid="sam-capacity-form">
+        <div className={c('mvc lift')} data-testid="sam-capacity-form" ref={lift}>
           <b>ظرفیت تازه‌ی {cap.experts.find((x) => x.salespersonId === sp)?.name}</b>
           <Fld k="ظرفیت"><Stp label="ظرفیت" value={n} min={0} max={60} fmt={(v) => `${fa(v)} کار`} onChange={(v) => { setN(v); setPv(null); }} /></Fld>
           <label className={c('mrow ed')}><span className={c('lbl')}>دلیل</span><input className={c('inp')} value={reason} maxLength={200} placeholder="مثلاً مرخصی نیم‌روز" onChange={(e) => { setReason(e.target.value); setPv(null); }} /></label>
@@ -111,7 +120,6 @@ function CapacityBlock({ m }: { m: MergeState }) {
           </div>
         </div>
       ) : null}
-      <p className={c('hint')}>گزارش بازه‌ای لیست‌ها در «گزارش‌ها» می‌ماند.</p>
       {!can ? <RO /> : null}
     </div>
   );
@@ -172,7 +180,6 @@ export function MergeDist({ m }: { m: MergeState }) {
       <Block title="درصد پیش‌فرض بین تیم‌ها (از «تیم‌های فروش»)">
         <Row k="مشتری جدید">{src('new_customers') || '—'}</Row>
         <Row k="لید فرم سایت">{src('site_leads') || '—'}</Row>
-        <p className={c('hint')}>این همان «بقیه»ی قانون‌های تقسیم بین تیم‌هاست.</p>
       </Block>
       <EditBlock fk="owner" title="مالک پیش‌فرض مشتری (از «قانون ثبت مشتری»)" init={init} okMsg="مالک پیش‌فرض مشتری ذخیره شد. در تاریخچه ثبت شد."
         body={(x) => ({ config: x.config, ...(x.dsbTouched ? { defaultSourceBySeller: x.dsb } : {}) })}
@@ -189,7 +196,7 @@ export function MergeDist({ m }: { m: MergeState }) {
               <p>«اگر ثبت‌کننده {o.registrarMode === 'all' ? 'هر کسی' : o.registrarNames.join(' یا ')} و منبع {o.sourceMode === 'all' ? 'هر منبعی' : o.sources.map((s) => m.labels.regSources[s] ?? s).join(' یا ')} باشد → مستقیم به {seller(o.ownerSalespersonId)}»، قانون ۱ بین تیم‌ها و قانون ۱ داخل تیمش.</p>
               {conv.blockers.length
                 ? <p className={c('hint')}>هنوز اعمال نمی‌شود: {conv.blockers[0]}</p>
-                : <p className={c('hint')}><I n="rf" />ثبت مشتری از قانون‌های تقسیم پیروی می‌کند و {fa(conv.parity?.cases ?? 0)} حالت ثبت بررسی شد: همه بعد از تبدیل به همان کارشناس امروز می‌رسند. تبدیل از این صفحه اجرا نمی‌شود؛ بعد از روشن شدن همین نسخه روی سیستم اجرا می‌شود.</p>}
+                : <p className={c('hint')}><I n="rf" />{fa(conv.parity?.cases ?? 0)} حالت ثبت بررسی شد؛ همه به همان کارشناس امروز می‌رسند.</p>}
             </div>
           ) : null}
         </>}
@@ -240,7 +247,6 @@ export function MergeDiscipline({ m }: { m: MergeState }) {
         <Row k="افت تماس">{fa(d.dropPct)}٪</Row>
         <Row k="بررسی تحویل مشتری">{d.transferMode === 'block' ? 'جلوگیری' : 'فقط هشدار'}</Row>
         <Row k="مشتری نمی‌گیرند">{d.excludedReceivers.map(recv).join('، ') || '—'}</Row>
-        <p className={c('hint')}>جدول امتیاز امروز نمایشی است و روی حقوق و پورسانت اثری ندارد. «گزارش مدیر · صف تماس» در «گزارش‌ها» می‌ماند.</p>
       </>}
       form={(x, set) => <>
         {n(x, set, 'onTimeMin', 'پنجره‌ی به‌موقع از', 1, 120, ' دقیقه')}

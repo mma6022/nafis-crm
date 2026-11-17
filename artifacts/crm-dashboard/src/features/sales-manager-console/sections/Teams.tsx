@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import type { SectionProps } from '../SalesManagerConsolePage';
 import type { Expert, TeamPreview, TeamsDoc } from '../api';
-import { c, clone, fa, I, Chip, Seg, latin, uid, relDay, addDays } from '../ui';
+import { c, clone, fa, I, Chip, Seg, latin, uid, relDay, addDays, safeN, safeText } from '../ui';
 import { useMerge, priorityChips } from '../merge-ctx';
 
 const short = (n: string) => n.replace(/^(خانم|آقای) /, '');
@@ -46,7 +46,7 @@ export function TeamsSection({ st, doc, set }: SectionProps<'teams'>) {
                 else if (v && v !== t.name) upd((d) => { d.teams.find((x) => x.id === tid)!.name = v; });
                 setRenaming(null); }} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
             : <h3>{live?.name ?? t.name}</h3>}
-          <span className={c('hint')}>{fa(ms.length)} کارشناس</span>{live && !live.enabled ? <Chip k="g">غیرفعال</Chip> : null}<span className={c('sp')} />
+          <span className={c('hint')} data-testid={`sam-count-${tid}`}>{live && !live.enabled ? (live.members.length ? `${safeN(live.members.length)} کارشناس` : 'بدون عضو') : `${safeN(ms.length)} کارشناس`}</span>{live && !live.enabled ? <span data-testid={`sam-off-note-${live.id}`}><Chip k="g">غیرفعال</Chip></span> : null}<span className={c('sp')} />
           <button className={c('ib')} type="button" aria-label="تغییر نام تیم" onClick={() => setRenaming(tid)}><I n="edit" /></button>
           {live && mg ? (
             <button className={c('btn off')} type="button" disabled={mg.busy === live.id} data-testid={`sam-toggle-${live.id}`}
@@ -56,14 +56,14 @@ export function TeamsSection({ st, doc, set }: SectionProps<'teams'>) {
             onClick={() => upd((d) => { const x = d.teams.find((y) => y.id === tid)!; if (x.id.startsWith('n')) d.teams = d.teams.filter((y) => y.id !== tid); else x.deleted = true; })}><I n="trash" /></button>
         </div>
         {live && mg && ask && ask.teamId === live.id ? (
-          <div className={c('mvc sam-ask')} role="alertdialog" data-nodnd="" aria-label={ask.enabled ? 'فعال کردن تیم' : 'غیرفعال کردن تیم'} data-testid={`sam-confirm-${live.id}`}>
+          <div className={c('mvc sam-ask')} role="group" aria-label={ask.enabled ? 'فعال کردن تیم' : 'غیرفعال کردن تیم'} data-testid={`sam-confirm-${live.id}`}>
             {ask.enabled ? <>
               <b>«{live.name}» فعال شود؟</b>
               <span className={c('hint')}>{ask.returning.length ? `${ask.returning.join('، ')} دوباره عضو این تیم می‌شوند، با همان اولویت‌ها.` : 'عضوی برای برگشتن پیدا نشد؛ اول از «تیم‌های فروش» عضو اضافه کنید.'}</span>
             </> : <>
               <b>«{live.name}» غیرفعال شود؟</b>
               {ask.blocked ? <p className={c('err')} role="alert">{ask.blocked}</p> : <>
-                <span className={c('hint')}>{ask.removed.length ? `${ask.removed.join('، ')} از این تیم بیرون می‌آیند.` : 'این تیم عضوی ندارد.'} مشتری‌ها و پرونده‌هایشان سر جایشان می‌مانند. در «تاریخچه» ثبت می‌شود و «برگرداندن» همه را برمی‌گرداند.</span>
+                <span className={c('hint')}>{ask.removed.length ? `${ask.removed.join('، ')} از این تیم بیرون می‌آیند؛ مشتری‌هایشان می‌مانند.` : 'این تیم عضوی ندارد.'}</span>
               </>}
             </>}
             <div className={c('row1')}><span className={c('sp')} />
@@ -75,7 +75,6 @@ export function TeamsSection({ st, doc, set }: SectionProps<'teams'>) {
             </div>
           </div>
         ) : null}
-        {live && !live.enabled ? <p className={c('hint')} data-testid={`sam-off-note-${live.id}`}>این تیم غیرفعال است و اعضایش از تیم بیرون آمده‌اند. «فعال کردن» همان‌ها را با همان اولویت‌ها برمی‌گرداند.</p> : null}
         {live && !live.enabled ? null : <>
         <div className={c('row1 tlead')}>
           <span className={c('lbl')}>سرپرست</span>
@@ -96,7 +95,7 @@ export function TeamsSection({ st, doc, set }: SectionProps<'teams'>) {
                 <span className={c('av sm')}>{short(e.displayName)[0]}</span>
                 <span className={c('mn')}>
                   <b>{e.displayName}<span className={c('mchips')}><Chip k={e.status === 'active' ? 'ok' : 'g'}>{statusFa(e, st.today)}</Chip>{e.role === 'lead' ? <Chip k="b">سرپرست</Chip> : null}</span></b>
-                  <small>{e.extension ? `داخلی ${fa(e.extension)}` : 'بدون داخلی'}، {e.role === 'lead' ? 'سرپرست' : 'کارشناس فروش'}، {fa(p?.customers ?? 0)} مشتری{e.userId ? '' : '، بدون حساب کاربری'}</small>
+                  <small>{e.extension ? `داخلی ${safeText(e.extension)}` : 'بدون داخلی'}، {e.role === 'lead' ? 'سرپرست' : 'کارشناس فروش'}، {safeN(p?.customers ?? 0)} مشتری{e.userId ? '' : '، بدون حساب کاربری'}</small>
                   {live ? (() => { const lm = live.members.find((x) => x.salespersonId === e.salespersonId); const ch = lm ? priorityChips(lm, live) : [];
                     return ch.length ? <span className={c('pchips')} aria-label="اولویت‌های این کارشناس">{ch.map((x) => <Chip key={x} k="b">{x}</Chip>)}</span> : null; })() : null}
                 </span>
@@ -111,7 +110,7 @@ export function TeamsSection({ st, doc, set }: SectionProps<'teams'>) {
                   <b>انتقال {e.displayName} از {t.name} به {doc.teams.find((x) => x.id === moving!.to)?.name}</b>
                   <div className={c('row1')}>
                     <button type="button" role="switch" aria-checked={moving!.keep} className={c('tgl', moving!.keep && 'on')} onClick={() => setMoving({ ...moving!, keep: !moving!.keep })}>
-                      <span className={c('sw')} />{fa(p?.customers ?? 0)} مشتری و {fa(p?.openFiles ?? 0)} پرونده‌ی باز با خودش بمانند
+                      <span className={c('sw')} />{safeN(p?.customers ?? 0)} مشتری و {safeN(p?.openFiles ?? 0)} پرونده‌ی باز با خودش بمانند
                     </button>
                   </div>
                   {!moving!.keep ? <span className={c('hint')}>مشتری‌هایش با قانون‌های داخل {t.name} بین بقیه‌ی همین تیم تقسیم می‌شوند و در تاریخچه‌ی تقسیم ثبت می‌شوند.</span> : null}
@@ -144,8 +143,6 @@ export function TeamsSection({ st, doc, set }: SectionProps<'teams'>) {
           <I n="plus" /><b>تیم تازه</b><span className={c('hint')}>با نام دلخواه</span>
         </button>
       </div>
-      <p className={c('hint')} style={{ marginTop: 10 }}>تیم فقط وقتی خالی است حذف می‌شود؛ اول اعضا را با «انتقال به تیم…» یا کشیدن جابه‌جا کنید.</p>
-      {mg ? <p className={c('hint')}>نام تیم و «غیرفعال کردن» همان تیم زنده‌ی سیستم را عوض می‌کنند و در تاریخچه ثبت می‌شوند؛ غیرفعال کردن اعضا را از تیم بیرون می‌آورد. اولویت هر کارشناس از «تیم‌های فروش» آمده و فعلاً فقط نمایش است.</p> : null}
     </>
   );
 }

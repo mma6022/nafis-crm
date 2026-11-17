@@ -102,7 +102,6 @@ export function DistSection({ st, doc, docs, set }: SectionProps<'dist'>) {
             </tbody>
           </table>
           {(() => { const s = ms.reduce((a, e) => a + (doc.caps[e.id]?.percent ?? 0), 0); return s !== 100 && member.fallback.method === 'percent' ? <p className={c('err')}>جمع سهم‌ها {fa(s)}٪ است؛ باید ۱۰۰٪ باشد.</p> : null; })()}
-          <p className={c('hint')} style={{ marginTop: 6 }}>اگر کارشناس مرخصی است یا سقفش پر شده، لید به نفر بعدی همان تیم می‌رسد؛ اگر همه پر باشند، به صف مدیر فروش.</p>
         </div>
         <div className={c('pane test')}>
           <div className={c('h3')} style={{ marginTop: 0 }}><I n="play" />آزمایش با یک لید نمونه</div>
@@ -121,7 +120,6 @@ export function DistSection({ st, doc, docs, set }: SectionProps<'dist'>) {
               {res.path.map((p, i) => <li key={i} className={c(p.level === 3 && 'res')}><I n={p.level === 1 ? 'team' : 'user'} /><span>{p.text}</span></li>)}
             </ol>
           ) : null}
-          <p className={c('hint')}>آزمایش چیزی ثبت نمی‌کند و نوبت هیچ قانونی را جلو نمی‌برد.</p>
         </div>
       </div>
       <div className={c('h3')}>تاریخچه‌ی تقسیم <span className={c('hint')}>امروز</span></div>
@@ -130,7 +128,7 @@ export function DistSection({ st, doc, docs, set }: SectionProps<'dist'>) {
           <thead><tr><th>ساعت</th><th>مشتری</th><th>تیم</th><th>کارشناس</th><th>دلیل</th></tr></thead>
           <tbody>{log.data.rows.map((r, i) => <tr key={i}><td>{r.at}</td><td><b style={{ color: 'var(--ink)' }}>{r.customer}</b></td><td>{r.team}</td><td>{r.expert}</td><td>{r.reason}</td></tr>)}</tbody>
         </table>
-      ) : <p className={c('hint')}>امروز هنوز مشتری‌ای با این قانون‌ها تقسیم نشده. تقسیم لیدهای تازه هنوز با تنظیم فعلی «تیم‌های فروش» است.</p>}
+      ) : <p className={c('hint')}>امروز هنوز مشتری‌ای تقسیم نشده.</p>}
     </>
   );
 }

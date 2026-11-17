@@ -101,7 +101,7 @@ export function DailySection({ st, doc, docs, set }: SectionProps<'daily'>) {
         <button className={c('btn gh')} type="button" onClick={() => setAdding(adding == null ? Math.max(0, blocks.findIndex((b) => b.k === 'potential')) : null)}><I n="plus" />افزودن مشتری</button>
       </div>
       {adding != null && adding >= 0 ? <AddCustomer blocks={blocks} at={adding} onAdd={(id, bi, atTime) => { pushOp({ op: 'add', expertId: who, date, customerId: id, blockIdx: bi, atTime }); setAdding(null); }} onClose={() => setAdding(null)} /> : null}
-      <div className={c('h3')}>بازه‌های کاری <span className={c('hint')}>برای {exp?.displayName}؛ همان بازه‌های «کارهای امروز من»</span></div>
+      <div className={c('h3')}>بازه‌های کاری <span className={c('hint')}>برای {exp?.displayName}</span></div>
       <div className={c('blocks')}>
         {blocks.map((b, i) => <span key={i} className={c('blk')}>{fa(b.from / 60 | 0)} تا {fa(b.to / 60 | 0)}<em className={c(b.k === 'actual' ? 'a' : 'p')}>{b.kindFa}</em></span>)}
         <button className={c('btn lk')} type="button" onClick={() => setEditBlocks(!editBlocks)}><I n="edit" />ویرایش بازه‌ها</button>
@@ -119,7 +119,6 @@ export function DailySection({ st, doc, docs, set }: SectionProps<'daily'>) {
           </div>
         );
       })}
-      <p className={c('hint')} style={{ marginTop: 10 }}><I n="lock" /> ورودی، دستور پرداخت و اقدام پرونده مثل امروز خودکار بالای صف می‌پرند و جابه‌جا نمی‌شوند.</p>
       {ops.length ? <p className={c('hint')}>{fa(ops.length)} تغییر دستی در پیش‌نویس؛ تا «ذخیره و اعمال» نزنید، لیست کارشناس عوض نمی‌شود.</p> : null}
     </>
   );

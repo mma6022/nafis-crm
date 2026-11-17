@@ -125,24 +125,52 @@ function Console({ st, m, bs, roles }: { st: SmcState; m: MergeState | null; bs:
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), m ? 8000 : 4000); return () => clearTimeout(t); }, [toast, m]);
   useEffect(() => () => { void flush(); }, [flush]);
 
-  // Active section in the index (IntersectionObserver, §1 of the handoff).
+  // Active section in the index (Armita review: the old IntersectionObserver only saw entries that changed, so a tall open section
+  // or the sticky chip row left the previous section lit). Now: on every scroll (any scroller, capture) the active section is the
+  // last one whose top has passed a line a quarter of the way down the visible area (under the sticky chip row on mobile).
+  const spyIds = SECS.map(([id]) => id).join(',');
   useEffect(() => {
-    const els = SECS.map(([id]) => document.getElementById(`s-${id}`)).filter((x): x is HTMLElement => Boolean(x));
-    const io = new IntersectionObserver((ents) => {
-      const vis = ents.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-      if (vis) setActive(vis.target.id.slice(2));
-    }, { rootMargin: '-80px 0px -55% 0px', threshold: 0 });
-    els.forEach((e) => io.observe(e));
-    return () => io.disconnect();
-  }, []);
-  const scrollTabIntoRow = (id: string) => {
+    let raf = 0;
+    const calc = () => {
+      raf = 0;
+      const ids = spyIds.split(',');
+      const idx = document.querySelector<HTMLElement>('.smc-idx');
+      const ir = idx?.getBoundingClientRect();
+      const sticky = ir && ir.width > innerWidth * 0.6 && ir.height < 160 ? ir.bottom : 0; // horizontal chip row
+      const line = sticky + Math.max(56, (innerHeight - sticky) * 0.25);
+      let cur = ids[0]!;
+      for (const id of ids) { const el = document.getElementById(`s-${id}`); if (el && el.getBoundingClientRect().top <= line) cur = id; }
+      setActive((a) => (a === cur ? a : cur));
+    };
+    const on = () => { if (!raf) raf = requestAnimationFrame(calc); };
+    addEventListener('scroll', on, { capture: true, passive: true }); addEventListener('resize', on);
+    const t = setTimeout(calc, 50);
+    return () => { removeEventListener('scroll', on, { capture: true }); removeEventListener('resize', on); clearTimeout(t); if (raf) cancelAnimationFrame(raf); };
+  }, [spyIds]);
+  useEffect(() => { scrollTabIntoRow(active, false); }, [active]);
+  // Floating «گزارش خطا» (Armita review): ≥1280 it sits under the index column; everywhere its height counts in the bottom padding.
+  useEffect(() => {
+    const html = document.documentElement;
+    const fit = () => {
+      const root = document.querySelector<HTMLElement>('.smc-root'); if (!root) return;
+      const idx = document.querySelector<HTMLElement>('.smc-idx'); const ir = idx?.getBoundingClientRect();
+      const col = Boolean(ir && ir.height > 160 && ir.width < innerWidth * 0.5);
+      if (col && ir) { html.classList.add('smc-fab'); html.style.setProperty('--smc-fab-x', `${Math.round(ir.left)}px`); } else html.classList.remove('smc-fab');
+      const fab = document.querySelector<HTMLElement>('.diag-floating'); const fr = fab?.getBoundingClientRect(); const cs = fab ? getComputedStyle(fab) : null;
+      const shown = Boolean(fr && fr.width > 0 && cs && cs.display !== 'none' && cs.visibility !== 'hidden');
+      root.style.setProperty('--smc-fab-clear', shown ? `${Math.round(innerHeight - fr!.top + 16)}px` : '0px');
+    };
+    fit(); const t = setInterval(fit, 1000); addEventListener('resize', fit);
+    return () => { clearInterval(t); removeEventListener('resize', fit); html.classList.remove('smc-fab'); html.style.removeProperty('--smc-fab-x'); };
+  }, []); // the lit chip stays visible in the mobile row
+  const scrollTabIntoRow = (id: string, smooth = true) => {
     requestAnimationFrame(() => {
       const row = document.querySelector<HTMLElement>('.smc-idx');
       const el = row?.querySelector<HTMLElement>(`a[href="#s-${id}"]`);
       if (!row || !el) return;
       const rr = row.getBoundingClientRect(), er = el.getBoundingClientRect();
       if (er.left < rr.left + 2 || er.right > rr.right - 2) {
-        el.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
+        el.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: smooth ? 'smooth' : 'auto' });
       }
     });
   };
@@ -206,7 +234,7 @@ function Console({ st, m, bs, roles }: { st: SmcState; m: MergeState | null; bs:
     preview: async (id, enabled) => { try { return await smcApi<TeamPreview>(`/merge/teams/${id}`, { method: 'PUT', body: { enabled, preview: true } }); } catch (e) { setToast((e as ApiError).message); return null; } },
     save: saveFolded, saving,
   } : null;
-  const teamsLine = st.docs.teams.teams.filter((t) => !t.deleted).map((t) => `${t.name}: ${st.docs.teams.experts.filter((e) => e.teamId === t.id).map((e) => e.displayName.replace(/^(خانم|آقای) /, '')).join('، ') || 'خالی'}`);
+  const teamsLine = st.docs.teams.teams.filter((t) => !t.deleted).map((t) => { const lt = m?.values.teams.find((x) => `t${x.id}` === t.id); return lt && !lt.enabled ? `${lt.name}: غیرفعال` : `${lt?.name ?? t.name}: ${st.docs.teams.experts.filter((e) => e.teamId === t.id).map((e) => e.displayName.replace(/^(خانم|آقای) /, '')).join('، ') || 'خالی'}`; });
 
   return (
     <MergeContext.Provider value={mctx}>
@@ -220,7 +248,7 @@ function Console({ st, m, bs, roles }: { st: SmcState; m: MergeState | null; bs:
         <nav className={c('idx')} aria-label="بخش‌های این صفحه">
           <h2>بخش‌ها</h2>
           {SECS.map(([id, t], i) => (
-            <a key={id} href={`#s-${id}`} className={c(active === id && 'on')} onClick={() => { setOpen((o) => new Set(o).add(id)); scrollTabIntoRow(id); }}>
+            <a key={id} href={`#s-${id}`} className={c(active === id && 'on')} aria-current={active === id ? 'true' : undefined} onClick={() => { setOpen((o) => new Set(o).add(id)); setActive(id); scrollTabIntoRow(id); }}>
               <span className={c('n')}>{fa(i + 1)}</span>{t}{isDoc(id) && changesOf(id) > 0 ? <span className={c('dot')} aria-label="تغییر ذخیره‌نشده" /> : null}
             </a>
           ))}
@@ -287,7 +315,6 @@ function ConfirmDialog({ cf, onBack, onApply }: { cf: Confirm; onBack: () => voi
         {errors.length ? <p className={c('err')} role="alert">{errors[0]!.message}</p> : null}
         {cf.conflict ? <p className={c('err')} role="alert">{cf.conflict}</p> : null}
         {cf.error ? <p className={c('err')} role="alert">{cf.error}</p> : null}
-        <p className={c('hint')}>از همین حالا روی کارشناس‌ها اعمال می‌شود و در تاریخچه با امکان برگرداندن ثبت می‌شود. کارهای فوری دست نمی‌خورند.</p>
         <div className={c('row1')}>
           <button className={c('btn gh')} type="button" onClick={onBack}>برگشت</button>
           {cf.conflict

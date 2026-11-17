@@ -110,9 +110,15 @@ export type BaleState = {
   };
   view: { managers: { level: ViewLevel; members: BaleViewRow[] }; teams: { id: number; name: string; level: ViewLevel | null; members: BaleViewRow[] }[]; others: BaleViewRow[] };
   quick: QuickMessage[];
-  voice: { mode: VoiceMode; modeSet: boolean; total: number; pending: number; rows: VoiceRow[] };
+  voice: VoiceView;
   writes: { part: string; table: string; keys: string }[];
 };
+export type VoiceView = { mode: VoiceMode; modeSet: boolean; total: number; pending: number; page: number; pages: number; per: number; rows: VoiceRow[] };
+/** One page (20 rows) of the voice list; page 1 comes with /bale/state. Shares the 'smc-bale' prefix so writes refresh it too. */
+export function useVoicePage(page: number, first: VoiceView) {
+  return useQuery({ queryKey: ['smc-bale', 'voice', page], enabled: page > 1, retry: false, staleTime: 0, refetchOnWindowFocus: false, placeholderData: (p) => p,
+    queryFn: () => smcApi<VoiceView>(`/bale/voice?page=${page}`), initialData: page === 1 ? first : undefined });
+}
 export function useBaleState(enabled: boolean) {
   return useQuery({ queryKey: ['smc-bale'], enabled, retry: false, staleTime: 0, refetchOnWindowFocus: false, queryFn: () => smcApi<BaleState>('/bale/state') });
 }

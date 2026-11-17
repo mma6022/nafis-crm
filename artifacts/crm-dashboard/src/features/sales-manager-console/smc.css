@@ -472,3 +472,26 @@
   .smc-root .smc-vhd .smc-btn{flex:1 1 0}
   .smc-root .smc-qact{width:100%;justify-content:flex-end}
 }
+/* Armita visual review (v1.2 + v1.3), 2026-11-17 */
+/* Bottom clearance = dock + unsaved bar + 16px, and never less than what the floating «گزارش خطا» button needs (--smc-fab-clear, measured). */
+.smc-root .smc-pg{--smc-clear:calc(var(--ss-dock-h, var(--dock-h, 68px)) + var(--smc-draft-h, 0px) + 16px + env(safe-area-inset-bottom, 0px));
+  padding-bottom:max(var(--smc-clear), var(--smc-fab-clear, 0px)) !important}
+.smc-root:has(.smc-draftbar) .smc-pg{--smc-draft-h:56px}
+@media (min-width:1024px){ .smc-root:has(.smc-draftbar) .smc-pg{--smc-draft-h:0px} }
+/* An opened form scrolls itself fully above the dock + bar (scrollIntoView «nearest» honours this). */
+.smc-root .smc-lift{scroll-margin-bottom:max(var(--smc-clear, 100px), var(--smc-fab-clear, 0px));scroll-margin-top:calc(var(--top-h, 0px) + 80px)}
+/* ≥1280 the index is a column: the floating report button sits under it, off the content. */
+html.smc-fab.smc-fab .diag-floating{left:var(--smc-fab-x, 18px) !important;right:auto !important}
+/* Shared bot: three steps, all visible (mockup «fprog» + list). */
+.smc-root .smc-wbar .smc-wstep{min-height:44px;border-radius:11px;background:#fff;border:1px solid var(--brand-100);font-weight:700;font-size:13px;color:var(--ink-soft);display:flex;align-items:center;justify-content:center;gap:6px;padding:0 8px}
+.smc-root .smc-wbar .smc-wstep.smc-on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.smc-root .smc-wbar .smc-wstep:not(.smc-on) .smc-wn{background:var(--brand-50)}
+.smc-root .smc-wlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.smc-root .smc-wlist li{display:flex;gap:10px;align-items:flex-start;background:#fff;border-radius:11px;padding:8px 12px;font-size:13px;color:var(--ink-soft);line-height:1.8}
+.smc-root .smc-wlist li .smc-wn{flex:none;background:var(--brand-50);color:var(--ink);margin-top:2px}
+.smc-root .smc-wlist li > span:last-child{display:flex;flex-direction:column}
+.smc-root .smc-wlist li b{color:var(--ink)}
+/* Voice list pager: 20 a page. */
+.smc-root .smc-pager{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:10px}
+.smc-root .smc-pager .smc-pgn{font-weight:700;color:var(--ink-soft);min-width:120px;text-align:center}
+@media (max-width:640px){ .smc-root .smc-wbar{grid-template-columns:repeat(3,minmax(0,1fr)) !important} .smc-root .smc-wbar .smc-wstep{font-size:12px;padding:0 4px;gap:4px} .smc-root .smc-wbar .smc-wstep .smc-wn{width:18px;height:18px;font-size:11px} }

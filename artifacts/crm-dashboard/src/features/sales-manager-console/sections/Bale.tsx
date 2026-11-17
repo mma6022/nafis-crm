@@ -2,20 +2,21 @@
 // Ghasemi's read-only bot never appears here (server filters it). Tokens / keys: masked text field (no password field), cleared after save, never shown again.
 import { useState, type ReactNode } from 'react';
 import type { BaleState, QuickMessage, ViewLevel } from '../api';
-import { c, fa, I, Chip, Seg, Tgl } from '../ui';
+import { c, fa, I, Chip, Seg, Tgl, hasPair, safeN } from '../ui';
 
 export type BaleAct = (path: string, method: 'PUT' | 'POST', body: unknown, okMsg: string) => Promise<boolean>;
 const LV: [ViewLevel, string][] = [['own', 'فقط خودش'], ['all', 'همه'], ['none', 'هیچ']];
-const STEPS: [string, string, string][] = [
-  ['اشتراک شماره', 'شروع', 'مشتری ربات را شروع می‌کند؛ تا شماره را با دکمه‌ی اشتراک یا ورود دستی نفرستد، ربات همان درخواست را تکرار می‌کند و کار دیگری انجام نمی‌شود.'],
-  ['تشخیص مشتری', 'بعد از اشتراک', 'شماره با پرونده‌ها تطبیق داده می‌شود.'],
-  ['تقسیم یا وصل', 'تقسیم یا وصل', 'لید تازه با قوانین تقسیم مشتری ورودی می‌رود؛ مشتری یا پیگیری موجود به کارشناس خودش وصل و در صندوق همان کارشناس دیده می‌شود.'],
+/** The shared bot's three steps (bale-voice-v1.3.md §3, mockup «fprog»): all three are shown, in order. */
+const STEPS: [string, string][] = [
+  ['اشتراک شماره', 'مشتری ربات را شروع می‌کند؛ تا شماره را با دکمه‌ی «اشتراک شماره» یا دستی نفرستد، همان درخواست تکرار می‌شود.'],
+  ['تشخیص مشتری', 'شماره با پرونده‌ها تطبیق داده می‌شود.'],
+  ['تقسیم یا وصل', 'لید تازه با قانون‌های تقسیم می‌رود؛ مشتری موجود به کارشناس خودش وصل می‌شود.'],
 ];
 const initial = (n: string) => n.replace(/^(خانم|آقای) /, '').trim().slice(0, 1) || '؟';
 const H = ({ children }: { children: ReactNode }) => <h3 className={c('bh3')}>{children}</h3>;
 
 /** Masked secret input: a text field with CSS masking (never type=password), no autofill, emptied after save. */
-function Secret({ label, onSave, busy, hint }: { label: string; onSave: (v: string) => Promise<boolean>; busy?: boolean; hint?: string }) {
+function Secret({ label, onSave, busy }: { label: string; onSave: (v: string) => Promise<boolean>; busy?: boolean }) {
   const [v, setV] = useState('');
   return (
     <div className={c('secret')}>
@@ -23,7 +24,6 @@ function Secret({ label, onSave, busy, hint }: { label: string; onSave: (v: stri
         <input className={c('inp mask')} type="text" inputMode="text" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} data-1p-ignore="" data-lpignore="true"
           dir="ltr" value={v} onChange={(e) => setV(e.target.value)} aria-label={label} data-testid="sab-secret" />
       </label>
-      {hint ? <span className={c('hint')}>{hint}</span> : null}
       <button className={c('btn pri')} type="button" disabled={busy || v.trim().length < 8} onClick={async () => { const s = v.trim(); setV(''); await onSave(s); }}>ذخیره</button>
     </div>
   );
@@ -31,7 +31,6 @@ function Secret({ label, onSave, busy, hint }: { label: string; onSave: (v: stri
 
 export function BaleSection({ bs, act }: { bs: BaleState; act: BaleAct }) {
   const b = bs.bots; const can = bs.canWrite;
-  const [step, setStep] = useState(0);
   const [connect, setConnect] = useState<number | 'new' | null>(null);
   const [pickUser, setPickUser] = useState<number | null>(null);
   const [askAll, setAskAll] = useState(false);
@@ -49,12 +48,14 @@ export function BaleSection({ bs, act }: { bs: BaleState; act: BaleAct }) {
             <span className={c('sp')} />
             <Tgl on={b.shared.ai && b.aiLive} disabled={!can || !b.shared.hasToken} onClick={() => void act('/bale/ai', 'PUT', { botId: b.shared!.id, on: !b.shared!.ai }, b.shared!.ai ? 'پاسخ هوش مصنوعی ربات مشترک خاموش شد.' : 'پاسخ هوش مصنوعی ربات مشترک روشن شد.')}>پاسخ هوش مصنوعی</Tgl>
           </div>
-          <div className={c('wiz')} role="group" aria-label="جریان اشتراک شماره در ربات مشترک">
-            <div className={c('wbar')} role="tablist">
-              {STEPS.map(([t], i) => <button key={t} type="button" role="tab" aria-selected={i === step} className={c(i === step && 'on', i < step && 'done')} onClick={() => setStep(i)}><span className={c('wn')}>{fa(i + 1)}</span>{t}</button>)}
+          <div className={c('wiz')} role="group" aria-label="مراحل ربات مشترک" data-testid="sab-steps">
+            <div className={c('wbar')} aria-hidden="true">
+              {STEPS.map(([t], i) => <span key={t} className={c('wstep', i === 0 && 'on')}><span className={c('wn')}>{fa(i + 1)}</span>{t}</span>)}
             </div>
-            <div className={c('wbody')} role="tabpanel"><b>{STEPS[step]![1]}</b><p>{STEPS[step]![2]}</p></div>
-            {!b.contactFlow.forced ? <p className={c('hint')}>جریان اشتراک شماره در سامانه هنوز روشن نیست.</p> : null}
+            <ol className={c('wlist')}>
+              {STEPS.map(([t, d], i) => <li key={t}><span className={c('wn')}>{fa(i + 1)}</span><span><b>{t}</b><span>{d}</span></span></li>)}
+            </ol>
+            {!b.contactFlow.forced ? <Chip k="g">اشتراک شماره هنوز روشن نیست</Chip> : null}
           </div>
         </div>
       ) : null}
@@ -68,9 +69,9 @@ export function BaleSection({ bs, act }: { bs: BaleState; act: BaleAct }) {
             <Seg label={`ربات ${e.name}`} value={e.mode} options={[['own', 'ربات خودش'], ['shared', 'ربات مشترک']]}
               onChange={(v) => { if (can && v !== e.mode) void act('/bale/mode', 'PUT', { userId: e.userId, mode: v }, v === 'shared' ? `${e.name} از ربات مشترک جواب می‌گیرد.` : `${e.name} با ربات خودش کار می‌کند.`); }} />
             {e.mode === 'own' && e.bot ? <Tgl on={e.bot.ai && b.aiLive} disabled={!can} onClick={() => void act('/bale/ai', 'PUT', { botId: e.bot!.id, on: !e.bot!.ai }, `پاسخ هوش مصنوعی ربات ${e.name} ${e.bot!.ai ? 'خاموش' : 'روشن'} شد.`)}>هوش مصنوعی</Tgl> : null}
-            {e.mode === 'own' && !e.bot && can ? <button className={c('btn gh')} type="button" data-testid={`sab-connect-${e.userId}`} disabled={!b.canConnect} onClick={() => setConnect(connect === e.userId ? null : e.userId)}>وصل کردن ربات</button> : null}
+            {!e.bot && can ? <button className={c('btn gh')} type="button" data-testid={`sab-connect-${e.userId}`} disabled={!b.canConnect} onClick={() => setConnect(connect === e.userId ? null : e.userId)}>وصل کردن ربات</button> : null}
           </div>
-          {connect === e.userId ? <Secret label={`توکن ربات ${e.name} (از @botfather)`} hint="فقط یک‌بار وارد می‌شود و بعد از ذخیره دیده نمی‌شود." onSave={(t) => doConnect(e.userId, t)} /> : null}
+          {connect === e.userId ? <Secret label={`توکن ربات ${e.name} (از @botfather)`} onSave={(t) => doConnect(e.userId, t)} /> : null}
         </div>
       ))}
       {can ? (
@@ -84,13 +85,12 @@ export function BaleSection({ bs, act }: { bs: BaleState; act: BaleAct }) {
           <div className={c('picks')} role="radiogroup" aria-label="ربات تازه برای">
             {noBot.map((e) => <button key={e.userId} type="button" role="radio" aria-checked={pickUser === e.userId} className={c('pick', pickUser === e.userId && 'on')} onClick={() => setPickUser(e.userId)}>{e.name}</button>)}
           </div>
-          {pickUser ? <Secret label="توکن ربات (از @botfather)" hint="فقط یک‌بار وارد می‌شود و بعد از ذخیره دیده نمی‌شود." onSave={(t) => doConnect(pickUser, t)} /> : null}
+          {pickUser ? <Secret label="توکن ربات (از @botfather)" onSave={(t) => doConnect(pickUser, t)} /> : null}
         </div>
       ) : null}
       {askAll ? (
-        <div className={c('bcard ask')} role="alertdialog" data-nodnd="" aria-label="یکسان برای همه">
+        <div className={c('bcard ask')} role="group" aria-label="یکسان برای همه">
           <b>همه‌ی کارشناس‌ها از ربات مشترک جواب بگیرند؟</b>
-          <p className={c('hint')}>ربات‌های شخصی وصل‌شده قطع نمی‌شوند و توکنشان می‌ماند؛ فقط تا برگرداندن بی‌کار می‌مانند. در «تاریخچه» با «برگرداندن» ثبت می‌شود.</p>
           <div className={c('row1')}><button className={c('btn gh')} type="button" onClick={() => setAskAll(false)}>انصراف</button>
             <button className={c('btn pri')} type="button" onClick={async () => { await act('/bale/mode', 'PUT', { all: true, mode: 'shared' }, 'همه از ربات مشترک جواب می‌گیرند.'); setAskAll(false); }}>بله، همه ربات مشترک</button></div>
         </div>
@@ -98,17 +98,16 @@ export function BaleSection({ bs, act }: { bs: BaleState; act: BaleAct }) {
       <div className={c('bcard')} data-testid="sab-key">
         <div className={c('brow')}>
           <span className={c('bnm')}><span className={c('lbl')}>کلید OpenAI و پایگاه دانش</span>
-            <b>{b.openai.set ? 'کلید ذخیره شده' : 'کلیدی ثبت نشده'}</b>{b.openai.savedAt ? <span className={c('hint')}>{whenFa(b.openai.savedAt)}</span> : null}</span>
+            <b>{b.openai.set ? 'کلید ذخیره شده' : 'کلید ثبت نشده'}</b>{b.openai.savedAt ? <span className={c('hint')}>{whenFa(b.openai.savedAt)}</span> : null}</span>
           <span className={c('sp')} />
           {can ? <button className={c('btn gh')} type="button" onClick={() => setKeyForm(!keyForm)}>کلید تازه</button> : null}
         </div>
-        {keyForm ? <Secret label="کلید تازه‌ی OpenAI" hint="بعد از ذخیره نشان داده نمی‌شود." onSave={async (v) => { const ok = await act('/bale/key', 'POST', { value: v }, 'کلید ذخیره شد و دیگر نشان داده نمی‌شود.'); if (ok) setKeyForm(false); return ok; }} /> : null}
-        {!b.aiMaster ? <p className={c('hint')}>سوییچ اصلی هوش مصنوعی خاموش است؛ هیچ رباتی پاسخ خودکار نمی‌دهد.</p> : null}
+        {keyForm ? <Secret label="کلید تازه‌ی OpenAI" onSave={async (v) => { const ok = await act('/bale/key', 'POST', { value: v }, 'کلید ذخیره شد و دیگر نشان داده نمی‌شود.'); if (ok) setKeyForm(false); return ok; }} /> : null}
+        {!b.aiMaster ? <Chip k="g">سوییچ اصلی هوش مصنوعی خاموش است</Chip> : null}
       </div>
 
       <H>دیدن پیام‌های بله</H>
       <ViewTable bs={bs} act={act} />
-      <p className={c('hint')}>اگر «هیچ» باشد، «گفتگوهای بله» برایش دیده نمی‌شود؛ تخصیص مشتری سر جایش می‌ماند و کسانی که «همه» دارند همچنان گفتگو را می‌بینند.</p>
 
       <H>پیام‌های پیش‌فرض</H>
       <QuickList items={bs.quick} can={can} act={act} />
@@ -139,7 +138,7 @@ function ViewTable({ bs, act }: { bs: BaleState; act: BaleAct }) {
       {v.teams.map((t) => (
         <div key={t.id}>
           <div className={c('vrow vteam')}>
-            <span className={c('vnm')}><b>{t.name}</b><span className={c('hint')}> · {fa(t.members.length)} کارشناس</span></span>
+            <span className={c('vnm')}><b>{t.name}</b><span className={c('hint')}> · {safeN(t.members.length)} کارشناس</span></span>
             {can ? <button className={c('btn lk')} type="button" aria-expanded={teamAsk === t.id} onClick={() => setTeamAsk(teamAsk === t.id ? null : t.id)}><I n="copy" />یکسان برای همه‌ی تیم…</button> : null}
           </div>
           {teamAsk === t.id ? (
@@ -206,4 +205,4 @@ function ChatPreview({ items }: { items: QuickMessage[] }) {
     </div>
   );
 }
-export const whenFa = (iso: string) => { try { return new Intl.DateTimeFormat('fa-IR-u-ca-persian', { day: 'numeric', month: 'long', timeZone: 'Asia/Tehran' }).format(new Date(iso)); } catch { return ''; } };
+export const whenFa = (iso: string) => { try { const j = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { day: 'numeric', month: 'long', timeZone: 'Asia/Tehran' }).format(new Date(iso)); return hasPair(j) ? '' : j; } catch { return ''; } };

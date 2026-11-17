@@ -138,7 +138,6 @@ export function ModelSection({ st, doc, docs, set }: SectionProps<'model'>) {
                 {experts.map((e) => <option key={e.id} value={e.id}>پیش‌نمایش برای {e.displayName}</option>)}
               </select>
             </div>
-            <p className={c('hint')}>پیش‌نمایش چیزی ذخیره نمی‌کند. بعد از ذخیره، از لیست فردا اعمال می‌شود؛ لیست امروز و کارهای دستی دست نمی‌خورند.</p>
           </div>
         </div>
       )}
