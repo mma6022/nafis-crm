@@ -10,6 +10,7 @@
  * Nothing here sends SMS / Bale / a bell, or touches user 29, contracts, templates, loan_plans, team_sales_config or notification_settings.
  */
 import { queryRow, queryRows } from "./crm-db";
+import { cpkOn, cpkNextReminderAt } from "./customers-priority-kanban";
 
 const setting = (key: string): string | null => {
   try { return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [key])?.value ?? null; }
@@ -75,7 +76,7 @@ export function sf480Search(u: U, rawQ: unknown): { status: number; body: any } 
 }
 
 /** GET /sales-fixes/my-customers?q=&offset= — «مشتریان من» for a sales expert: own customers only, newest activity first. */
-export function sf480MyCustomers(u: U, rawQ: unknown, rawOffset: unknown): { status: number; body: any } {
+export function sf480MyCustomers(u: U, rawQ: unknown, rawOffset: unknown, rawExtra?: Record<string, unknown>): { status: number; body: any } {
   const sc = scopeSql(u);
   if (!sc) return { status: 403, body: { error: "forbidden", message: "این فهرست برای این حساب باز نیست." } };
   const q = normName(toLatin(String(rawQ ?? "")));
@@ -87,15 +88,39 @@ export function sf480MyCustomers(u: U, rawQ: unknown, rawOffset: unknown): { sta
     where.push(`(replace(replace(replace(c.name,'ي','ی'),'ك','ک'),char(8204),' ') LIKE ? ${digits.length >= 4 ? "OR c.phone LIKE ?" : ""})`);
     args.push(`%${q.replace(/[%_]/g, "")}%`); if (digits.length >= 4) args.push(`%${digits}%`);
   }
+  const kanban = cpkOn();
+  const countWhere = where.join(" AND ");
+  const countArgs = [...args];
+  if (kanban && rawExtra) {
+    const st = String(rawExtra.status ?? "");
+    if (st === "in_progress" || st === "completed" || st === "cancelled") { where.push("c.status=?"); args.push(st); }
+    if (String(rawExtra.hasPriority ?? "") === "false") where.push("c.priority IS NULL");
+    else {
+      const p = Number(rawExtra.priority);
+      if (p === 1 || p === 2 || p === 3) { where.push("c.priority=?"); args.push(p); }
+    }
+  }
+  const limit = kanban && rawExtra?.limit != null ? Math.max(1, Math.min(30, Number(rawExtra.limit) || 15)) : 30;
   const total = Number(queryRow<{ n: number }>(`SELECT COUNT(*) n FROM customers c WHERE ${where.join(" AND ")}`, args)?.n ?? 0);
   const rows = queryRows<any>(
     `SELECT c.id, c.name, c.phone, c.priority, c.status,
        (SELECT MAX(l.created_at) FROM call_logs l WHERE l.customer_id=c.id) last_call,
        (SELECT COUNT(*) FROM loan_applications la WHERE la.customer_id=c.id AND la.deleted_at IS NULL) cases
      FROM customers c WHERE ${where.join(" AND ")}
-     ORDER BY COALESCE(last_call, c.created_at) DESC, c.id DESC LIMIT 30 OFFSET ?`, [...args, offset]);
-  return { status: 200, body: { total, offset, items: rows.map((r) => ({ id: Number(r.id), name: String(r.name ?? ""), phoneLast4: String(r.phone ?? "").slice(-4),
-    priority: r.priority == null ? null : Number(r.priority), status: String(r.status ?? "in_progress"), lastCallAt: r.last_call ?? null, cases: Number(r.cases) })) } };
+     ORDER BY COALESCE(last_call, c.created_at) DESC, c.id DESC LIMIT ? OFFSET ?`, [...args, limit, offset]);
+  const items = rows.map((r) => ({ id: Number(r.id), name: String(r.name ?? ""), phoneLast4: String(r.phone ?? "").slice(-4),
+    priority: r.priority == null ? null : Number(r.priority), status: String(r.status ?? "in_progress"), lastCallAt: r.last_call ?? null, cases: Number(r.cases) })) as Array<any>;
+  if (kanban && items.length) {
+    const rems = cpkNextReminderAt(items.map((i) => i.id), Number(u.id));
+    for (const it of items) it.nextReminderAt = rems.get(it.id) ?? null;
+  }
+  const body: any = { total, offset, items };
+  if (kanban && (String(rawExtra?.counts ?? "") === "1")) {
+    const counts = queryRows<{ status: string; n: number }>(`SELECT c.status AS status, COUNT(*) AS n FROM customers c WHERE ${countWhere} GROUP BY c.status`, countArgs);
+    body.totalCustomers = Number(queryRow<{ n: number }>(`SELECT COUNT(*) n FROM customers c WHERE ${countWhere}`, countArgs)?.n ?? 0);
+    body.statusCounts = counts.map((r) => ({ status: String(r.status ?? "in_progress"), count: Number(r.n) }));
+  }
+  return { status: 200, body };
 }
 
 /** GET /sales-fixes/cases — «پرونده‌های من» kanban: the expert's own cases (customers they own), every open case plus cases closed in the last 30 days.

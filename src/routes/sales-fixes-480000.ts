@@ -15,7 +15,7 @@ router.get("/sales-fixes/search", (req, res): void => {
 });
 router.get("/sales-fixes/my-customers", (req, res): void => {
   const u = me(res); if (!u) { res.status(401).json({ error: "unauthorized" }); return; }
-  const r = sf480MyCustomers(u as any, req.query?.q, req.query?.offset); res.status(r.status).json(r.body);
+  const r = sf480MyCustomers(u as any, req.query?.q, req.query?.offset, req.query as Record<string, unknown>); res.status(r.status).json(r.body);
 });
 router.get("/sales-fixes/cases", (_req, res): void => {
   const u = me(res); if (!u) { res.status(401).json({ error: "unauthorized" }); return; }

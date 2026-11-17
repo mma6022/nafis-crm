@@ -150,7 +150,7 @@ try {
     assert.equal(back.body.priority, oldPri);
   });
 
-  await ok("lockdown: flag OFF keeps GET /customers 403 for the expert; flag ON opens me + own list, not another expert's customer", async () => {
+  await ok("lockdown: GET /customers stays 403 even with the flag ON; me is only the flag probe", async () => {
     setKey(cpk.CPK_FLAG, null);
     assert.equal((await call(KAZEMI, "GET", "/customers-priority-kanban/me", undefined, "/elapi")).status, 404);
     assert.equal((await call(KAZEMI, "GET", `/customers?limit=1`, undefined, "/elapi")).status, 403);
@@ -158,12 +158,33 @@ try {
     const me = await call(KAZEMI, "GET", "/customers-priority-kanban/me", undefined, "/elapi");
     assert.equal(me.status, 200, me.text);
     assert.deepEqual(me.body, { enabled: true });
-    const list = await call(KAZEMI, "GET", `/customers?customerId=${CID}&limit=5`, undefined, "/elapi");
+    assert.equal((await call(KAZEMI, "GET", `/customers?customerId=${CID}&limit=5`, undefined, "/elapi")).status, 403);
+    assert.equal((await call(KAZEMI, "GET", `/customers?limit=1`, undefined, "/elapi")).status, 403);
+  });
+
+  await ok("lockdown: with the flag ON, columns come only from /sales-fixes/my-customers (own today short list), not another expert's customer", async () => {
+    setKey(cpk.CPK_FLAG, "1");
+    const mineName = String(queryRow("SELECT name FROM customers WHERE id=?", [CID]).name);
+    const list = await call(KAZEMI, "GET", `/sales-fixes/my-customers?q=${encodeURIComponent(mineName)}&offset=0&limit=15&status=in_progress&priority=3&counts=1`, undefined, "/elapi");
     assert.equal(list.status, 200, list.text);
+    assert.ok(Array.isArray(list.body.items), "items");
     assert.ok(list.body.items.every((x) => x.id !== OTHER), "other expert's customer is not listed");
     assert.ok(list.body.items.some((x) => x.id === CID), "own customer is listed");
+    assert.ok(list.body.items.every((x) => x.priority === 3), "priority filter");
+    assert.ok(list.body.items.every((x) => !("phone" in x) || x.phone == null), "no full phone on the short list");
+    assert.ok(list.body.items.find((x) => x.id === CID).nextReminderAt === REM_AT, "nextReminderAt on the short list while ON");
+    assert.ok(Array.isArray(list.body.statusCounts), "status counts");
     const deny = await call(KAZEMI, "GET", `/customers/${OTHER}`, undefined, "/elapi");
     assert.ok(deny.status === 403 || deny.status === 404, `other file ${deny.status}`);
+    setKey(cpk.CPK_FLAG, "0");
+    const off = await call(KAZEMI, "GET", `/sales-fixes/my-customers?offset=0&priority=3&limit=15`, undefined, "/elapi");
+    assert.equal(off.status, 200, off.text);
+    // flag OFF: extras are ignored, so the page is the ordinary 30-row short list (not priority-filtered) and has no nextReminderAt
+    assert.ok(off.body.items.length > 0);
+    assert.equal(Object.prototype.hasOwnProperty.call(off.body.items[0], "nextReminderAt"), false);
+    const mixed = off.body.items.some((x) => x.priority !== 3);
+    assert.ok(mixed || off.body.items.length <= 30, "OFF list is the ordinary short list");
+    setKey(cpk.CPK_FLAG, "1");
   });
 
   await ok("trainee 31 cannot change Kazemi's customer; guarded tables untouched; no network", async () => {
@@ -181,7 +202,7 @@ try {
 
   execute("DELETE FROM reminders WHERE id=? OR (customer_id=? AND message IN ('fixture reminder','hasani reminder should not attach'))", [remId, CID]);
   setKey(cpk.CPK_FLAG, null);
-  console.log(`customers-priority-kanban fixture ${passed}/6`);
+  console.log(`customers-priority-kanban fixture ${passed}/7`);
 } catch (e) {
   console.error(e);
   process.exitCode = 1;

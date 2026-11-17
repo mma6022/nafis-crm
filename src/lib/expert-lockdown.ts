@@ -33,7 +33,6 @@ import { normalizeCustomerMobile } from "./customer-integrity";
 import { ssOn } from "./sales-shell";
 import { csOn } from "./call-summary-fields-core";
 import { sf480OpenLists } from "./sales-fixes-480000";
-import { cpkOn } from "./customers-priority-kanban";
 import { psFlagOn, psIsStatusPriorityOnlyBody } from "./sales-experts-priority-status";
 const csOnSafe = (id: number) => { try { return csOn(id); } catch { return false; } };
 
@@ -249,9 +248,7 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   // SALES-SHELL v2 (spec §9): «یادآورها» view-only while locked = GET /reminders without a customer (the handler lists only the
   // caller's own rows: r.user_id = caller, assigned scope). Only for users whose sales_shell_v2 flag is ON; writes are unchanged.
   const ownReminderList = req.method === "GET" && path === "/reminders" && ids.length === 0 && ssOn(Number(u!.id));
-  // customers-priority-kanban v1: GET /customers (assigned-scope, own customers only) while the flag is ON. Flag OFF keeps today's 403 so «مشتریان من» stays on /sales-fixes/my-customers.
-  const cpkList = req.method === "GET" && path === "/customers" && cpkOn();
-  if (!customerRoute && !customerWrite && !listedCustomerRead && !reminderWrite && !ownReminderList && !cpkList && !ALLOW.some((re) => re.test(path))) {
+  if (!customerRoute && !customerWrite && !listedCustomerRead && !reminderWrite && !ownReminderList && !ALLOW.some((re) => re.test(path))) {
     if (process.env.EL_TRACE === "1") console.warn(`[expert-lockdown] deny ${req.method} ${path}`);
     return deny(res, "expert_lockdown", "این بخش فعلاً برای شما بسته است. از «کارهای امروز من» کار کن.");
   }
