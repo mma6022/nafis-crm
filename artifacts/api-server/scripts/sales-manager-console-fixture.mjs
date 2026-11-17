@@ -39,7 +39,7 @@ try {
   const cookieParser = (await import("cookie-parser")).default;
   // real cookie sessions (same as the app): requireAuth → router; tokens only live in this temp copy
   const tokens = {};
-  for (const id of [1, 2, 5, 8]) {
+  for (const id of [1, 2, 5, 8, 27]) {
     const tok = crypto.randomBytes(24).toString("base64url"); tokens[id] = tok;
     execute("INSERT INTO auth_sessions(token_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)",
       [crypto.createHmac("sha256", process.env.SESSION_SECRET).update(tok).digest("hex"), id, new Date(Date.now() + 86400000).toISOString(), new Date().toISOString()]);
@@ -57,6 +57,9 @@ try {
   });
   const MANAGER = 5, ADMIN = 1, EXPERT = 8, HASANI = 2;
   assert.equal(queryRow("SELECT role FROM users WHERE id=?", [MANAGER]).role, "sales_manager");
+  const ADMIN2 = 27; // second users.role=admin; never user 29
+  assert.equal(queryRow("SELECT role FROM users WHERE id=? AND id<>29", [ADMIN2]).role, "admin");
+  assert.equal(queryRow("SELECT active FROM users WHERE id=?", [ADMIN2]).active, 1);
   const apply = async (user, section, doc, extra = {}) => {
     const st = (await call(user, "GET", "/sales-admin/state")).body;
     const put = await call(user, "PUT", `/sales-admin/drafts/${section}`, { doc, baseVersion: st.meta[section].version, changes: 1 });
@@ -240,13 +243,13 @@ try {
     r = await apply(ADMIN, "steps", bad); assert.equal(r.status, 422); assert.match(r.body.message, /تکمیل/);
     await call(ADMIN, "DELETE", "/sales-admin/drafts/steps");
   });
-  await ok("conflict: the admin saves after the manager opened a draft → manager gets 409 with «… توسط ادمین عوض شده»; force applies", async () => {
-    const st = await state(ADMIN); const d = structuredClone(st.docs.valid); d.identity = { mode: "hours", hours: 48 };
-    await call(ADMIN, "PUT", "/sales-admin/drafts/valid", { doc: d, baseVersion: st.meta.valid.version, changes: 1 });
+  await ok("conflict: admin 1 saves after admin 27 opened a draft → 27 gets 409 with «… توسط ادمین عوض شده»; force applies", async () => {
+    const st = await state(ADMIN2); const d = structuredClone(st.docs.valid); d.identity = { mode: "hours", hours: 48 };
+    await call(ADMIN2, "PUT", "/sales-admin/drafts/valid", { doc: d, baseVersion: st.meta.valid.version, changes: 1 });
     const a = structuredClone(st.docs.valid); a.credit = { mode: "hours", hours: 48 }; const ra = await apply(ADMIN, "valid", a); assert.equal(ra.status, 200, ra.text);
-    let r = await call(ADMIN, "POST", "/sales-admin/apply", { sections: ["valid"] });
+    let r = await call(ADMIN2, "POST", "/sales-admin/apply", { sections: ["valid"] });
     assert.equal(r.status, 409); assert.equal(r.body.error, "changed_since_open"); assert.match(r.body.message, /توسط ادمین عوض شده/);
-    r = await call(ADMIN, "POST", "/sales-admin/apply", { sections: ["valid"], force: true }); assert.equal(r.status, 200);
+    r = await call(ADMIN2, "POST", "/sales-admin/apply", { sections: ["valid"], force: true }); assert.equal(r.status, 200);
   });
   await ok("audit: every section has Persian rows; filter by section; revert of a settings row restores the before-document", async () => {
     const r = await call(ADMIN, "GET", "/sales-admin/audit"); assert.equal(r.status, 200);
