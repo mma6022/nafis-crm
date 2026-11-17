@@ -30,12 +30,15 @@ const POLL_MS = 3000, POLL_MAX = 20;
 const RESEND_AFTER_S = 120, OTP_TRIES = 5; // server caps: 5 code tries and 3 resends per inquiry
 type St = 'init' | 'idle' | 'starting' | 'otp' | 'verifying' | 'processing' | 'result' | 'error' | 'blocked';
 
-export function InstantCreditCheck({ customerId, onRank, embedded }: { customerId: number; onRank?: (rank: string) => void; embedded?: boolean }) {
+/** credit-panel v1 (flag.credit_panel_v1) only: hideRecent — the credit card shows the saved rank itself; initialConsent + autoStart — the quick wizard's
+ *  step 3 already took the customer's consent, so the inquiry starts as soon as the code on file is loaded. All three absent = today's behaviour. */
+export function InstantCreditCheck({ customerId, onRank, embedded, hideRecent, initialConsent, autoStart }: { customerId: number; onRank?: (rank: string) => void; embedded?: boolean;
+  hideRecent?: boolean; initialConsent?: boolean; autoStart?: boolean }) {
   const [st, setSt] = useState<St>('init');
   const [fileNid, setFileNid] = useState<string | null>(null);
   const [nid, setNid] = useState('');
   const [nidTouched, setNidTouched] = useState(false);
-  const [consent, setConsent] = useState(false); // always starts empty (v1.0.3)
+  const [consent, setConsent] = useState(initialConsent === true); // always starts empty (v1.0.3); credit-panel wizard passes the consent it took
   const [recent, setRecent] = useState<CreditCheckLite | null>(null);
   const [res, setRes] = useState<CreditCheckLite | null>(null);
   const [check, setCheck] = useState<CreditCheckLite | null>(null);
@@ -100,6 +103,12 @@ export function InstantCreditCheck({ customerId, onRank, embedded }: { customerI
   const nidBad = !fileNid && (nidTouched || code.length >= 10) && code.length > 0 && !nidOk;
   const canStart = nidOk && consent && st === 'idle';
 
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!autoStart || autoStarted.current || st !== 'idle' || !fileNid || !consent) return;
+    autoStarted.current = true;
+    void start();
+  }, [autoStart, st, fileNid, consent]); // eslint-disable-line react-hooks/exhaustive-deps
   const finish = (c: CreditCheckLite) => {
     if (c.status === 'report_generated' && c.scoreLabel) { setRes(c); setSt('result'); setConsent(false); onRank?.(c.scoreLabel); return; }
     if (c.status === 'failed') { setErr(c.errorMessage || 'استعلام نتیجه نداد.'); setSt('error'); return; }
@@ -192,7 +201,7 @@ export function InstantCreditCheck({ customerId, onRank, embedded }: { customerI
   let body: ReactNode = null;
   if (st === 'init') body = <div className="cvs" role="status" aria-live="polite"><span className="spn" aria-hidden="true" /><span>در حال آماده‌سازی…</span></div>;
   else if (st === 'idle') body = <>
-    {recent ? resultCard(recent, true) : null}
+    {recent && !hideRecent ? resultCard(recent, true) : null}
     {fileNid ? nidRO : <>
       <label className="flab" htmlFor="cvI">کد ملی مشتری</label>
       <input className={`ts-inp cvi${nidBad ? ' er' : ''}`} id="cvI" type="text" inputMode="numeric" autoComplete="off" dir="ltr" maxLength={14} placeholder="۱۰ رقم"

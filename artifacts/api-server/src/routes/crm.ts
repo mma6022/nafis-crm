@@ -198,6 +198,7 @@ import { kazemiSourceFilterSql, kazemiSourceOf, kazemiSources } from "../lib/kaz
 import { ACTIVE_SITE_LEAD_EXISTS_SQL, activeSiteLeads, siteLeadHistory, siteLeadQueue, siteLeadsTableReady, topOfList, topOrderSql } from "../lib/site-leads";
 import { IDENTITY_LOG_TABLE, canActOnCustomerProfile, ensureIdentityLogSchema } from "../lib/consult-profile";
 import { auditCredit, iccOn, initiateLimit, perCheckLimit, scrubOtp } from "../lib/credit-check-guard";
+import { CP_PARTS, cpOn, cpRun, cpView, type CpPart } from "../lib/credit-panel";
 import { normalizeSideFlags } from "../lib/plan-requirements";
 import { retainedIdentityChecks } from "../lib/identity-check-retention";
 import { normalizeCustomerMobile, normalizeCustomerNationalCode, isAdminRole } from "../lib/customer-integrity";
@@ -3782,6 +3783,97 @@ router.post(
     res.json({ customerId: id, nationalCode, changed: true, replaced: replacing, identityChanged });
   },
 );
+
+/* credit-panel v1 (flag.credit_panel_v1, global, absent/≠'1' = OFF → every route below falls through = 404; today's routes unchanged).
+ * Debt bundle (UnpaidChequePro + ChequeColor + ActiveLoans) via the existing sapi client; birth date for «اعتبارسنجی سریع» step 2. */
+const cpGate: RequestHandler = (_req, _res, next): void => { if (cpOn()) next(); else next("route"); };
+const JMONTH_DAYS = [31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 30];
+function cpBirthDate(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(ics24.normalizeDigits(raw).trim());
+  if (!m) return null;
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  if (y < 1300 || y > 1405 || mo < 1 || mo > 12 || d < 1 || d > JMONTH_DAYS[mo - 1]) return null;
+  return `${y}/${String(mo).padStart(2, "0")}/${String(d).padStart(2, "0")}`;
+}
+function cpCustomerFacts(id: number) {
+  const c = queryRow<{ name: string; national_code: string | null; birth_date_jalali: string | null; credit_rank: string | null; credit_checked_at: string | null }>(
+    "SELECT name,national_code,birth_date_jalali,credit_rank,credit_checked_at FROM customers WHERE id=?", [id]);
+  const code = c?.national_code ? normalizeCustomerNationalCode(c.national_code) : "";
+  const validCode = Boolean(code && ics24.validNationalCode(code));
+  const check = queryRow<CreditCheckRow>(
+    "SELECT * FROM customer_credit_checks WHERE customer_id=? AND status='report_generated' AND completed_at IS NOT NULL ORDER BY completed_at DESC, id DESC LIMIT 1", [id]);
+  const fromCheck = check ? creditCheckFromRow(check) : null;
+  const rank = fromCheck?.scoreLabel ? { label: fromCheck.scoreLabel, at: fromCheck.completedAt }
+    : c?.credit_rank ? { label: c.credit_rank, at: c.credit_checked_at ?? null } : null;
+  return {
+    name: c?.name ?? "",
+    nationalCodeMasked: validCode ? `${code.slice(0, 3)}••••${code.slice(-3)}` : null,
+    hasNationalCode: validCode,
+    hasBirthDate: Boolean(c?.birth_date_jalali),
+    isCompany: false,
+    rank,
+    code: validCode ? code : null,
+  };
+}
+router.get("/credit-panel/me", cpGate, (_req, res): void => {
+  const u = res.locals.authUser as AuthUser | undefined;
+  if (!u) { res.status(401).json({ error: "unauthorized" }); return; }
+  res.setHeader("Cache-Control", "private, no-store");
+  res.json({ enabled: true, icc: iccOn(Number(u.id)) });
+});
+router.get("/credit-panel/customers/:id", cpGate, requirePermission("customers.credit_check"), (req, res): void => {
+  const id = Number(req.params.id);
+  const user = res.locals.authUser as AuthUser;
+  if (!Number.isInteger(id) || id <= 0 || !getCustomer(id, user)) { res.status(404).json({ error: "Customer not found" }); return; }
+  const { code: _code, ...facts } = cpCustomerFacts(id);
+  res.setHeader("Cache-Control", "private, no-store");
+  res.json({ ...cpView(id), customer: facts });
+});
+router.post("/credit-panel/customers/:id/inquiry", cpGate, requirePermission("customers.credit_check"), async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  const user = res.locals.authUser as AuthUser;
+  if (!Number.isInteger(id) || id <= 0 || !getCustomer(id, user)) { res.status(404).json({ error: "Customer not found" }); return; }
+  const body = (req.body ?? {}) as { confirmFresh?: unknown; only?: unknown };
+  const only = Array.isArray(body.only) ? body.only.filter((x): x is CpPart => (CP_PARTS as readonly string[]).includes(String(x))) : undefined;
+  const facts = cpCustomerFacts(id);
+  if (!facts.code) { res.status(400).json({ error: "کد ملی مشتری ثبت نشده است.", code: "national_code_missing" }); return; }
+  if (hasActiveCustomerIdentityConflict(id, { nationalCode: facts.code })) {
+    res.status(409).json({ error: "An active customer already has this national code", code: "identity_conflict" }); return;
+  }
+  const r = await cpRun({ user: { id: Number(user.id), role: String(user.role) }, customerId: id, nationalCode: facts.code, isCompany: facts.isCompany,
+    confirmFresh: body.confirmFresh === true, only });
+  const { code: _c, ...pub } = facts;
+  res.status(r.status).json(r.status === 200 ? { ...r.body, customer: pub } : r.body);
+});
+router.post("/credit-panel/customers/:id/birth-date", cpGate, requirePermission("calls.create"), (req, res): void => {
+  const id = Number(req.params.id);
+  const user = res.locals.authUser as AuthUser;
+  if (!Number.isInteger(id) || id <= 0 || !getCustomer(id, user)) { res.status(404).json({ error: "Customer not found" }); return; }
+  const current = queryRow<{ phone: string; national_code: string | null; postal_code: string | null; birth_date_jalali: string | null; salesperson_id: number | null }>(
+    "SELECT phone,national_code,postal_code,birth_date_jalali,salesperson_id FROM customers WHERE id=?", [id]);
+  if (!current) { res.status(404).json({ error: "Customer not found" }); return; }
+  if (!canActOnCustomerProfile(user, current.salesperson_id, isAdminRole)) {
+    res.status(403).json({ error: "اعتبارسنجی سریع فقط برای کارشناس همین مشتری، ثبت‌نام‌کننده و مدیر فعال است." }); return;
+  }
+  const body = (req.body ?? {}) as { birthDateJalali?: unknown; confirmReplace?: unknown };
+  const birth = cpBirthDate(body.birthDateJalali);
+  if (!birth) { res.status(400).json({ error: "تاریخ تولد معتبر نیست." }); return; }
+  if (current.birth_date_jalali === birth) { res.json({ customerId: id, changed: false }); return; }
+  if (current.birth_date_jalali && body.confirmReplace !== true) {
+    res.status(409).json({ error: "این مشتری تاریخ تولد دیگری دارد؛ برای جایگزینی تأیید کنید.", code: "confirm_replace" }); return;
+  }
+  const nextIdentity = { phone: current.phone, nationalCode: current.national_code, postalCode: current.postal_code, birthDateJalali: birth };
+  // Same live rule as the quick national-code save: verification resets on any difference; identity_changed_at only when a value is replaced.
+  const verificationReset = customerIdentityChanged(current, nextIdentity);
+  const identityChanged = customerIdentityStampChanged(current, nextIdentity);
+  executeChanges(
+    `UPDATE customers SET birth_date_jalali=?${identityChanged ? ",identity_changed_at=?" : ""}${verificationReset
+      ? ",verification_version=COALESCE(verification_version,0)+1,verification_status='unverified',verification_checked_at=NULL,verification_provider=NULL,shahkar_ok=NULL,person_info_ok=NULL,postal_code_info_ok=NULL,sana_ok=NULL,shahkar_status=NULL,person_info_status=NULL,postal_code_info_status=NULL,sana_status=NULL"
+      : ""} WHERE id=?`,
+    [birth, ...(identityChanged ? [new Date().toISOString()] : []), id]);
+  res.json({ customerId: id, changed: true, identityChanged });
+});
 
 router.get(
   "/customers/:id/credit-checks",

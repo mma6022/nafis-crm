@@ -94,6 +94,9 @@ function inquiryErrorMessage(error: unknown, fallback: string) {
 /* lead_annotator (bug 2026-10-27 23:44): a customer outside the user's scope → GET /customers/:id is 404 (and used to retry ~15 s on
    «در حال بارگذاری پرونده…»). For a lead_annotator we probe once without retry and fall back to the restricted case page, which uses
    only /api/lead-annotator/customers/:id/case + notes + urgent. Everyone else gets the full page exactly as before. */
+import { QuickCreditWizard } from '@/features/credit-panel/QuickCreditWizard';
+import { useCpOn } from '@/features/credit-panel/api';
+
 export default function CustomerDetail() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
@@ -130,6 +133,8 @@ function RegistrarOnlyCase({ id }: { id: number }) {
 }
 
 function CustomerDetailFull() {
+  const cpOn = useCpOn(); // credit-panel v1 (flag.credit_panel_v1): «اعتبارسنجی سریع» for this customer; OFF → hidden
+  const [qcOpen, setQcOpen] = useState(false);
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
@@ -642,6 +647,8 @@ function CustomerDetailFull() {
     {canCall || canConsult ? <div className="acts2">
       {canCall ? <button type="button" className="csx-ghost sm" title={canDialSystem ? 'تماس با تلفن شرکت' : 'برای تماس سیستمی، ابتدا در بخش تلفن شرکت متصل شوید'} onClick={() => { if (canDialSystem) dial(customer.phone); else setLocation('/phone'); }} data-testid="button-sys-call-customer"><Phone size={18} color={canDialSystem ? undefined : '#94a3b8'} /> تماس سیستمی</button> : null}
       {canConsult ? <button type="button" className="csx-ghost sm" onClick={() => setConsultationFormOpen(true)} data-testid="button-create-consultation"><FileText size={18} /> ثبت مشاوره</button> : null}
+      {cpOn && (isAdmin || (session.data?.user.permissions ?? []).includes('customers.credit_check')) ? <button type="button" className="csx-ghost sm" onClick={() => setQcOpen(true)} data-testid="button-quick-credit-customer"><ShieldCheck size={18} /> اعتبارسنجی سریع</button> : null}
+      {qcOpen ? <QuickCreditWizard customer={{ id: customer.id, name: customer.name }} onClose={() => setQcOpen(false)} /> : null}
     </div> : null}
     {firstCall?.noPlanFit ? <div className="csx-hero-plans"><NoPlanBox note={firstCall.noPlanNote} actorName={firstCall.actorName} /></div> : null}
     {firstCall?.selectedPlans.length ? <div className="csx-hero-plans"><SuggestedPlansBox plans={firstCall.selectedPlans} actorName={firstCall.actorName} /></div> : null}

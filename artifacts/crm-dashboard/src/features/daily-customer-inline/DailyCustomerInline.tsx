@@ -17,6 +17,8 @@ import { DciError, dciApi, useDciBoard, useDciToday, type DciBoard, type DciCase
 import { HistFeed } from "./today-feed";
 import { useSf480 } from "@/features/sales-fixes/api";
 import { FileBox, FileWizard } from "./file-wizard";
+import { CreditCard } from "@/features/credit-panel/CreditCard";
+import { useCpOn } from "@/features/credit-panel/api";
 import { DciIcon, DciSprites } from "./icons";
 import "./dci.css";
 import "./today-layout.css";
@@ -248,7 +250,7 @@ export function InBoundBlock({ rows, ext, onCall }: { rows: DciInbound[]; ext: b
   </>;
 }
 
-function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting, promo, remBar, userId, wizard, dq }: {
+function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting, promo, remBar, userId, wizard, dq, cp }: {
   m: DciBoard; ext: boolean; narrow: boolean; onCopy: (v: string) => void; onCall: () => void; onResult: () => void;
   onPromote: () => void; promoting: boolean;
   promo?: { open: boolean; reason: string; setReason: (v: string) => void; onSave: () => void; onClose: () => void };
@@ -257,6 +259,8 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
   /** DCI-QUEUE 440000 (flag.dci_queue_v21): early bar, interrupt banner, payment / file-action card. Absent → v2.0 markup. */
   dq?: { top?: ReactNode; cur?: ReactNode; card?: ReactNode } | null;
   wizard: { open: boolean; onOpen: (mode: "new" | "edit") => void; onClose: () => void };
+  /** credit-panel v1 (flag.credit_panel_v1): credit card here, the full «پرونده‌ی مشتری» moves to the left column. Absent/false → today's markup. */
+  cp?: boolean;
 }) {
   const tagCatalog = useListCustomerTags({ query: { queryKey: getListCustomerTagsQueryKey() } });
   const tags = (m.customer.tags || []).map((x) => <span key={x}>{dciTagLabel(x, tagCatalog.data)}</span>);
@@ -436,10 +440,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     {remBar ? <div className="dci-rembar" data-testid="dci-rembar" role="status"><p>{remBar.text}</p><span className="dci-hint">{remBar.hint || "با ثبت نتیجه، این یادآور تمام می‌شود."}</span></div> : null}
     {dq?.card ?? null}
     {tags.length ? <div className="dci-tags" data-testid="dci-tags">{tags}</div> : null}
-    <section className="dci-filecard" id="dci-filecard" aria-label="پرونده‌ی مشتری" data-testid="dci-filecard">
-      <FileBox customerId={m.customer.id} onOpen={wizard.onOpen}
-        wizard={wizard.open ? <FileWizard key={`${m.customer.id}-wiz`} customerId={m.customer.id} userId={userId} onDone={wizard.onClose} /> : null} />
-    </section>
+    {cp ? <CreditCard key={`cp-${m.customer.id}`} customerId={m.customer.id} /> : <FileCard m={m} userId={userId} wizard={wizard} />}
     <CasesBlock rows={m.cases} href={m.newCaseHref} canEdit={canEditPs} locked={!!m.priorityStatusLocked} busy={cancelCase.isPending} onCancel={openCancel} />
     {pendingPriority !== undefined ? createPortal(<div className="dci-dlgw" data-testid="dci-xfer-wrap" data-nodnd="true">
       <div className="dci-dlg" role="alertdialog" aria-modal="true" aria-labelledby="dci-xfer-t" data-testid="dci-xfer-dialog">
@@ -484,7 +485,18 @@ function RightCol({ m, ext, onCall, result, sumOpen }: {
   </section>;
 }
 
-function LeftCol({ m }: { m: DciBoard }) {
+function FileCard({ m, userId, wizard }: { m: DciBoard; userId: number | undefined; wizard: { open: boolean; onOpen: (mode: "new" | "edit") => void; onClose: () => void } }) {
+  return <section className="dci-filecard" id="dci-filecard" aria-label="پرونده‌ی مشتری" data-testid="dci-filecard">
+    <FileBox customerId={m.customer.id} onOpen={wizard.onOpen}
+      wizard={wizard.open ? <FileWizard key={`${m.customer.id}-wiz`} customerId={m.customer.id} userId={userId} onDone={wizard.onClose} /> : null} />
+  </section>;
+}
+
+function LeftCol({ m, cp }: { m: DciBoard; cp?: { userId: number | undefined; wizard: { open: boolean; onOpen: (mode: "new" | "edit") => void; onClose: () => void } } }) {
+  // credit-panel v1: the left column holds the full case (first-call + site fields); credit moved to the middle column.
+  if (cp) return <section className="dci-col dci-left dci-left-file" aria-label="پرونده‌ی مشتری" data-testid="dci-left">
+    <FileCard m={m} userId={cp.userId} wizard={cp.wizard} />
+  </section>;
   return <section className="dci-col dci-left" aria-label="اعتبارسنجی فوری" data-testid="dci-left">
     <div className="dci-block" data-testid="dci-credit">
       <div className="dci-cvh"><h3>اعتبارسنجی فوری</h3><span className="dci-opt">اختیاری</span></div>
@@ -505,6 +517,7 @@ export default function DailyCustomerInline() {
   const [loc, setLoc] = useLocation();
   const search = useSearch();
   const narrow = useNarrow();
+  const cpOn = useCpOn(); // credit-panel v1 (flag.credit_panel_v1); OFF → GET /credit-panel/me 404 → false → today's layout
   const todayQ = useDciToday(true);
   const sessionEarly = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   const remUserId = sessionEarly.data?.user?.id != null ? Number(sessionEarly.data.user.id) : undefined;
@@ -760,7 +773,7 @@ export default function DailyCustomerInline() {
     boardEl = <DqUnknownBoard key={dqItem.id} it={dqItem} banner={dqBanner} onCopy={copy}
       onNamed={(cid, taskId, name) => { flash(`نام «${name}» ثبت شد.`, 2500); firstAfterName.current = cid; void dqQ.refetch(); setLoc(`/today?customer=${cid}&task=${encodeURIComponent(taskId)}`, { replace: true } as any); }} />;
   } else if ((todayQ.isLoading && !todayQ.data) || dqQ.isLoading) {
-    boardEl = <div className="dci-board"><div className="dci-side"><SkCol cls="dci-right" title="تاریخچه‌ی تماس‌ها" /><SkCol cls="dci-left" title="اعتبارسنجی فوری" /></div><SkCol cls="dci-mid" title="اطلاعات مشتری" /></div>;
+    boardEl = <div className="dci-board"><div className="dci-side"><SkCol cls="dci-right" title="تاریخچه‌ی تماس‌ها" /><SkCol cls="dci-left" title={cpOn ? "پرونده‌ی مشتری" : "اعتبارسنجی فوری"} /></div><SkCol cls="dci-mid" title="اطلاعات مشتری" /></div>;
   } else if (errorBoard) {
     boardEl = <div className="dci-board"><section className="dci-col dci-mid" style={{ gridColumn: "1 / -1" }}><div className="dci-err"><p>اطلاعات مشتری الآن در دسترس نیست.</p>
       <button className="btn pri" type="button" onClick={() => { void todayQ.refetch(); void boardQ.refetch(); }}>تلاش دوباره</button></div></section></div>;
@@ -772,7 +785,7 @@ export default function DailyCustomerInline() {
       <Link className="btn pri" href="/today">رفتن به کارهای امروز</Link>
     </div></section></div>;
   } else if (loadingBoard || !board) {
-    boardEl = <div className="dci-board"><div className="dci-side"><SkCol cls="dci-right" title="تاریخچه‌ی تماس‌ها" /><SkCol cls="dci-left" title="اعتبارسنجی فوری" /></div><SkCol cls="dci-mid" title="اطلاعات مشتری" /></div>;
+    boardEl = <div className="dci-board"><div className="dci-side"><SkCol cls="dci-right" title="تاریخچه‌ی تماس‌ها" /><SkCol cls="dci-left" title={cpOn ? "پرونده‌ی مشتری" : "اعتبارسنجی فوری"} /></div><SkCol cls="dci-mid" title="اطلاعات مشتری" /></div>;
   } else {
     const show = tab === "talk" ? " show-talk" : tab === "file" ? " show-file" : (openFile ? " show-file" : openTalk ? " show-talk" : "");
     const remBar = selectedTask && (selectedTask.reminderId || selectedTask.types.includes("یادآور"))
@@ -787,11 +800,11 @@ export default function DailyCustomerInline() {
       <div className="dci-side">
         <RightCol m={board} ext={ext} onCall={startCall} sumOpen={queryParam(search, "shot") === "sum"}
           result={{ val: resultVal, onChange: setResultVal, onSave: () => void saveResult(), busy: resultBusy, err: resultErr, show: resultShow, voipNote: voipPendingNote }} />
-        <LeftCol m={board} />
+        <LeftCol m={board} cp={cpOn ? { userId, wizard: { open: fcOpen, onOpen: openWizard, onClose: () => setFcOpen(false) } } : undefined} />
       </div>
       <MidCol m={board} ext={ext} narrow={narrow} onCopy={copy} onCall={startCall} onResult={() => void startResult()} onPromote={() => setReasonOpen(true)} promoting={promoting}
         promo={{ open: reasonOpen, reason, setReason, onSave: () => void doPromote(), onClose: () => setReasonOpen(false) }}
-        remBar={remBar} userId={userId} wizard={{ open: fcOpen, onOpen: openWizard, onClose: () => setFcOpen(false) }} dq={dqMid} />
+        remBar={remBar} userId={userId} wizard={{ open: fcOpen, onOpen: openWizard, onClose: () => setFcOpen(false) }} dq={dqMid} cp={cpOn} />
       <div className="dci-tabs" role="tablist" aria-label="بخش‌های دیگر">
         <button type="button" role="tab" id="tab-talk" aria-selected={tab === "talk" ? "true" : "false"} data-pane="talk"
           onClick={() => setTab((t) => t === "talk" ? "" : "talk")}>گفت‌وگو</button>

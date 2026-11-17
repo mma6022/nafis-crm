@@ -49,11 +49,16 @@ const MOBILE_STEP = 10;
 
 const topRowClass = (c: unknown) => { const t = topOfListOf(c); return t ? (t.kind === 'from_kazemi' ? 'sl-top-row is-kz' : 'sl-top-row') : ''; };
 
+import { QuickCreditWizard } from '@/features/credit-panel/QuickCreditWizard';
+import { useCpOn } from '@/features/credit-panel/api';
+
 export default function Customers() {
   const queryClient = useQueryClient();
   const session = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   const isAdmin = session.data?.user.role === 'admin';
   const [manualIdentity, setManualIdentity] = useState<Customer | null>(null);
+  const cpOn = useCpOn(); // credit-panel v1 (flag.credit_panel_v1): «اعتبارسنجی سریع» entry; OFF → hidden
+  const [qcOpen, setQcOpen] = useState(false);
   const isSalesperson = session.data?.user.customerScope === 'assigned';
   const permissions = session.data?.user.permissions ?? [];
   // registrar_view (assistants53): «ثبت‌های من» = customers I registered (any owner), read only — every action hidden; server 403s writes.
@@ -444,6 +449,7 @@ export default function Customers() {
 
   return <section className={`csx${cpkOn && isBoard ? ' cpk-on-board' : ''}`} dir="rtl" data-testid="page-customers">
     <h1 className="csx-sr">مشتریان</h1>
+    {qcOpen ? <QuickCreditWizard onClose={() => setQcOpen(false)} /> : null}
     {sessionReady ? <SalesAssistBox user={session.data?.user} onCall={(id) => calledThenForm(id, 'customer', () => { void getCustomer(id).then((c) => openCall(c)).catch(() => setTsToast('پرونده‌ی مشتری باز نشد؛ دوباره تلاش کنید.')); }, setTsToast)} /> : null}
     <div className="csx-top">
       <div className="csx-bar">
@@ -453,6 +459,7 @@ export default function Customers() {
           <input type="search" value={search} onChange={(e) => { setSearch(e.target.value); resetPaging(); }} placeholder='جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)' aria-label="جستجوی نام، شماره تماس یا شناسه‌ی مشتری" data-testid="input-search-customers" />
         </label>
         {!isDesktop ? <button type="button" className="csx-fbtn" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog" data-testid="button-open-filters"><SlidersHorizontal size={20} aria-hidden="true" /> فیلتر{activeFilters.length ? <span className="n">{fa(activeFilters.length)}</span> : null}</button> : null}
+        {cpOn && !reg && can('customers.credit_check') ? <button type="button" className="cp-qbtn" onClick={() => setQcOpen(true)} data-testid="button-quick-credit">اعتبارسنجی سریع</button> : null}
         {canCreate && !(cpkOn && isBoard && !isDesktop) ? <button type="button" className={isDesktop ? 'csx-primary' : 'csx-primary csx-fab'} onClick={openCreate} data-testid="button-create-customer"><Plus size={20} aria-hidden="true" /> مشتری جدید</button> : null}
       </div>
       {(!isBoard || cpkOn) ? <div className="csx-tabs" role="tablist" aria-label="وضعیت پیگیری" data-testid="select-filter-status">

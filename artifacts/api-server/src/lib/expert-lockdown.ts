@@ -12,6 +12,7 @@
  * (el_incoming_log — the query is stored only as an HMAC hash, never raw). SEARCH-C: another expert's customer (full number only) → customer name +
  * owner name; the owner gets a CRM bell + a top Today item «تماس با مشتری ارجاعی» only when the caller presses «ارجاع» (no SMS, no Bale, nothing to the customer).
  */
+import { cpOn } from "./credit-panel";
 import { vcFlagOn } from "./voip-call";
 import { s132FlagOn } from "./simotel132";
 import { s132bFlagOn } from "./simotel132b";
@@ -184,7 +185,8 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   }
   const ids = path === "/expert-lockdown/incoming/first-call-logged" ? [] : idsOf(req);
   const customerRoute = /^\/(lead-intake\/)?customers\/\d+(\/|$)/.test(path) || /^\/team-sales\/customers\/\d+(\/|$)/.test(path)
-    || /^\/instant-credit-check\/customers\/\d+\/checks(\/|$)/.test(path); // instant credit check: same customer checks as /customers/:id/credit-checks
+    || /^\/instant-credit-check\/customers\/\d+\/checks(\/|$)/.test(path) // instant credit check: same customer checks as /customers/:id/credit-checks
+    || (/^\/credit-panel\/customers\/\d+(\/(inquiry|birth-date))?$/.test(path) && cpOn()); // credit-panel v1 (flag ON only): the same single-customer rule
   // POST /calls (the normal call form, incl. «خارج از لیست») and POST /voip/calls (click-to-call) carry the customer in the body.
   const customerWrite = req.method === "POST" && /^\/(calls|voip\/calls|voip\/click-to-call)$/.test(path);
   const listedCustomerRead = req.method === "GET" && ids.length === 1 && EL_CUSTOMER_SCOPED_READS.some((re) => re.test(path));
@@ -204,7 +206,8 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   // SALES-SHELL v2 (spec §9): «یادآورها» view-only while locked = GET /reminders without a customer (the handler lists only the
   // caller's own rows: r.user_id = caller, assigned scope). Only for users whose sales_shell_v2 flag is ON; writes are unchanged.
   const ownReminderList = req.method === "GET" && path === "/reminders" && ids.length === 0 && ssOn(Number(u!.id));
-  if (!customerRoute && !customerWrite && !listedCustomerRead && !reminderWrite && !ownReminderList && !ALLOW.some((re) => re.test(path))) {
+  const cpMe = path === "/credit-panel/me" && cpOn(); // credit-panel v1: its flag read only (no customer rows); flag OFF → today's deny
+  if (!customerRoute && !customerWrite && !listedCustomerRead && !reminderWrite && !ownReminderList && !cpMe && !ALLOW.some((re) => re.test(path))) {
     if (process.env.EL_TRACE === "1") console.warn(`[expert-lockdown] deny ${req.method} ${path}`);
     return deny(res, "expert_lockdown", "این بخش فعلاً برای شما بسته است. از «کارهای امروز من» کار کن.");
   }
