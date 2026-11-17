@@ -6,8 +6,10 @@
  * When a sales expert (closer) or an admin changes a closer's customer to any priority other than 1
  * (2, 3 or «بدون اولویت»), the customer moves to the qualifier (Kazemi) IN THE SAME TRANSACTION.
  *
- * Also fires on REACTIVATION (status cancelled / completed → in_progress) when the priority after the write is not 1,
- * even if the priority did not change (history reason 'reactivation'); all exceptions below still apply.
+ * REACTIVATION (cancelled / completed → in_progress) of a closer's non-P1 customer used to fire the same
+ * auto-transfer (history reason 'reactivation', 20261025132100). Mohammad t812s2668: the customer now stays
+ * with their current expert. flag.sf480_reactivate_keep_owner='0' restores the old move. A later, separate
+ * priority change to a non-1 value still transfers (the original non-P1 rule is unchanged).
  *
  * Fires only when ALL hold (anything else keeps the customer where it is):
  *  - team sales is enabled and the priority really changed (old ≠ new) to a value other than 1;
@@ -29,6 +31,7 @@ import { cqCloseCallsOfFormerOwner } from "./call-queue";
 import { executeChanges, queryRow } from "./crm-db";
 import { getTeamSalesConfig, logPriorityChange } from "./team-sales";
 import { isTraineeSalesperson, mtFlagOn, ownerForPriority, resolveTeam, resolveTeamSalesConfig } from "./multi-team";
+import { sf480ReactivateKeepOwner } from "./sales-fixes-480000";
 
 export const NONP1_TRANSFER_SOURCE = "nonp1_auto_transfer" as const;
 /** Response header set by every endpoint whose write moved the customer; the dashboard shows the toast from it. */
@@ -149,6 +152,8 @@ export function nonP1Decision(input: NonP1Input): NonP1Result & { newPriority: n
   if ((c.status ?? "in_progress") !== "in_progress") return no("not_in_progress", newPriority, sp);
   const open = openCaseReason(input.customerId, input.now ?? new Date());
   if (open) return no(`open_case:${open}`, newPriority, sp);
+  // t812s2668: reactivation no longer moves the customer; a later non-P1 priority change still can.
+  if (input.reactivation && sf480ReactivateKeepOwner()) return no("reactivate_keep_owner", newPriority, sp);
   return { transferred: true, skip: null, fromSalespersonId: sp, toSalespersonId: qualifier, newPriority };
 }
 

@@ -38,6 +38,7 @@ try {
   const router = (await import("../src/routes/index.ts")).default;
   const dp = await import("../src/lib/daily-plan.ts");
   const dq = await import("../src/lib/dci-queue.ts");
+  const np = await import("../src/lib/nonp1-transfer.ts");
   const app = express(); app.use(express.json()); app.use(cookieParser());
   app.use("/api", requireAuth, leadAnnotatorMask, makeRegistrarWriteGuard(() => db.crmDb), expertLockdownGuard, filesCarouselGuard, router);
   const sock = path.join(dir, "api.sock"); server = app.listen(sock); await once(server, "listening");
@@ -52,7 +53,7 @@ try {
     const now = new Date(); execute("INSERT INTO auth_sessions(token_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)", [h, uid, new Date(+now + 864e5).toISOString(), now.toISOString()]); return t; };
   const flag = (k, v) => v == null ? execute("DELETE FROM call_queue_settings WHERE key=?", [k])
     : execute("INSERT INTO call_queue_settings(key,value,updated_at) VALUES(?,?,datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [k, v]);
-  const SF = ["flag.sf480_owner_priority", "flag.sf480_owner_status", "flag.sf480_open_lists", "flag.sf480_no_popups", "flag.sf480_incoming_now"];
+  const SF = ["flag.sf480_owner_priority", "flag.sf480_owner_status", "flag.sf480_open_lists", "flag.sf480_no_popups", "flag.sf480_incoming_now", "flag.sf480_reactivate_keep_owner"];
   const flagKeysBefore = queryRows("SELECT key FROM call_queue_settings WHERE key LIKE 'flag.%' ORDER BY key").map((r) => r.key);
   assert.equal(SF.filter((k) => flagKeysBefore.includes(k)).length, 0, "no sf480 rows in the copy (kill switches default ON by absence)");
   const u8 = queryRow("SELECT id, salesperson_id sp FROM users WHERE id=8 AND active=1");
@@ -61,6 +62,15 @@ try {
   const E = session(8), H = session(hasaniId);
   const elOn = queryRow("SELECT value FROM call_queue_settings WHERE key='flag.expert_lockdown'")?.value;
   const spOf = (cid) => Number(queryRow("SELECT salesperson_id sp FROM customers WHERE id=?", [cid])?.sp);
+  const usedClosers = new Set();
+  const closerClean = (wantPri) => {
+    const priSql = wantPri ? "AND priority=?" : "AND priority IN (2,3)";
+    const rows = queryRows(`SELECT id, priority p FROM customers WHERE salesperson_id=3 AND status='in_progress' AND merged_into_customer_id IS NULL ${priSql} ORDER BY id DESC`, wantPri ? [wantPri] : []);
+    const hit = rows.find((r) => !usedClosers.has(Number(r.id)) && np.openCaseReason(Number(r.id)) == null);
+    assert.ok(hit, `need a closer non-P1 customer with no open case (pri=${wantPri ?? "2|3"})`);
+    usedClosers.add(Number(hit.id));
+    return Number(hit.id);
+  };
   // ---------- bug 1: status any number of times (own expert, cancelled ↔ others)
   await ok("bug1 own expert (user 8) changes status ×7 incl. leaving «لغو» with a plain PATCH", async () => {
     const cid = Number(queryRow("SELECT id FROM customers WHERE salesperson_id=6 AND status='in_progress' AND COALESCE(priority,0)<>1 AND merged_into_customer_id IS NULL ORDER BY id DESC LIMIT 1").id);
@@ -70,11 +80,36 @@ try {
     assert.equal(queryRow("SELECT status FROM customers WHERE id=?", [cid]).status, "in_progress"); assert.equal(spOf(cid), 6);
     assert.ok(queryRow("SELECT COUNT(*) n FROM customer_reactivations WHERE customer_id=?", [cid]).n >= 1, "reactivation audited");
   });
-  await ok("bug1 closer (sp 3): cancel → «در حال انجام» works; existing nonP1 rule then hands a P2/P3 customer to sp 6 (unchanged)", async () => {
-    const cid = Number(queryRow("SELECT id FROM customers WHERE salesperson_id=3 AND status='in_progress' AND priority IN (2,3) AND merged_into_customer_id IS NULL ORDER BY id DESC LIMIT 1").id);
+  let stayCid = null;
+  await ok("bug1 closer (sp 3): cancel → «در حال انجام» stays with the closer (t812s2668, no auto-move to Kazemi)", async () => {
+    const cid = stayCid = closerClean();
     assert.equal((await call("PATCH", `/customers/${cid}`, H, { status: "cancelled" })).status, 200);
     const r = await call("PATCH", `/customers/${cid}`, H, { status: "in_progress" }); assert.equal(r.status, 200, `${r.status} ${r.body?.code || ""}`);
-    console.log(`   note: after reactivation the customer is with sp ${spOf(cid)} (crm-nonp1-to-kazemi, PM 16:48 — not changed in 480000)`);
+    assert.equal(spOf(cid), 3, `stayed with closer, got sp ${spOf(cid)}`);
+    assert.equal(queryRow("SELECT COUNT(*) n FROM customer_priority_history WHERE customer_id=? AND source='nonp1_auto_transfer' AND reason='reactivation'", [cid]).n, 0);
+    // the closer can still write afterwards (no 403 from losing ownership)
+    const r2 = await call("PATCH", `/customers/${cid}`, H, { status: "cancelled" }); assert.equal(r2.status, 200, `second write ${r2.status} ${r2.body?.code || ""}`);
+    assert.equal((await call("PATCH", `/customers/${cid}`, H, { status: "in_progress" })).status, 200);
+    assert.equal(spOf(cid), 3);
+  });
+  await ok("bug1 closer later changes a reactivated P2/P3 to another non-1 priority → still auto-moves to Kazemi (non-P1 rule unchanged)", async () => {
+    const cid = closerClean();
+    const pri = Number(queryRow("SELECT priority p FROM customers WHERE id=?", [cid]).p);
+    const next = pri === 2 ? 3 : 2;
+    assert.equal((await call("PATCH", `/customers/${cid}`, H, { status: "cancelled" })).status, 200);
+    assert.equal((await call("PATCH", `/customers/${cid}`, H, { status: "in_progress" })).status, 200);
+    assert.equal(spOf(cid), 3, "still closer after reactivation");
+    const r = await call("PATCH", `/customers/${cid}`, H, { priority: next }); assert.equal(r.status, 200, `${r.status} ${r.body?.code || ""}`);
+    assert.equal(spOf(cid), 6, "non-P1 priority change still moves to qualifier");
+  });
+  await ok("bug1 kill switch flag.sf480_reactivate_keep_owner='0' → reactivation auto-moves to Kazemi again", async () => {
+    const cid = stayCid; assert.ok(cid, "reuses the closer customer that stayed after reactivation");
+    assert.equal((await call("PATCH", `/customers/${cid}`, H, { status: "cancelled" })).status, 200);
+    flag("flag.sf480_reactivate_keep_owner", "0");
+    const r = await call("PATCH", `/customers/${cid}`, H, { status: "in_progress" }); flag("flag.sf480_reactivate_keep_owner", null);
+    assert.equal(r.status, 200, `${r.status} ${r.body?.code || ""}`);
+    assert.equal(spOf(cid), 6, `old rule should move to Kazemi, got sp ${spOf(cid)}`);
+    assert.ok(queryRow("SELECT COUNT(*) n FROM customer_priority_history WHERE customer_id=? AND source='nonp1_auto_transfer' AND reason='reactivation'", [cid]).n >= 1);
   });
   await ok("bug1 kill switch flag.sf480_owner_status='0' → old 409 reactivation_required", async () => {
     const cid = Number(queryRow("SELECT id FROM customers WHERE salesperson_id=6 AND status='in_progress' AND COALESCE(priority,0)<>1 AND merged_into_customer_id IS NULL ORDER BY id DESC LIMIT 1 OFFSET 1").id);

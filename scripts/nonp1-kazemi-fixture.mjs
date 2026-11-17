@@ -211,28 +211,50 @@ try {
     assert.equal(qf(), qf0, "no second (qualifier_form) row for the same change");
   });
 
-  /* ---------- A2. reactivation (PM 16:48): cancelled / completed → in_progress with a non-1 priority ---------- */
+  /* ---------- A2. reactivation (t812s2668): cancelled / completed → in_progress stays with the current expert.
+      flag.sf480_reactivate_keep_owner='0' restores the old auto-move to Kazemi (PM 16:48 / 20261025132100). ---------- */
   const isReact = (x) => x === "reactivation";
-  await ok("reactivation: Hasani reopens her cancelled P2 customer → Kazemi, history reason 'reactivation', header", async () => {
+  const setKeepOwner = (v) => v == null
+    ? execute("DELETE FROM call_queue_settings WHERE key='flag.sf480_reactivate_keep_owner'")
+    : execute("INSERT INTO call_queue_settings(key,value,updated_at) VALUES('flag.sf480_reactivate_keep_owner',?,datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [v]);
+  await ok("reactivation: Hasani reopens her cancelled P2 customer → stays with Hasani (no header, no history row)", async () => {
     const id = closedSubject(3, 2, "cancelled");
     const r = await call("PATCH", `/customers/${id}`, "hasani", { status: "in_progress" });
-    assert.equal(r.status, 200, JSON.stringify(r.body)); assert.equal(Number(r.body.salespersonId), 6); assert.equal(r.body.status, "in_progress");
-    await assertMoved(id, 3, 2, 2, actors.hasani.id, r, isReact);
+    assert.equal(r.status, 200, JSON.stringify(r.body)); assert.equal(Number(r.body.salespersonId), 3); assert.equal(r.body.status, "in_progress");
+    assertStayed(id, 3, r);
+    // she can still write afterwards
+    const r2 = await call("PATCH", `/customers/${id}`, "hasani", { status: "cancelled" });
+    assert.equal(r2.status, 200, JSON.stringify(r2.body)); assertStayed(id, 3, r2);
   });
-  await ok("reactivation: admin reopens Ghasemi's COMPLETED P3 customer → Kazemi (actor admin)", async () => {
+  await ok("reactivation: admin reopens Ghasemi's COMPLETED P3 customer → stays with Ghasemi", async () => {
     const id = closedSubject(4, 3, "completed");
     const r = await call("PATCH", `/customers/${id}`, "admin", { status: "in_progress" });
-    assert.equal(r.status, 200, JSON.stringify(r.body)); await assertMoved(id, 4, 3, 3, 1, r, isReact);
+    assert.equal(r.status, 200, JSON.stringify(r.body)); assertStayed(id, 4, r);
   });
-  await ok("reactivation: «بدون اولویت» (null) counts as non-1 → Kazemi", async () => {
+  await ok("reactivation: «بدون اولویت» (null) stays with the closer", async () => {
     const id = closedSubject(4, null, "cancelled");
     const r = await call("PATCH", `/customers/${id}`, "ghasemi", { status: "in_progress" });
-    assert.equal(r.status, 200, JSON.stringify(r.body)); await assertMoved(id, 4, null, null, actors.ghasemi.id, r, isReact);
+    assert.equal(r.status, 200, JSON.stringify(r.body)); assertStayed(id, 4, r);
   });
-  await ok("reactivation + priority change in the same save (P1→P3) → one row, reason 'reactivation'", async () => {
+  await ok("reactivation + priority change in the same save (P1→P3) → stays (reactivation is not a non-P1 transfer)", async () => {
     const id = closedSubject(3, 1, "cancelled");
     const r = await call("PATCH", `/customers/${id}`, "admin", { status: "in_progress", priority: 3 });
-    assert.equal(r.status, 200, JSON.stringify(r.body)); await assertMoved(id, 3, 1, 3, 1, r, isReact);
+    assert.equal(r.status, 200, JSON.stringify(r.body)); assertStayed(id, 3, r);
+  });
+  await ok("after staying, a later non-P1 priority change still auto-moves to Kazemi", async () => {
+    const id = closedSubject(3, 2, "cancelled");
+    const r1 = await call("PATCH", `/customers/${id}`, "hasani", { status: "in_progress" });
+    assert.equal(r1.status, 200, JSON.stringify(r1.body)); assertStayed(id, 3, r1);
+    const r2 = await call("PATCH", `/customers/${id}`, "hasani", { priority: 3 });
+    assert.equal(r2.status, 200, JSON.stringify(r2.body)); await assertMoved(id, 3, 2, 3, actors.hasani.id, r2);
+  });
+  await ok("kill switch flag.sf480_reactivate_keep_owner='0' restores auto-move to Kazemi on reactivation", async () => {
+    const id = closedSubject(3, 2, "cancelled");
+    setKeepOwner("0");
+    const r = await call("PATCH", `/customers/${id}`, "hasani", { status: "in_progress" });
+    setKeepOwner(null);
+    assert.equal(r.status, 200, JSON.stringify(r.body)); assert.equal(Number(r.body.salespersonId), 6);
+    await assertMoved(id, 3, 2, 2, actors.hasani.id, r, isReact);
   });
   await ok("reactivation with priority 1 (kept, or set to 1 in the same save) → stays", async () => {
     const a = closedSubject(3, 1, "cancelled");
@@ -246,7 +268,8 @@ try {
     const t = closedSubject(5, 2, "cancelled");
     const r1 = await call("PATCH", `/customers/${t}`, "admin", { status: "in_progress" }); assert.equal(r1.status, 200, JSON.stringify(r1.body)); assertStayed(t, 5, r1);
     for (const sp of [19, 20]) { const c = closedSubject(sp, 3, "cancelled"); execute("UPDATE customers SET status='in_progress' WHERE id=?", [c]);
-      assert.equal(np.nonP1Decision({ customerId: c, oldPriority: 3, oldSalespersonId: sp, actor: { id: 1, role: "admin" }, via: "x", reactivation: true }).skip, "trainee"); }
+      const skip = np.nonP1Decision({ customerId: c, oldPriority: 3, oldSalespersonId: sp, actor: { id: 1, role: "admin" }, via: "x", reactivation: true }).skip;
+      assert.ok(["trainee", "reactivate_keep_owner"].includes(skip), `sp ${sp} skip=${skip}`); }
     if (queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='loan_applications'")) {
       const r2 = await call("PATCH", `/customers/${reactOpen}`, "hasani", { status: "in_progress" }); assert.equal(r2.status, 200, JSON.stringify(r2.body)); assertStayed(reactOpen, 3, r2);
     }

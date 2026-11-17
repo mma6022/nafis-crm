@@ -6,6 +6,7 @@
  *   flag.sf480_open_lists     = '0' → «مشتریان من» / «پرونده‌های من» go back to the lockdown rule (CustLocked card, files lock, board turn).
  *   flag.sf480_incoming_now   = '0' → a still-live incoming call is urgent only inside the urgent window (old rule).
  *   flag.sf480_no_popups      = '0' → the mandatory reminder popup (REMINDER-B) feed comes back for 8/2/3 (the client host stays removed).
+ *   flag.sf480_reactivate_keep_owner = '0' → reactivating a cancelled/completed P2/P3 closer customer auto-moves them to Kazemi again (old 20261025132100 rule).
  * Nothing here sends SMS / Bale / a bell, or touches user 29, contracts, templates, loan_plans, team_sales_config or notification_settings.
  */
 import { queryRow, queryRows } from "./crm-db";
@@ -21,6 +22,8 @@ export const sf480OpenLists = () => onByDefault("flag.sf480_open_lists");
 export const sf480NoPopups = () => onByDefault("flag.sf480_no_popups");
 /** flag.sf480_incoming_now = '0' → a live incoming call leaves «اکنون» after the urgent window again (old rule). */
 export const sf480IncomingNow = () => onByDefault("flag.sf480_incoming_now");
+/** flag.sf480_reactivate_keep_owner = '0' → reactivation of a closer's non-P1 customer auto-transfers to Kazemi again (old rule). Default: stay with the current expert. */
+export const sf480ReactivateKeepOwner = () => onByDefault("flag.sf480_reactivate_keep_owner");
 
 type U = { id: number; role: string; salespersonId: number | null; customerScope?: string };
 const FD = "۰۱۲۳۴۵۶۷۸۹";
