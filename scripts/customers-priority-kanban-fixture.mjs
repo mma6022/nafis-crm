@@ -187,6 +187,38 @@ try {
     setKey(cpk.CPK_FLAG, "1");
   });
 
+  await ok("lockdown: flag ON status and priority counts are over the today short list only, not all owned customers", async () => {
+    setKey(cpk.CPK_FLAG, "1");
+    const sp = Number(queryRow("SELECT salesperson_id FROM users WHERE id=?", [KAZEMI]).salesperson_id);
+    const owned = Number(queryRow("SELECT COUNT(*) AS n FROM customers WHERE merged_into_customer_id IS NULL AND salesperson_id=?", [sp]).n);
+    const ownedInp = Number(queryRow("SELECT COUNT(*) AS n FROM customers WHERE merged_into_customer_id IS NULL AND salesperson_id=? AND status='in_progress'", [sp]).n);
+    const short = queryRows(
+      `SELECT c.id, c.status, c.priority FROM customers c
+       WHERE c.merged_into_customer_id IS NULL AND c.salesperson_id=?
+       ORDER BY COALESCE((SELECT MAX(l.created_at) FROM call_logs l WHERE l.customer_id=c.id), c.created_at) DESC, c.id DESC
+       LIMIT 30`, [sp]);
+    assert.ok(owned > short.length, `owned ${owned} vs short ${short.length}`);
+    assert.ok(ownedInp > short.filter((r) => String(r.status) === "in_progress").length);
+    const counts = await call(KAZEMI, "GET", "/sales-fixes/my-customers?offset=0&limit=1&counts=1", undefined, "/elapi");
+    assert.equal(counts.status, 200, counts.text);
+    assert.equal(Number(counts.body.totalCustomers), short.length, `totalCustomers ${counts.body.totalCustomers} != short ${short.length}`);
+    const sum = (counts.body.statusCounts ?? []).reduce((a, s) => a + Number(s.count), 0);
+    assert.equal(sum, short.length);
+    const inpCount = Number((counts.body.statusCounts ?? []).find((s) => s.status === "in_progress")?.count ?? 0);
+    const inpShort = short.filter((r) => String(r.status ?? "in_progress") === "in_progress").length;
+    assert.equal(inpCount, inpShort);
+    assert.notEqual(inpCount, ownedInp, "must not be the full in_progress book");
+    const p1Short = short.filter((r) => String(r.status ?? "in_progress") === "in_progress" && Number(r.priority) === 1).length;
+    const col = await call(KAZEMI, "GET", "/sales-fixes/my-customers?offset=0&limit=15&status=in_progress&priority=1", undefined, "/elapi");
+    assert.equal(col.status, 200, col.text);
+    assert.equal(Number(col.body.total), p1Short, `P1 total ${col.body.total} != short P1 ${p1Short}`);
+    const shortIds = new Set(short.map((r) => Number(r.id)));
+    assert.ok(col.body.items.every((x) => shortIds.has(Number(x.id))), "column items stay inside the short list");
+    assert.ok(col.body.items.every((x) => Number(x.priority) === 1));
+    assert.ok(col.body.items.length <= 15);
+    assert.ok(col.body.items.every((x) => !("phone" in x) || x.phone == null), "no full phone");
+  });
+
   await ok("trainee 31 cannot change Kazemi's customer; guarded tables untouched; no network", async () => {
     const beforePri = queryRow("SELECT priority FROM customers WHERE id=?", [CID]).priority;
     const deny = await call(TRAINEE, "PATCH", `/customers/${CID}`, { priority: 1 });
@@ -202,7 +234,7 @@ try {
 
   execute("DELETE FROM reminders WHERE id=? OR (customer_id=? AND message IN ('fixture reminder','hasani reminder should not attach'))", [remId, CID]);
   setKey(cpk.CPK_FLAG, null);
-  console.log(`customers-priority-kanban fixture ${passed}/7`);
+  console.log(`customers-priority-kanban fixture ${passed}/8`);
 } catch (e) {
   console.error(e);
   process.exitCode = 1;

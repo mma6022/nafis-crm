@@ -89,38 +89,55 @@ export function sf480MyCustomers(u: U, rawQ: unknown, rawOffset: unknown, rawExt
     args.push(`%${q.replace(/[%_]/g, "")}%`); if (digits.length >= 4) args.push(`%${digits}%`);
   }
   const kanban = cpkOn();
-  const countWhere = where.join(" AND ");
-  const countArgs = [...args];
-  if (kanban && rawExtra) {
-    const st = String(rawExtra.status ?? "");
-    if (st === "in_progress" || st === "completed" || st === "cancelled") { where.push("c.status=?"); args.push(st); }
-    if (String(rawExtra.hasPriority ?? "") === "false") where.push("c.priority IS NULL");
-    else {
-      const p = Number(rawExtra.priority);
-      if (p === 1 || p === 2 || p === 3) { where.push("c.priority=?"); args.push(p); }
-    }
-  }
-  const limit = kanban && rawExtra?.limit != null ? Math.max(1, Math.min(30, Number(rawExtra.limit) || 15)) : 30;
-  const total = Number(queryRow<{ n: number }>(`SELECT COUNT(*) n FROM customers c WHERE ${where.join(" AND ")}`, args)?.n ?? 0);
-  const rows = queryRows<any>(
-    `SELECT c.id, c.name, c.phone, c.priority, c.status,
+  const extras = rawExtra ?? {};
+  const wantKanban = Boolean(kanban && (extras.counts != null || extras.status || extras.priority != null || extras.hasPriority != null || extras.limit != null));
+  const listSql = `SELECT c.id, c.name, c.phone, c.priority, c.status,
        (SELECT MAX(l.created_at) FROM call_logs l WHERE l.customer_id=c.id) last_call,
        (SELECT COUNT(*) FROM loan_applications la WHERE la.customer_id=c.id AND la.deleted_at IS NULL) cases
      FROM customers c WHERE ${where.join(" AND ")}
-     ORDER BY COALESCE(last_call, c.created_at) DESC, c.id DESC LIMIT ? OFFSET ?`, [...args, limit, offset]);
-  const items = rows.map((r) => ({ id: Number(r.id), name: String(r.name ?? ""), phoneLast4: String(r.phone ?? "").slice(-4),
-    priority: r.priority == null ? null : Number(r.priority), status: String(r.status ?? "in_progress"), lastCallAt: r.last_call ?? null, cases: Number(r.cases) })) as Array<any>;
-  if (kanban && items.length) {
-    const rems = cpkNextReminderAt(items.map((i) => i.id), Number(u.id));
-    for (const it of items) it.nextReminderAt = rems.get(it.id) ?? null;
+     ORDER BY COALESCE(last_call, c.created_at) DESC, c.id DESC`;
+  const mapItem = (r: any) => ({ id: Number(r.id), name: String(r.name ?? ""), phoneLast4: String(r.phone ?? "").slice(-4),
+    priority: r.priority == null ? null : Number(r.priority), status: String(r.status ?? "in_progress"), lastCallAt: r.last_call ?? null, cases: Number(r.cases) });
+  const attachRems = (items: any[]) => {
+    if (kanban && items.length) {
+      const rems = cpkNextReminderAt(items.map((i) => i.id), Number(u.id));
+      for (const it of items) it.nextReminderAt = rems.get(it.id) ?? null;
+    }
+  };
+
+  // Flag ON + kanban extras: columns and every counter stay inside the today short list (first 30), never all owned customers.
+  if (wantKanban) {
+    const short = queryRows<any>(`${listSql} LIMIT 30`, args);
+    let filtered = short;
+    const st = String(extras.status ?? "");
+    if (st === "in_progress" || st === "completed" || st === "cancelled") filtered = filtered.filter((r) => String(r.status ?? "in_progress") === st);
+    if (String(extras.hasPriority ?? "") === "false") filtered = filtered.filter((r) => r.priority == null);
+    else {
+      const p = Number(extras.priority);
+      if (p === 1 || p === 2 || p === 3) filtered = filtered.filter((r) => Number(r.priority) === p);
+    }
+    const limit = Math.max(1, Math.min(30, Number(extras.limit) || 15));
+    const items = filtered.slice(offset, offset + limit).map(mapItem) as Array<any>;
+    attachRems(items);
+    const body: any = { total: filtered.length, offset, items };
+    if (String(extras.counts ?? "") === "1") {
+      const by: Record<string, number> = {};
+      for (const r of short) {
+        const s = String(r.status ?? "in_progress");
+        by[s] = (by[s] ?? 0) + 1;
+      }
+      body.totalCustomers = short.length;
+      body.statusCounts = Object.entries(by).map(([status, count]) => ({ status, count }));
+    }
+    return { status: 200, body };
   }
-  const body: any = { total, offset, items };
-  if (kanban && (String(rawExtra?.counts ?? "") === "1")) {
-    const counts = queryRows<{ status: string; n: number }>(`SELECT c.status AS status, COUNT(*) AS n FROM customers c WHERE ${countWhere} GROUP BY c.status`, countArgs);
-    body.totalCustomers = Number(queryRow<{ n: number }>(`SELECT COUNT(*) n FROM customers c WHERE ${countWhere}`, countArgs)?.n ?? 0);
-    body.statusCounts = counts.map((r) => ({ status: String(r.status ?? "in_progress"), count: Number(r.n) }));
-  }
-  return { status: 200, body };
+
+  const limit = 30;
+  const total = Number(queryRow<{ n: number }>(`SELECT COUNT(*) n FROM customers c WHERE ${where.join(" AND ")}`, args)?.n ?? 0);
+  const rows = queryRows<any>(`${listSql} LIMIT ? OFFSET ?`, [...args, limit, offset]);
+  const items = rows.map(mapItem) as Array<any>;
+  attachRems(items);
+  return { status: 200, body: { total, offset, items } };
 }
 
 /** GET /sales-fixes/cases — «پرونده‌های من» kanban: the expert's own cases (customers they own), every open case plus cases closed in the last 30 days.
