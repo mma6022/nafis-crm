@@ -1,5 +1,5 @@
 // «مدیریت تیم فروش» v1.1 — one page, no tabs, eight sections (design: nafis-design/mockups/sales-manager-console).
-// Server decides who may open it (403 for anyone but the sales manager and admin; 404 while flag.sales_manager_console_v1 is OFF).
+// Server decides who may open it (admin-role only, t815s2681; 403 for sales managers, leads, and experts; 404 while flag.sales_manager_console_v1 is OFF).
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import './smc.css';

@@ -1,4 +1,4 @@
-// «مدیریت تیم فروش» v1.1 fixture (flag.sales_manager_console_v1): access control (expert 403, manager/admin 200, flag OFF 404),
+// «مدیریت تیم فروش» v1.1 fixture (flag.sales_manager_console_v1): access control (expert/manager 403, admin 200, flag OFF 404),
 // writes of every section with audit + revert, 409 conflict, urgent lock, sample-lead test leaves counters alone, server-side access guard,
 // credit validity guard, and no writes to sales_teams / team tables / notification_settings / loan_plans / contract templates / user 29.
 // Usage: SMC_FIXTURE_DB=/path/masked.db node scripts/run-bundled-fixture.mjs scripts/sales-manager-console-fixture.mjs
@@ -63,26 +63,24 @@ try {
     assert.equal(put.status, 200, put.text);
     return call(user, "POST", "/sales-admin/apply", { sections: [section], ...extra });
   };
-  const state = async (u = MANAGER) => (await call(u, "GET", "/sales-admin/state")).body;
+  const state = async (u = ADMIN) => (await call(u, "GET", "/sales-admin/state")).body;
 
   await ok("flag OFF (default): every /sales-admin path is 404 for the manager too; guard does nothing", async () => {
     assert.equal(queryRow("SELECT value FROM call_queue_settings WHERE key='flag.sales_manager_console_v1'"), undefined, "flag key absent = OFF");
-    for (const p of ["/sales-admin/me", "/sales-admin/state", "/sales-admin/audit"]) assert.equal((await call(MANAGER, "GET", p)).status, 404, p);
-    assert.equal((await call(MANAGER, "POST", "/sales-admin/apply", { sections: ["teams"] })).status, 404);
+    for (const p of ["/sales-admin/me", "/sales-admin/state", "/sales-admin/audit"]) assert.equal((await call(ADMIN, "GET", p)).status, 404, p);
+    assert.equal((await call(ADMIN, "POST", "/sales-admin/apply", { sections: ["teams"] })).status, 404);
     assert.equal(queryRow("SELECT name FROM sqlite_master WHERE name='smc_settings'"), undefined, "no table created while OFF");
   });
   flag("1");
-  await ok("access: expert (user 8) and user 2 → 403 on every endpoint; manager and admin → 200; no session → 401", async () => {
-    for (const u of [EXPERT, HASANI]) for (const [m, p, b] of [["GET", "/sales-admin/me"], ["GET", "/sales-admin/state"], ["GET", "/sales-admin/audit"], ["PUT", "/sales-admin/drafts/teams", { doc: {} }], ["POST", "/sales-admin/apply", { sections: ["teams"] }], ["POST", "/sales-admin/audit/1/revert"], ["POST", "/sales-admin/distribution/test", { lead: {} }]]) {
+  await ok("access: expert, Hasani, and sales manager → 403; admin → 200; no session → 401 (t815s2681)", async () => {
+    for (const u of [EXPERT, HASANI, MANAGER]) for (const [m, p, b] of [["GET", "/sales-admin/me"], ["GET", "/sales-admin/state"], ["GET", "/sales-admin/audit"], ["PUT", "/sales-admin/drafts/teams", { doc: {} }], ["POST", "/sales-admin/apply", { sections: ["teams"] }], ["POST", "/sales-admin/audit/1/revert"], ["POST", "/sales-admin/distribution/test", { lead: {} }]]) {
       const r = await call(u, m, p, b); assert.equal(r.status, 403, `${u} ${m} ${p}`); assert.equal(r.body.error, "smc_forbidden");
     }
-    for (const u of [MANAGER, ADMIN]) { const r = await call(u, "GET", "/sales-admin/me"); assert.equal(r.status, 200); assert.equal(r.body.canManage, true); }
-    assert.equal((await call(ADMIN, "GET", "/sales-admin/me")).body.roleLabel, "ادمین");
-    assert.equal((await call(MANAGER, "GET", "/sales-admin/me")).body.roleLabel, "مدیر فروش");
+    const me = await call(ADMIN, "GET", "/sales-admin/me"); assert.equal(me.status, 200); assert.equal(me.body.canManage, true); assert.equal(me.body.roleLabel, "ادمین");
     assert.equal((await call(null, "GET", "/sales-admin/me")).status, 401);
   });
   await ok("state: real teams mapped read-only (تیم ۱: کاظمی، حسنی، قاسمی با ۲۱۰–۲۱۲؛ تیم ۲: خردکار، اصلانیان بدون داخلی), no user 29 anywhere", async () => {
-    const r = await call(MANAGER, "GET", "/sales-admin/state"); assert.equal(r.status, 200);
+    const r = await call(ADMIN, "GET", "/sales-admin/state"); assert.equal(r.status, 200);
     const t = r.body.docs.teams;
     const of = (tid) => t.experts.filter((e) => e.teamId === tid).map((e) => e.displayName).sort();
     assert.deepEqual(of("t1"), ["آقای کاظمی", "خانم حسنی", "خانم قاسمی"].sort());
@@ -103,7 +101,7 @@ try {
     d.experts.push({ id: "xfx1", displayName: "مریم رحیمی", extension: "214", role: "expert", status: "active", leaveUntil: null, userId: null, salespersonId: null, teamId: "t2" });
     const k = d.experts.find((e) => e.id === "e6"); d.teams.find((x) => x.id === "t1").leadExpertId = null; k.role = "expert"; k.teamId = "t2";
     d.moves = [{ expertId: "e6", from: "t1", to: "t2", keepCustomers: true }];
-    const r = await apply(MANAGER, "teams", d); assert.equal(r.status, 200, r.text);
+    const r = await apply(ADMIN, "teams", d); assert.equal(r.status, 200, r.text);
     teamsAudit = r.body.applied[0].auditId;
     const a = queryRow("SELECT * FROM smc_audit WHERE id=?", [teamsAudit]);
     assert.match(a.summary_fa, /کاظمی/); assert.match(a.summary_fa, /مریم رحیمی/);
@@ -113,21 +111,21 @@ try {
   await ok("teams: duplicate extension and deleting a team with members are refused (422, Persian message)", async () => {
     const st = await state(); const d = structuredClone(st.docs.teams);
     d.experts.find((e) => e.id === "e4").extension = "210";
-    let r = await apply(MANAGER, "teams", d); assert.equal(r.status, 422); assert.match(r.body.message, /داخلی ۲۱۰ مال/);
-    await call(MANAGER, "DELETE", "/sales-admin/drafts/teams");
+    let r = await apply(ADMIN, "teams", d); assert.equal(r.status, 422); assert.match(r.body.message, /داخلی ۲۱۰ مال/);
+    await call(ADMIN, "DELETE", "/sales-admin/drafts/teams");
     const d2 = structuredClone(st.docs.teams); d2.teams.find((x) => x.id === "t1").deleted = true;
-    r = await apply(MANAGER, "teams", d2); assert.equal(r.status, 422); assert.match(r.body.message, /عضو دارد/);
-    await call(MANAGER, "DELETE", "/sales-admin/drafts/teams");
+    r = await apply(ADMIN, "teams", d2); assert.equal(r.status, 422); assert.match(r.body.message, /عضو دارد/);
+    await call(ADMIN, "DELETE", "/sales-admin/drafts/teams");
   });
   await ok("teams: move with keepCustomers=false redistributes only that expert's customers (audited) and revert restores every one", async () => {
     const st = await state(); const d = structuredClone(st.docs.teams);
     const a = d.experts.find((e) => e.id === "e5"); a.teamId = "t1"; d.moves = [{ expertId: "e5", from: "t2", to: "t1", keepCustomers: false }];
     const own = queryRows("SELECT id FROM customers WHERE salesperson_id=5 AND merged_into_customer_id IS NULL").length;
-    const r = await apply(MANAGER, "teams", d); assert.equal(r.status, 200, r.text);
+    const r = await apply(ADMIN, "teams", d); assert.equal(r.status, 200, r.text);
     const eff = JSON.parse(queryRow("SELECT effects_json FROM smc_audit WHERE id=?", [r.body.applied[0].auditId]).effects_json);
     assert.ok(eff.customersMoved.length > 0 && eff.customersMoved.length <= own, `moved ${eff.customersMoved.length} of ${own}`);
     assert.ok(eff.customersMoved.every((m) => m.from === 5 && m.to !== 5));
-    const rv = await call(MANAGER, "POST", `/sales-admin/audit/${r.body.applied[0].auditId}/revert`); assert.equal(rv.status, 200, rv.text);
+    const rv = await call(ADMIN, "POST", `/sales-admin/audit/${r.body.applied[0].auditId}/revert`); assert.equal(rv.status, 200, rv.text);
     assert.equal(hash("SELECT id, salesperson_id FROM customers ORDER BY id"), custBefore, "revert restores every customer");
     assert.equal(queryRow("SELECT revert_of FROM smc_audit ORDER BY id DESC LIMIT 1").revert_of, r.body.applied[0].auditId);
   });
@@ -135,35 +133,35 @@ try {
   await ok("daily: overlapping blocks refused; manual add/remove/move saved as overrides with the audit id; view shows them", async () => {
     const st = await state(); const day = smc.addDays(st.today, 1);
     const bad = { blocks: { global: [{ from: 540, to: 720, k: "actual" }, { from: 660, to: 780, k: "potential" }], team: {}, expert: {} } };
-    let r = await apply(MANAGER, "daily", bad); assert.equal(r.status, 422); assert.match(r.body.message, /هم‌پوشانی/);
-    await call(MANAGER, "DELETE", "/sales-admin/drafts/daily");
-    const q = (await call(MANAGER, "POST", "/sales-admin/queue", { expert: "e3", date: day })).body;
+    let r = await apply(ADMIN, "daily", bad); assert.equal(r.status, 422); assert.match(r.body.message, /هم‌پوشانی/);
+    await call(ADMIN, "DELETE", "/sales-admin/drafts/daily");
+    const q = (await call(ADMIN, "POST", "/sales-admin/queue", { expert: "e3", date: day })).body;
     const other = queryRow("SELECT id FROM customers WHERE salesperson_id=3 AND merged_into_customer_id IS NULL ORDER BY id DESC LIMIT 1").id;
     const free = q.rows.filter((x) => !x.locked && x.customerId != null && x.customerId !== other);
     const ops = [{ op: "add", expertId: "e3", date: day, customerId: other, blockIdx: 1 }];
     if (free[0]) ops.push({ op: "remove", expertId: "e3", date: day, customerId: free[0].customerId });
     if (free[1]) ops.push({ op: "move", expertId: "e3", date: day, customerId: free[1].customerId, blockIdx: 0, sort: 0 });
-    const preview = (await call(MANAGER, "POST", "/sales-admin/queue", { expert: "e3", date: day, daily: { blocks: st.docs.daily.blocks, ops } })).body;
+    const preview = (await call(ADMIN, "POST", "/sales-admin/queue", { expert: "e3", date: day, daily: { blocks: st.docs.daily.blocks, ops } })).body;
     assert.ok(preview.rows.some((x) => x.customerId === other && x.source === "manual" && x.draft));
-    r = await apply(MANAGER, "daily", { blocks: st.docs.daily.blocks, ops }); assert.equal(r.status, 200, r.text);
+    r = await apply(ADMIN, "daily", { blocks: st.docs.daily.blocks, ops }); assert.equal(r.status, 200, r.text);
     const aid = r.body.applied[0].auditId;
     assert.equal(queryRow("SELECT COUNT(*) n FROM smc_daily_override WHERE audit_id=?", [aid]).n, ops.length);
-    const after = (await call(MANAGER, "GET", `/sales-admin/queue?expert=e3&date=${day}`)).body;
+    const after = (await call(ADMIN, "GET", `/sales-admin/queue?expert=e3&date=${day}`)).body;
     assert.ok(after.rows.some((x) => x.customerId === other && x.source === "manual"));
     if (free[0]) assert.ok(after.rows.some((x) => x.customerId === free[0].customerId && x.source === "removed"));
-    const rv = await call(MANAGER, "POST", `/sales-admin/audit/${aid}/revert`); assert.equal(rv.status, 200);
+    const rv = await call(ADMIN, "POST", `/sales-admin/audit/${aid}/revert`); assert.equal(rv.status, 200);
     assert.equal(queryRow("SELECT COUNT(*) n FROM smc_daily_override WHERE audit_id=? AND undone_at IS NULL", [aid]).n, 0);
   });
   await ok("daily: an urgent row (incoming / payment order / file action) can be neither moved nor removed → 409 urgent_locked", async () => {
     const st = await state(); let hit = null;
     for (const e of st.docs.teams.experts) for (let i = 0; i < 3 && !hit; i++) {
-      const day = smc.addDays(st.today, i); const q = (await call(MANAGER, "GET", `/sales-admin/queue?expert=${e.id}&date=${day}`)).body;
+      const day = smc.addDays(st.today, i); const q = (await call(ADMIN, "GET", `/sales-admin/queue?expert=${e.id}&date=${day}`)).body;
       const u = q.rows?.find((x) => x.locked && x.customerId != null); if (u) hit = { e: e.id, day, cid: u.customerId };
     }
     if (!hit) { console.log("  (no urgent row on this copy; lib check instead)"); return; }
-    const r = await apply(MANAGER, "daily", { blocks: st.docs.daily.blocks, ops: [{ op: "remove", expertId: hit.e, date: hit.day, customerId: hit.cid }] });
+    const r = await apply(ADMIN, "daily", { blocks: st.docs.daily.blocks, ops: [{ op: "remove", expertId: hit.e, date: hit.day, customerId: hit.cid }] });
     assert.equal(r.status, 409); assert.equal(r.body.error, "urgent_locked");
-    await call(MANAGER, "DELETE", "/sales-admin/drafts/daily");
+    await call(ADMIN, "DELETE", "/sales-admin/drafts/daily");
   });
 
   await ok("access: «قفل» → expert list 403, search still finds own; «فقط خودش» narrows on the server; «همه» never widens", async () => {
@@ -171,24 +169,24 @@ try {
     const kz = st.docs.teams.experts.find((e) => e.userId === EXPERT).id;
     const baseList = await call(EXPERT, "GET", "/customers?limit=50");
     d.policies[kz] = { customers: "locked", loan_files: "own" };
-    let r = await apply(MANAGER, "access", d); assert.equal(r.status, 200, r.text);
+    let r = await apply(ADMIN, "access", d); assert.equal(r.status, 200, r.text);
     r = await call(EXPERT, "GET", "/customers?limit=50"); assert.equal(r.status, 403); assert.equal(r.body.error, "smc_access_locked");
     const s = await call(EXPERT, "GET", "/customers?search=" + encodeURIComponent("a"));
     if (s.status === 200) { const list = Array.isArray(s.body) ? s.body : s.body.items ?? s.body.customers ?? s.body.rows ?? s.body.data ?? [];
       for (const c of list) assert.equal(queryRow("SELECT salesperson_id sp FROM customers WHERE id=?", [c.id]).sp, 6); }
-    const mgr = await call(MANAGER, "GET", "/customers?limit=50"); assert.notEqual(mgr.status, 403, "manager never locked");
-    d.policies[kz] = { customers: "own", loan_files: "own" }; r = await apply(MANAGER, "access", d); assert.equal(r.status, 200);
+    const mgr = await call(ADMIN, "GET", "/customers?limit=50"); assert.notEqual(mgr.status, 403, "manager never locked");
+    d.policies[kz] = { customers: "own", loan_files: "own" }; r = await apply(ADMIN, "access", d); assert.equal(r.status, 200);
     r = await call(EXPERT, "GET", "/customers?limit=50");
     if (r.status === 200) { const list = Array.isArray(r.body) ? r.body : r.body.items ?? r.body.customers ?? r.body.rows ?? r.body.data ?? [];
       for (const c of list) assert.equal(queryRow("SELECT salesperson_id sp FROM customers WHERE id=?", [c.id]).sp, 6); }
-    d.policies[kz] = { customers: "all", loan_files: "all" }; r = await apply(MANAGER, "access", d); assert.equal(r.status, 200);
+    d.policies[kz] = { customers: "all", loan_files: "all" }; r = await apply(ADMIN, "access", d); assert.equal(r.status, 200);
     const wide = await call(EXPERT, "GET", "/customers?limit=50"); assert.equal(wide.status, baseList.status);
     const idsOf = (b) => (Array.isArray(b) ? b : b?.items ?? b?.customers ?? b?.rows ?? b?.data ?? []).map((c) => c.id).sort((x, y) => x - y).join(",");
     if (wide.status === 200) assert.equal(idsOf(wide.body), idsOf(baseList.body), "«همه» = the existing server rules, nothing more");
   });
   await ok("validity: 36h credit applies only to checks after save; a fresh check → POST credit check 409 smc_credit_still_valid", async () => {
     const st = await state(); const d = structuredClone(st.docs.valid); d.credit = { mode: "hours", hours: 36 };
-    const r = await apply(MANAGER, "valid", d); assert.equal(r.status, 200, r.text);
+    const r = await apply(ADMIN, "valid", d); assert.equal(r.status, 200, r.text);
     const saved = smc.loadDoc("valid"); assert.ok(saved.appliedAt.credit); assert.equal(saved.appliedAt.identity ?? null, st.docs.valid.appliedAt?.identity ?? null, "identity untouched");
     const cid = queryRow("SELECT id FROM customers WHERE salesperson_id=6 AND merged_into_customer_id IS NULL ORDER BY id DESC LIMIT 1").id;
     const old = queryRow("SELECT MAX(completed_at) m FROM customer_credit_checks WHERE customer_id=?", [cid])?.m;
@@ -201,32 +199,32 @@ try {
   });
   await ok("model: mix ≠ 100 and capacity out of 5–60 refused; assignment saved; one model per expert; preview writes nothing", async () => {
     const st = await state(); const d = structuredClone(st.docs.model);
-    d.models[0].mix.lead = 35; let r = await apply(MANAGER, "model", d); assert.equal(r.status, 422); assert.match(r.body.message, /جمع/);
-    await call(MANAGER, "DELETE", "/sales-admin/drafts/model");
-    const d2 = structuredClone(st.docs.model); d2.models[0].capacity = 70; r = await apply(MANAGER, "model", d2); assert.equal(r.status, 422);
-    await call(MANAGER, "DELETE", "/sales-admin/drafts/model");
+    d.models[0].mix.lead = 35; let r = await apply(ADMIN, "model", d); assert.equal(r.status, 422); assert.match(r.body.message, /جمع/);
+    await call(ADMIN, "DELETE", "/sales-admin/drafts/model");
+    const d2 = structuredClone(st.docs.model); d2.models[0].capacity = 70; r = await apply(ADMIN, "model", d2); assert.equal(r.status, 422);
+    await call(ADMIN, "DELETE", "/sales-admin/drafts/model");
     const d3 = structuredClone(st.docs.model); d3.models[0].assign = [{ scope: "expert", id: "e3" }]; d3.models[1].assign = [{ scope: "expert", id: "e3" }];
-    r = await apply(MANAGER, "model", d3); assert.equal(r.status, 422); assert.match(r.body.message, /یک مدل/);
-    await call(MANAGER, "DELETE", "/sales-admin/drafts/model");
+    r = await apply(ADMIN, "model", d3); assert.equal(r.status, 422); assert.match(r.body.message, /یک مدل/);
+    await call(ADMIN, "DELETE", "/sales-admin/drafts/model");
     const n0 = queryRow("SELECT COUNT(*) n FROM smc_audit").n;
-    const pv = await call(MANAGER, "POST", "/sales-admin/models/preview", { model: st.docs.model.models[0], expert: "e3", date: smc.addDays(st.today, 1) });
+    const pv = await call(ADMIN, "POST", "/sales-admin/models/preview", { model: st.docs.model.models[0], expert: "e3", date: smc.addDays(st.today, 1) });
     assert.equal(pv.status, 200); assert.ok(pv.body.counts && pv.body.diff);
     assert.equal(queryRow("SELECT COUNT(*) n FROM smc_audit").n, n0);
     const d4 = structuredClone(st.docs.model); d4.models[0].assign = [{ scope: "expert", id: "e3" }];
-    r = await apply(MANAGER, "model", d4); assert.equal(r.status, 200, r.text); assert.match(r.body.applied[0].summary, /حسنی/);
+    r = await apply(ADMIN, "model", d4); assert.equal(r.status, 200, r.text); assert.match(r.body.applied[0].summary, /حسنی/);
   });
   await ok("distribution: percent ≠ 100 refused; rules saved; sample-lead test routes and moves no counter, writes no log", async () => {
     const st = await state(); const d = structuredClone(st.docs.dist);
     d.team.fallback = { method: "percent", targets: [{ id: "t1", weight: 70 }, { id: "t2", weight: 20 }] };
-    let r = await apply(MANAGER, "dist", d); assert.equal(r.status, 422); assert.match(r.body.message, /۱۰۰/);
-    await call(MANAGER, "DELETE", "/sales-admin/drafts/dist");
+    let r = await apply(ADMIN, "dist", d); assert.equal(r.status, 422); assert.match(r.body.message, /۱۰۰/);
+    await call(ADMIN, "DELETE", "/sales-admin/drafts/dist");
     const d2 = structuredClone(st.docs.dist);
     d2.team.rules = [{ id: "r1", conds: [{ field: "priority", values: ["1"] }], method: "ratio", targets: [{ id: "t1", weight: 2 }, { id: "t2", weight: 1 }] }];
     d2.member.t1 = { rules: [{ id: "m1", conds: [{ field: "credit_rank", values: ["A", "B"] }], method: "direct", targets: [{ id: "e3" }] }], fallback: { method: "capacity", targets: [] } };
-    r = await apply(MANAGER, "dist", d2); assert.equal(r.status, 200, r.text);
+    r = await apply(ADMIN, "dist", d2); assert.equal(r.status, 200, r.text);
     const c0 = hash("SELECT * FROM smc_dist_counter"); const l0 = queryRow("SELECT COUNT(*) n FROM smc_dist_log").n;
     for (let i = 0; i < 4; i++) {
-      const t = await call(MANAGER, "POST", "/sales-admin/distribution/test", { lead: { priority: "1", credit_rank: "B", amount: "350" } });
+      const t = await call(ADMIN, "POST", "/sales-admin/distribution/test", { lead: { priority: "1", credit_rank: "B", amount: "350" } });
       assert.equal(t.status, 200); assert.equal(t.body.teamId, "t1"); assert.equal(t.body.expertId, "e3"); assert.match(t.body.path.at(-1).text, /خانم حسنی/);
     }
     assert.equal(hash("SELECT * FROM smc_dist_counter"), c0, "counters untouched"); assert.equal(queryRow("SELECT COUNT(*) n FROM smc_dist_log").n, l0);
@@ -236,25 +234,25 @@ try {
   await ok("steps: «قرارداد لازم نیست» on one plan, «تکمیل‌شده» last enforced; loan_plans / contract templates never written", async () => {
     const st = await state(); const plan = st.plans[0].key; const d = structuredClone(st.docs.steps);
     const list = structuredClone(st.systemStages); for (const s of list) if (st.stageGroups.contract.includes(s.key)) s.enabled = false;
-    d.plans[plan] = list; let r = await apply(MANAGER, "steps", d); assert.equal(r.status, 200, r.text);
+    d.plans[plan] = list; let r = await apply(ADMIN, "steps", d); assert.equal(r.status, 200, r.text);
     assert.equal(smc.planStages(smc.loadDoc("steps"), plan).filter((s) => st.stageGroups.contract.includes(s.key) && s.enabled).length, 0);
     const bad = structuredClone(d); bad.plans[plan] = list.filter((s) => s.key !== "completed");
-    r = await apply(MANAGER, "steps", bad); assert.equal(r.status, 422); assert.match(r.body.message, /تکمیل/);
-    await call(MANAGER, "DELETE", "/sales-admin/drafts/steps");
+    r = await apply(ADMIN, "steps", bad); assert.equal(r.status, 422); assert.match(r.body.message, /تکمیل/);
+    await call(ADMIN, "DELETE", "/sales-admin/drafts/steps");
   });
   await ok("conflict: the admin saves after the manager opened a draft → manager gets 409 with «… توسط ادمین عوض شده»; force applies", async () => {
-    const st = await state(MANAGER); const d = structuredClone(st.docs.valid); d.identity = { mode: "hours", hours: 48 };
-    await call(MANAGER, "PUT", "/sales-admin/drafts/valid", { doc: d, baseVersion: st.meta.valid.version, changes: 1 });
+    const st = await state(ADMIN); const d = structuredClone(st.docs.valid); d.identity = { mode: "hours", hours: 48 };
+    await call(ADMIN, "PUT", "/sales-admin/drafts/valid", { doc: d, baseVersion: st.meta.valid.version, changes: 1 });
     const a = structuredClone(st.docs.valid); a.credit = { mode: "hours", hours: 48 }; const ra = await apply(ADMIN, "valid", a); assert.equal(ra.status, 200, ra.text);
-    let r = await call(MANAGER, "POST", "/sales-admin/apply", { sections: ["valid"] });
+    let r = await call(ADMIN, "POST", "/sales-admin/apply", { sections: ["valid"] });
     assert.equal(r.status, 409); assert.equal(r.body.error, "changed_since_open"); assert.match(r.body.message, /توسط ادمین عوض شده/);
-    r = await call(MANAGER, "POST", "/sales-admin/apply", { sections: ["valid"], force: true }); assert.equal(r.status, 200);
+    r = await call(ADMIN, "POST", "/sales-admin/apply", { sections: ["valid"], force: true }); assert.equal(r.status, 200);
   });
   await ok("audit: every section has Persian rows; filter by section; revert of a settings row restores the before-document", async () => {
-    const r = await call(MANAGER, "GET", "/sales-admin/audit"); assert.equal(r.status, 200);
+    const r = await call(ADMIN, "GET", "/sales-admin/audit"); assert.equal(r.status, 200);
     const secs = new Set(r.body.rows.map((x) => x.section)); for (const s of ["teams", "daily", "access", "valid", "model", "dist", "steps"]) assert.ok(secs.has(s), s);
     assert.ok(r.body.rows.every((x) => x.summary && !/[0-9]/.test(x.summary.replace(/[A-E]/g, "")) && x.who), "full Persian sentences, Persian digits");
-    const f = await call(MANAGER, "GET", "/sales-admin/audit?section=model"); assert.ok(f.body.rows.every((x) => x.section === "model"));
+    const f = await call(ADMIN, "GET", "/sales-admin/audit?section=model"); assert.ok(f.body.rows.every((x) => x.section === "model"));
     const lastModel = f.body.rows[0]; const beforeDoc = JSON.parse(queryRow("SELECT before_json FROM smc_audit WHERE id=?", [lastModel.id]).before_json);
     const rv = await call(ADMIN, "POST", `/sales-admin/audit/${lastModel.id}/revert`); assert.equal(rv.status, 200, rv.text);
     assert.deepEqual(smc.loadDoc("model"), beforeDoc);
@@ -265,7 +263,7 @@ try {
   });
   await ok("flag back OFF → 404 again and the guard stops (expert list no longer locked)", async () => {
     flag("0");
-    assert.equal((await call(MANAGER, "GET", "/sales-admin/me")).status, 404);
+    assert.equal((await call(ADMIN, "GET", "/sales-admin/me")).status, 404);
     const r = await call(EXPERT, "GET", "/customers?limit=5"); assert.notEqual(r.body?.error, "smc_access_locked");
   });
   console.log(`\n${passed} passed`);

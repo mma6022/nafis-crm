@@ -271,7 +271,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const ctCfg = useCtConfig(Boolean(user) && isAdminUser).data;
   const bbMe = useBaleBotMe().data; // bale v1.1
   const lpMe = useLinkPageMe(Boolean(user) && isAdminUser).data; // links v1.0
-  const smcMe = useSmcMe(Boolean(user && (user.role === 'admin' || user.role === 'sales_manager')) && !elLocked).data; // 404/403 → no item
+  const smcMe = useSmcMe(Boolean(user && user.role === 'admin' && !user.salesManager) && !elLocked).data; // t815s2681: plain admins only; 404/403 → no item
   const mtMe = useSalesTeamsMe(Boolean(user) && !elLocked).data; // multi-team v1 — skip for locked experts (not an allowed shell endpoint)
   const spMe = useSalesPerformanceMe(Boolean(user)).data; // sales-performance v1
   const basePageTitle = isAdminUser && (location === '/my-wallet' || location.startsWith('/my-wallet/')) ? 'کیف پول کارشناس‌ها' : location === '/settings/links' && !lpMe?.enabled ? 'تنظیمات' /* links v1.0 off: same title as before */ : location === '/sales-teams' && mtMe?.readonly ? 'تیم من' : titleFor(location);

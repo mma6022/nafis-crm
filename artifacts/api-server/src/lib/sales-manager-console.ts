@@ -1,5 +1,5 @@
 /**
- * «مدیریت تیم فروش» v1.1 (sales-manager-console), flag.sales_manager_console_v1 (global, default OFF).
+ * «مدیریت تیم فروش» v1.1 (sales-manager-console), flag.sales_manager_console_v1 (global, default OFF; when ON, admin-role users only — t815s2681).
  * Mohammad t349u/t350u/t351u/t352u; design: Armita sales-manager-console v1.1 (HANDOFF.md, spec.md).
  *
  * Storage is additive only: every table is new (smc_*), created lazily on first use while the flag is ON.
@@ -14,7 +14,6 @@
 import type { AuthUser } from "./auth";
 import { getAuthUserById } from "./auth";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
-import { isSalesManagerUser } from "./sales-manager";
 import { dqBlocks, dqQueue, type DqItem, type DqKind } from "./dci-queue";
 
 export const SMC_FLAG = "flag.sales_manager_console_v1";
@@ -30,10 +29,11 @@ export const isSection = (s: unknown): s is Section => typeof s === "string" && 
 export function smcFlagOn(): boolean {
   try { return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [SMC_FLAG])?.value === "1"; } catch { return false; }
 }
-/** §6-1: only the sales manager and admin (effective role admin). Team leads and experts never. */
+/** t815s2681: only users.role='admin'. Sales managers (effective admin), team leads, experts, and user 29 never. */
 export function smcCanManage(u: AuthUser | null | undefined): boolean {
   if (!u || Number(u.id) === SMC_NEVER_USER || !u.active) return false;
-  return u.role === "admin" || isSalesManagerUser(u) || u.baseRole === "admin" || u.baseRole === "sales_manager";
+  const dbRole = queryRow<{ role: string }>("SELECT role FROM users WHERE id=?", [u.id])?.role;
+  return dbRole === "admin";
 }
 const FA = "۰۱۲۳۴۵۶۷۸۹";
 export const fa = (v: string | number) => String(v).replace(/[0-9]/g, (d) => FA[Number(d)]!);
