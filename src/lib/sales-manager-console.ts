@@ -23,6 +23,8 @@ export type Section = (typeof SECTIONS)[number];
 export const SECTION_FA: Record<Section | "audit", string> & Record<string, string> = {
   teams: "تیم‌ها", daily: "لیست روزانه", access: "دسترسی", valid: "مدت اعتبار", model: "مدل", dist: "تقسیم", steps: "مراحل", audit: "تاریخچه",
   merge: "انتقال از صفحه‌های قدیم", teams_live: "تیم‌ها (جدول زنده)",
+  merge_daily: "لیست روزانه (جدول زنده)", merge_capacity: "ظرفیت کارشناس (جدول زنده)", merge_model: "مدل لیست و صف تماس (جدول زنده)",
+  merge_discipline: "نظم پیگیری و تحویل (جدول زنده)", merge_owner: "مالک پیش‌فرض مشتری (جدول زنده)",
 };
 export const isSection = (s: unknown): s is Section => typeof s === "string" && (SECTIONS as readonly string[]).includes(s);
 

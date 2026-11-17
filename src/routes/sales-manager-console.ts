@@ -13,7 +13,7 @@ import {
   smcFlagOn, SMC_NEVER_USER, staleRules, SYSTEM_STAGES, teamName, userPicker, validFa, LEVEL_FA, ymdTehran, type Lead, type Model, type Section,
   samMerged, samAccessRoles,
 } from "../lib/sales-manager-console";
-import { samImport, samRevertTeam, samView, samWriteTeam } from "../lib/sales-admin-merge";
+import { isFoldKey, samImport, samRevertTeam, samSaveFolded, samUndoFolded, samView, samWriteTeam } from "../lib/sales-admin-merge";
 
 const me = (res: Response) => res.locals.authUser as AuthUser | undefined;
 const router: IRouter = Router();
@@ -80,7 +80,16 @@ router.put("/sales-admin/merge/teams/:id", (req, res) => {
   if (mergeOff(res)) return;
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return void res.status(400).json({ error: "bad_id" });
-  const r = samWriteTeam(me(res)!, id, { name: req.body?.name, enabled: req.body?.enabled });
+  const r = samWriteTeam(me(res)!, id, { name: req.body?.name, enabled: req.body?.enabled, preview: req.body?.preview === true });
+  if (!r.ok) return void res.status(r.status).json(r);
+  res.json(r);
+});
+/** The four folded sections (t358s1318 §2): same validators/savers/tables as the old pages + smc_audit for «برگرداندن». */
+router.put("/sales-admin/merge/section/:key", (req, res) => {
+  if (mergeOff(res)) return;
+  const key = req.params.key;
+  if (!isFoldKey(key)) return void res.status(404).json({ error: "unknown_section" });
+  const r = samSaveFolded(me(res)!, key, req.body ?? {});
   if (!r.ok) return void res.status(r.status).json(r);
   res.json(r);
 });
@@ -215,7 +224,13 @@ router.post("/sales-admin/audit/:id/revert", (req, res) => {
   if (samMerged() && queryRow<{ section: string }>("SELECT section FROM smc_audit WHERE id=?", [id])?.section === "teams_live") {
     const t = samRevertTeam(me(res)!, id);
     if (!t.ok) return void res.status(t.status).json(t);
-    return void res.json({ ok: true, applied: [{ section: "teams_live", auditId: t.auditId }] });
+    return void res.json({ ok: true, applied: [{ section: "teams_live", auditId: "auditId" in t ? t.auditId : 0 }] });
+  }
+  const sec = samMerged() ? queryRow<{ section: string }>("SELECT section FROM smc_audit WHERE id=?", [id])?.section : undefined;
+  if (sec && sec.startsWith("merge_") && isFoldKey(sec.slice(6))) {
+    const f = samUndoFolded(me(res)!, id);
+    if (!f.ok) return void res.status(f.status).json(f);
+    return void res.json({ ok: true, applied: [{ section: sec, auditId: f.auditId }] });
   }
   const r = revert(me(res)!, id);
   if (!r.ok) return void res.status(r.status).json(r);
