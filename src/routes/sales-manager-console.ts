@@ -13,7 +13,7 @@ import {
   smcFlagOn, SMC_NEVER_USER, staleRules, SYSTEM_STAGES, teamName, userPicker, validFa, LEVEL_FA, ymdTehran, type Lead, type Model, type Section,
   samMerged, samAccessRoles,
 } from "../lib/sales-manager-console";
-import { isFoldKey, samImport, samRevertTeam, samSaveFolded, samUndoFolded, samView, samWriteTeam } from "../lib/sales-admin-merge";
+import { isFoldKey, samCanWriteFolded, samImport, samRevertTeam, samSaveFolded, samUndoFolded, samView, samWriteTeam } from "../lib/sales-admin-merge";
 
 const me = (res: Response) => res.locals.authUser as AuthUser | undefined;
 const router: IRouter = Router();
@@ -74,7 +74,7 @@ router.get("/sales-admin/merge/state", (_req, res) => {
   if (mergeOff(res)) return;
   const imp = samImport(me(res)!.id); // idempotent: first open after the flag is turned on carries the values over; later opens write nothing unless live changed
   if (!imp.ok) return void res.status(imp.status).json(imp);
-  res.json(samView());
+  res.json({ ...samView(), canWriteFolded: samCanWriteFolded(me(res)) });
 });
 router.put("/sales-admin/merge/teams/:id", (req, res) => {
   if (mergeOff(res)) return;

@@ -19,7 +19,7 @@ import crypto from "node:crypto";
 import { crmDb, execute, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import type { AuthUser } from "./auth";
 import { cqSettings, cqDisciplineSettings, cqManager, CQ_DEFAULTS, CQ_DS_DEFAULTS, saveCqSettings, saveDiscipline, validateCqSettings, validateDiscipline } from "./call-queue";
-import { dpAdminCapacity, dpCapacity, dpSaveSettings, dpSettings, dpValidateSettings, ensureDailyPlanSchema, DP_DEFAULTS } from "./daily-plan";
+import { dpAdminCapacity, dpCapacity, dpExperts, dpNextWork, dpSaveSettings, dpSettings, dpToday, dpValidateSettings, ensureDailyPlanSchema, DP_DEFAULTS } from "./daily-plan";
 import {
   getSalesAssistSettings, getP1Settings, saveP1Settings, saveSalesAssistSettings, validateP1Settings, validateSettings as validateAssistSettings,
   P1_SETTING_KEYS, SALES_ASSIST_SIGNALS, SALES_ASSIST_DEFAULTS, P1_DEFAULTS,
@@ -502,7 +502,16 @@ export function samView(now = new Date()) {
       signals: Object.fromEntries(Object.entries(SALES_ASSIST_SIGNALS).map(([k, s]) => [k, s.label])),
       sellers: Object.fromEntries(queryRows<{ id: number; name: string }>("SELECT id, name FROM salespersons").map((s) => [String(s.id), s.name])),
       receivers: Object.fromEntries(queryRows<{ id: number; name: string }>("SELECT id, name FROM salespersons").map((s) => [String(s.id), s.name])),
+      activeSellers: queryRows<{ id: number; name: string }>("SELECT id, name FROM salespersons WHERE active=1 ORDER BY id").map((x) => ({ id: Number(x.id), name: x.name })),
+      registrars: queryRows<{ id: number; name: string }>(`SELECT id, COALESCE(NULLIF(full_name,''), username) name FROM users WHERE active=1 AND id<>${SMC_NEVER_USER} ORDER BY id`).map((x) => ({ id: Number(x.id), name: x.name })),
     },
+    capacity: (() => {
+      try {
+        ensureDailyPlanSchema(); const day = dpNextWork(dpToday(now));
+        return { day, dayFa: fa(day), experts: dpExperts().filter((e) => Number(e.id) !== SMC_NEVER_USER).map((e) => ({ salespersonId: Number(e.salespersonId), name: e.name, capacity: dpCapacity(Number(e.salespersonId), day).capacity })) };
+      } catch { return { day: null, dayFa: null, experts: [] }; }
+    })(),
+    canWriteFolded: false,
     defaults: { queue: CQ_DEFAULTS, daily: DP_DEFAULTS, discipline: CQ_DS_DEFAULTS, assist: SALES_ASSIST_DEFAULTS, p1: P1_DEFAULTS },
     conversion: { applicable: conv.applicable, reason: conv.reason, teamRule: conv.teamRule, memberRule: conv.memberRule, blockers: conv.blockers, writes: conv.writes.map((w) => ({ table: w.table, key: w.key, note: w.note })),
       intakeFollowsDist: conv.intakeFollowsDist ?? false, parity: conv.parity ?? null },
