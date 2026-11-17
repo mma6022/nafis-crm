@@ -1,7 +1,7 @@
 /**
  * credit-panel v1 — «اعتبارسنجی سریع» (spec §2.3): 3 steps with a progress bar, few fields per step.
  * 1 انتخاب مشتری (the expert's own customers; skipped when opened from a customer) → 2 تکمیل نواقص (only missing national code / Jalali birth date, saved on the
- * customer) → 3 تأیید و اجرا (masked summary; consent tick for the score when «اعتبارسنجی فوری» is on; «استعلام» runs the debt bundle).
+ * customer) → 3 تأیید و اجرا (masked summary; «استعلام» runs the debt bundle; the ICS24 score row opens the consent + SMS code step (disabled with a chip while «اعتبارسنجی فوری» is off)).
  */
 import "./credit-panel.css";
 import { useQueryClient } from "@tanstack/react-query";
@@ -14,21 +14,27 @@ import { CpError, fa, runInquiry, useCpMe, useCpView } from "./api";
 import { useMissingFields } from "./MissingFields";
 
 const STEPS = ["انتخاب مشتری", "تکمیل نواقص", "تأیید و اجرا"];
-const initials = (name: string) => name.replace(/^(آقای|خانم)\s+/, "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("‌");
+// Avatar letters: one element per letter in an RTL flex row, so the first name's letter is always on the right («یاسین غرقی» → «ی غ» read from the right).
+const initials = (name: string) => name.replace(/^(آقای|خانم)\s+/, "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]);
+const Av = ({ name }: { name: string }) => <span className="qcw-av" aria-hidden="true" dir="rtl" data-testid="qcw-av">{initials(name).map((l, i) => <i key={i}>{l}</i>)}</span>;
+// Search box shows Persian digits while typing; the query sent to the list API keeps Latin digits (same request as before).
+const LAT = "0123456789", PER = "۰۱۲۳۴۵۶۷۸۹", ARB = "٠١٢٣٤٥٦٧٨٩";
+const toFaDigits = (s: string) => s.replace(/[0-9٠-٩]/g, (d) => PER[LAT.indexOf(d) >= 0 ? LAT.indexOf(d) : ARB.indexOf(d)]);
+const toLatinDigits = (s: string) => s.replace(/[۰-۹٠-٩]/g, (d) => String(PER.indexOf(d) >= 0 ? PER.indexOf(d) : ARB.indexOf(d)));
 
 function Pick({ onPick }: { onPick: (c: { id: number; name: string }) => void }) {
   const [search, setSearch] = useState("");
   const [deb, setDeb] = useState("");
-  useEffect(() => { const t = window.setTimeout(() => setDeb(search.trim()), 250); return () => window.clearTimeout(t); }, [search]);
+  useEffect(() => { const t = window.setTimeout(() => setDeb(toLatinDigits(search).trim()), 250); return () => window.clearTimeout(t); }, [search]);
   const params = { search: deb || undefined, limit: 8 };
   const list = useListCustomers(params, { query: { queryKey: getListCustomersQueryKey(params), staleTime: 10_000 } });
   const items = (list.data?.items ?? []) as { id: number; name: string }[];
   return <div className="qcw-pick">
     <label className="cpf-l" htmlFor="qcwS">مشتری</label>
-    <input id="qcwS" className="cpf-in" type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="نام یا شناسه (#۱۲۳۴)" autoComplete="off" data-testid="qcw-search" />
+    <input id="qcwS" className="cpf-in" type="search" value={search} onChange={(e) => { const el = e.target, at = el.selectionStart; setSearch(toFaDigits(el.value)); if (at !== null) requestAnimationFrame(() => { try { el.setSelectionRange(at, at); } catch { /* type=search without selection */ } }); }} placeholder="نام یا شناسه (#۱۲۳۴)" autoComplete="off" data-testid="qcw-search" />
     <ul className="qcw-list" aria-busy={list.isFetching || undefined}>
       {items.map((c) => <li key={c.id}><button type="button" className="qcw-item" onClick={() => onPick(c)} data-testid="qcw-item">
-        <span className="qcw-av" aria-hidden="true">{initials(c.name)}</span><b>{fa(c.name)}</b><span className="qcw-id">#{fa(c.id)}</span></button></li>)}
+        <Av name={c.name} /><b>{fa(c.name)}</b><span className="qcw-id">#{fa(c.id)}</span></button></li>)}
       {!list.isFetching && !items.length ? <li className="cpc-empty">مشتری‌ای پیدا نشد.</li> : null}
     </ul>
   </div>;
@@ -42,7 +48,8 @@ export function QuickCreditWizard({ onClose, customer: fixed }: { onClose: () =>
   const view = useCpView(cust?.id ?? null);
   const v = view.data;
   const miss = useMissingFields(cust?.id ?? 0, v?.customer, () => { void view.refetch(); });
-  const [consent, setConsent] = useState(false);
+  const [score, setScore] = useState(false);
+  const icc = !!me.data?.icc;
   const [ask, setAsk] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -59,13 +66,21 @@ export function QuickCreditWizard({ onClose, customer: fixed }: { onClose: () =>
     finally { setBusy(false); }
   };
   const masked = v?.customer.nationalCodeMasked ? fa(v.customer.nationalCodeMasked) : "—";
-  const who = cust ? <div className="qcw-who" data-testid="qcw-who"><span className="qcw-av" aria-hidden="true">{initials(cust.name)}</span>
+  const who = cust ? <div className="qcw-who" data-testid="qcw-who"><Av name={cust.name} />
     <div><b>{fa(cust.name)}</b><span>#{fa(cust.id)} · کد ملی <span dir="ltr">{masked}</span></span></div></div> : null;
 
+  // ICS24 score (Mohammad t364s1375): cheques + loans come with one click («استعلام»); the score is its own step after them — this row's button opens the
+  // existing consent + customer SMS code flow (InstantCreditCheck). Always visible; disabled with a state chip while «اعتبارسنجی فوری» is off.
+  const scoreRow = cust ? (icc && score
+    ? <div className="cpc-score" data-testid="qcw-score"><InstantCreditCheck customerId={cust.id} embedded hideRecent /></div>
+    : <div className={`qcw-score${icc ? "" : " off"}`} data-testid="qcw-score-row" aria-disabled={!icc || undefined}>
+      <div className="qcw-score-t"><b>رتبهٔ اعتباری، نیاز به کد پیامکی مشتری</b>{icc ? null : <span className="qcw-chip" data-testid="qcw-score-state">غیرفعال</span>}</div>
+      <button type="button" className="btn gh" disabled={!icc} onClick={() => setScore(true)} data-testid="qcw-score-btn">گرفتن رتبه</button>
+    </div>) : null;
   let body;
   if (done && cust) body = <>
     <CreditCard customerId={cust.id} />
-    {consent && me.data?.icc ? <div className="cpc-score" data-testid="qcw-score"><InstantCreditCheck customerId={cust.id} embedded hideRecent initialConsent autoStart /></div> : null}
+    {scoreRow}
     <div className="qcw-act"><button type="button" className="btn pri" onClick={onClose} data-testid="qcw-close">بستن</button></div>
   </>;
   else if (step === 1) body = <Pick onPick={(c) => { setCust(c); setStep(2); }} />;
@@ -78,11 +93,10 @@ export function QuickCreditWizard({ onClose, customer: fixed }: { onClose: () =>
   else body = <>
     {who}
     <dl className="qcw-sum">
-      <div><dt>استعلام</dt><dd>چک برگشتی، رنگ چک، وام‌های فعال{me.data?.icc ? (consent ? "، رتبه‌ی اعتباری" : "") : ""}</dd></div>
+      <div><dt>استعلام</dt><dd>چک برگشتی، رنگ چک، وام‌های فعال</dd></div>
       {v?.lastAt ? <div><dt>آخرین استعلام</dt><dd>{v.valid ? "هنوز معتبر" : "منقضی"}</dd></div> : null}
     </dl>
-    {me.data?.icc ? <label className="qcw-cns" data-testid="qcw-consent"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-      <span>مشتری با استعلام اعتبار موافقت کرد</span></label> : null}
+    {scoreRow}
     {ask ? <div className="cpc-ask" role="group" aria-label="استعلام تازه" data-testid="cp-ask"><span>استعلام قبلی هنوز معتبر است. استعلام تازه گرفته شود؟</span>
       <div className="cpc-ask-b"><button type="button" className="btn gh" onClick={() => setAsk(false)}>انصراف</button>
         <button type="button" className="btn pri" onClick={() => void go(true)}>استعلام تازه</button></div></div> : null}

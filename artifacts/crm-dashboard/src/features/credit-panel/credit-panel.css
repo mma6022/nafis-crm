@@ -108,7 +108,8 @@
 .qcw-who{display:flex;align-items:center;gap:12px;background:var(--cp-s2);border-radius:14px;padding:14px}
 .qcw-who b{display:block;font-size:17px;font-weight:800;color:var(--cp-ink)}
 .qcw-who span{font-size:13px;color:var(--cp-muted);font-weight:600}
-.qcw-av{width:52px;height:52px;border-radius:50%;background:var(--cp-b100);color:var(--cp-b900);display:grid;place-items:center;font-weight:800;font-size:14px;flex:none}
+.qcw-av{width:52px;height:52px;border-radius:50%;background:var(--cp-b100);color:var(--cp-b900);display:flex;flex-direction:row;direction:rtl;align-items:center;justify-content:center;gap:3px;font-weight:800;font-size:14px;flex:none}
+.qcw-av i{font-style:normal}
 .qcw-act{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px}
 .qcw-act .btn{min-height:52px;font-size:16px}
 .qcw-act .btn:only-child{grid-column:1 / -1}
@@ -126,3 +127,11 @@
 
 /* quick-check entry (customers header) */
 .cp-qbtn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 14px;border-radius:12px;border:1px solid #C9CEDF;background:#fff;color:#0B1450;font:inherit;font-weight:800;font-size:14px;cursor:pointer;white-space:nowrap}
+/* ICS24 score row in step 3 */
+.qcw-score{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--cp-line2);border-radius:14px}
+.qcw-score-t{display:flex;flex-direction:column;align-items:flex-start;gap:6px;flex:1 1 160px;min-width:0}
+.qcw-score-t b{font-size:14px;font-weight:700;color:var(--cp-ink)}
+.qcw-score .btn{flex:none}
+.qcw-score.off{background:var(--cp-s2);border-color:var(--cp-line)}
+.qcw-score.off .qcw-score-t b{color:var(--cp-muted)}
+.qcw-chip{display:inline-flex;align-items:center;min-height:24px;padding:0 10px;border-radius:999px;background:#fff;border:1px solid var(--cp-line2);color:var(--cp-muted);font-size:12px;font-weight:700}
