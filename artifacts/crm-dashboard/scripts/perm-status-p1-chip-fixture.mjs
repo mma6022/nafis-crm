@@ -112,6 +112,12 @@ await ok("css: at 390 the «اولویت» row is a 2×2 grid with 44px targets;
   assert.match(desk[1], /flex-wrap:nowrap/);
   assert.doesNotMatch(desk[1], /display:grid/);
 });
+await ok("css: «بدون اولویت» has the same 10px gray dot as the numbered options", () => {
+  assert.match(css, /\.dci-page \.dci-ps \.csx-chip\[data-p="0"\]\{--c:#667085\}/);
+  assert.match(css, /\.dci-page \.dci-ps \.csx-chip\[data-p\]::before\{content:"";width:10px;height:10px;border-radius:3px/);
+  const src = readFileSync(new URL("../src/features/daily-customer-inline/DailyCustomerInline.tsx", import.meta.url), "utf8");
+  assert.match(src, /data-p=\{value \?\? 0\}/);
+});
 
 const ui = process.env.PERM_CHIP_UI;
 const tokenPath = process.env.PERM_CHIP_TOKEN || "/workspace/perm-status/db/r4b-session.token";

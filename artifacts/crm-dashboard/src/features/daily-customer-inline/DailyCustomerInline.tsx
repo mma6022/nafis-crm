@@ -378,7 +378,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
           aria-label={canOpenPromo ? "ارتقا به اولویت ۱" : undefined}
           aria-disabled={inert ? true : undefined}
           title={!canEditPs ? noPermHint : undefined}
-          data-p={value ?? undefined}
+          data-p={value ?? 0}
           disabled={update.isPending && !inert}
           onClick={() => { if (inert) return; if (canOpenPromo) openPromo("chip"); else askPriority(value); }}
           data-testid={`chip-priority-${value ?? "none"}`}>{value ? `اولویت ${fd(value)}` : "بدون اولویت"}</button>;

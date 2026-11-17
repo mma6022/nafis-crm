@@ -328,6 +328,7 @@ body:has([data-testid="dci-page"]) .ts-wz{
 .dci-page .dci-ps .csx-chip[data-p="1"]{--c:#B42318}
 .dci-page .dci-ps .csx-chip[data-p="2"]{--c:#B54708}
 .dci-page .dci-ps .csx-chip[data-p="3"]{--c:#1F7A4D}
+.dci-page .dci-ps .csx-chip[data-p="0"]{--c:#667085}
 .dci-page .dci-ps .csx-chip[data-p]::before{content:"";width:10px;height:10px;border-radius:3px;background:var(--c,var(--csx-line-strong,#c9cedf))}
 .dci-page .dci-ps .csx-chip[data-s]::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--c)}
 .dci-page .dci-ps .csx-chip:disabled{opacity:.5;cursor:not-allowed}
