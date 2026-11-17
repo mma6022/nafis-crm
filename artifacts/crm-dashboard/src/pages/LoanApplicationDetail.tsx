@@ -733,7 +733,8 @@ export default function LoanApplicationDetail() {
                 docs={customerDocs} 
                 title="مدارک موردنیاز تسهیلات" 
                 type="customer" 
-                canUpload={Boolean(canUpdate && canSalespersonAct && app.stage === 'customer_documents_upload')} 
+                canUpload={Boolean(canUpdate && canSalespersonAct && app.stage === 'customer_documents_upload')
+                  || Boolean(canUpdate && customerDocs.some((doc: any) => !doc.fileAvailable && (doc.scope === 'customer' || doc.customer_profile_document_id || doc.status === 'approved' || doc.status === 'uploaded' || doc.storage_path)))} 
                 canReview={Boolean(canReview && canRegistrarAct && app.stage === 'customer_documents_review')} 
                 canAddRequirement={Boolean(canUpdate && canSalespersonAct && app.stage === 'customer_documents_upload')}
                 canSubmit={Boolean(canUpdate && canSalespersonAct && app.stage === 'customer_documents_upload')}
@@ -747,7 +748,10 @@ export default function LoanApplicationDetail() {
                 customerId={app.customerId}
                 documents={identityDocs}
                 canReview={Boolean(canReview && canRegistrarAct && app.stage === 'customer_documents_review')}
-                canUpload={Boolean(canUpdate && (user?.role === 'admin' || user?.permissions?.includes('customers.update')) && canSalespersonAct && app.stage === 'customer_documents_upload')}
+                canUpload={Boolean(canUpdate && (user?.role === 'admin' || user?.permissions?.includes('customers.update')) && (
+                  (canSalespersonAct && app.stage === 'customer_documents_upload')
+                  || identityDocs.some((doc: any) => doc.fileAvailable !== true)
+                ))}
               />
             </>
           )}
@@ -1171,12 +1175,13 @@ function IdentityDocumentsSection({ appId, customerId, documents, canReview, can
       <div style={{ display: 'grid', gap: 10 }}>
         {(Object.keys(IDENTITY_LABELS) as CustomerIdentityDocumentUploadDocumentType[]).map((type) => {
           const doc = documents.find((item) => (item.documentType || item.document_type) === type);
-          const approved = Boolean(doc?.approvedAt || doc?.approved_at);
           const hasFile = doc?.fileAvailable === true;
+          const approved = Boolean(doc?.approvedAt || doc?.approved_at) && hasFile;
+          const approvedMissing = Boolean(doc?.approvedAt || doc?.approved_at) && !hasFile;
           const rejectionReason = doc?.reviewReason || doc?.review_reason;
           return (
             <div key={type} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: 12, border: '1px solid #e2e8f0', borderRadius: 10 }}>
-              <div><strong style={{ display: 'block', fontSize: 13 }}>{IDENTITY_LABELS[type]}</strong><span style={{ fontSize: 11, color: approved ? '#047857' : '#b45309' }}>{approved ? 'تأیید سراسری شده' : rejectionReason ? 'دارای نقص؛ نیازمند بارگذاری مجدد' : hasFile ? 'نیازمند تأیید' : 'بارگذاری نشده'}</span>{rejectionReason && <div style={{ color: '#be123c', fontSize: 11 }}>{rejectionReason}</div>}{uploadError[type] && <div className="form-error" role="alert">{uploadError[type]}</div>}</div>
+              <div><strong style={{ display: 'block', fontSize: 13 }}>{IDENTITY_LABELS[type]}</strong><span style={{ fontSize: 11, color: approved ? '#047857' : '#b45309' }}>{approvedMissing ? 'تأیید شده بود؛ فایل در دسترس نیست و بارگذاری مجدد لازم است' : approved ? 'تأیید سراسری شده' : rejectionReason ? 'دارای نقص؛ نیازمند بارگذاری مجدد' : hasFile ? 'نیازمند تأیید' : 'بارگذاری نشده'}</span>{rejectionReason && <div style={{ color: '#be123c', fontSize: 11 }}>{rejectionReason}</div>}{uploadError[type] && <div className="form-error" role="alert">{uploadError[type]}</div>}</div>
               <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                 {hasFile && <button data-testid={`button-preview-identity-${doc.id}`} className="btn btn-ghost" onClick={() => setPreview({ title: IDENTITY_LABELS[type], mime: doc.mimeType || doc.mime_type || '', url: url(doc, true), downloadUrl: url(doc) })} style={{ height: 32, padding: '0 9px' }}><Search size={14} /> مشاهده</button>}
                 {hasFile && <a data-testid={`link-download-identity-${doc.id}`} className="btn btn-ghost" href={url(doc)} download style={{ textDecoration: 'none', height: 32, padding: '0 9px' }}><Download size={14} /> دانلود</a>}
@@ -1319,8 +1324,8 @@ function DocumentSection({ appId, docs, title, type, canUpload: canUploadIn, can
               <div style={{ width: 48, height: 48, borderRadius: 8, background: '#f1f5f9', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><FileText size={18} /></div>
               <div>
                 <strong style={{ display: 'block', fontSize: 13, color: '#334155' }}>{doc.label ? docName(doc.label) : doc.filename || 'سند بدون نام'}</strong>
-                {fileClosed && !hasFile(doc) ? <DocMissingChip testId={`chip-doc-missing-${doc.id}`} /> : <span style={{ fontSize: 11, color: doc.status === 'approved' ? '#0f766e' : (doc.status === 'rejected' || doc.status === 'incomplete') ? '#be123c' : '#94a3b8' }}>
-                  {!hasFile(doc) ? 'در انتظار بارگذاری' : doc.status === 'approved' ? 'تأیید شده' : doc.status === 'incomplete' ? 'نقص مدرک' : doc.status === 'rejected' ? 'رد شده' : 'در انتظار بررسی'}
+                {fileClosed && !hasFile(doc) ? <DocMissingChip testId={`chip-doc-missing-${doc.id}`} /> : <span style={{ fontSize: 11, color: doc.status === 'approved' && hasFile(doc) ? '#0f766e' : (doc.status === 'rejected' || doc.status === 'incomplete' || (doc.status === 'approved' && !hasFile(doc))) ? '#be123c' : '#94a3b8' }}>
+                  {!hasFile(doc) && doc.status === 'approved' ? 'تأیید شده بود؛ فایل در دسترس نیست و بارگذاری مجدد لازم است' : !hasFile(doc) ? 'در انتظار بارگذاری' : doc.status === 'approved' && (doc.reusedFromCustomer || doc.scope === 'customer') ? 'تأییدشده از پرونده مشتری' : doc.status === 'approved' ? 'تأیید شده' : doc.status === 'incomplete' ? 'نقص مدرک' : doc.status === 'rejected' ? 'رد شده' : 'در انتظار بررسی'}
                 </span>}
                 {hasFile(doc) && <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}><bdi dir="ltr">{fileName(doc)}</bdi></div>}
                 {doc.reviewReason && <div style={{ fontSize: 10, color: '#be123c', marginTop: 2 }}>{doc.reviewReason}</div>}

@@ -67,12 +67,12 @@ try {
     CREATE TABLE salespersons(id INTEGER PRIMARY KEY,name TEXT);
     CREATE TABLE customers(id INTEGER PRIMARY KEY,name TEXT,salesperson_id INTEGER,merged_into_customer_id INTEGER);
     CREATE TABLE customer_merge_audit(source_customer_id INTEGER,survivor_customer_id INTEGER);
-    CREATE TABLE loan_plans(id INTEGER PRIMARY KEY,name TEXT);
+    CREATE TABLE loan_plans(id INTEGER PRIMARY KEY,name TEXT,bank_name TEXT);
     CREATE TABLE loan_applications(id INTEGER PRIMARY KEY,consultation_id INTEGER,customer_id INTEGER,requested_by_user_id INTEGER,plan_ids TEXT,plan_id INTEGER,requested_amount TEXT,status TEXT,stage TEXT,is_pre_registration INTEGER DEFAULT 0,condition_snapshot_json TEXT,plan_snapshot_json TEXT,duration_months INTEGER,deleted_at TEXT,updated_at TEXT);
     CREATE TABLE customer_identity_documents(id INTEGER PRIMARY KEY,customer_id INTEGER,document_type TEXT,storage_path TEXT,original_name TEXT,mime_type TEXT,size_bytes INTEGER,sha256 TEXT,created_by_user_id INTEGER,created_at TEXT,version INTEGER,is_latest INTEGER,approved_at TEXT,approved_by_user_id INTEGER,review_reason TEXT);
     CREATE TABLE loan_application_documents(id INTEGER PRIMARY KEY,application_id INTEGER,requirement_key TEXT,label TEXT,source TEXT,status TEXT,incomplete_reason TEXT,storage_path TEXT,original_name TEXT,mime_type TEXT,size_bytes INTEGER,created_at TEXT,reviewed_at TEXT);
-    CREATE TABLE loan_application_generated_documents(id INTEGER PRIMARY KEY,application_id INTEGER,kind TEXT,contract_generation_id INTEGER,link TEXT,status TEXT,review_reason TEXT);
-    CREATE TABLE contract_generations(id INTEGER PRIMARY KEY,pdf_path TEXT,deleted_at TEXT);
+    CREATE TABLE loan_application_generated_documents(id INTEGER PRIMARY KEY,application_id INTEGER,kind TEXT,contract_generation_id INTEGER,link TEXT,status TEXT,review_reason TEXT,created_at TEXT,reviewed_at TEXT);
+    CREATE TABLE contract_generations(id INTEGER PRIMARY KEY,pdf_path TEXT,deleted_at TEXT,status TEXT,provider_status TEXT,superseded_at TEXT,customer_id INTEGER,loan_plan_id INTEGER,loan_application_id INTEGER,generation_purpose TEXT,provider_contract_id TEXT);
     CREATE TABLE loan_application_stage_history(id INTEGER PRIMARY KEY,application_id INTEGER,from_stage TEXT,to_stage TEXT,action TEXT,reason TEXT,actor_id INTEGER,created_at TEXT);
     CREATE TABLE loan_physical_checks(id INTEGER PRIMARY KEY,application_id INTEGER,status TEXT);
     CREATE TABLE loan_physical_documents(id INTEGER PRIMARY KEY,application_id INTEGER,original_name TEXT,mime_type TEXT,size_bytes INTEGER,created_at TEXT,storage_path TEXT);
@@ -107,8 +107,8 @@ try {
   const supportingFile = path.join(temp, "synthetic-loan-document.pdf");
   const fs = await import("node:fs/promises");
   await fs.writeFile(supportingFile, "fixture loan file");
-  db.prepare("INSERT INTO contract_generations(id,pdf_path) VALUES(1,?)").run(supportingFile);
-  db.prepare("INSERT INTO loan_application_generated_documents(application_id,kind,contract_generation_id,link,status) VALUES(?,'primary',1,'signed:fixture','approved')").run(applicationId);
+  db.prepare("INSERT INTO contract_generations(id,pdf_path,status,provider_status) VALUES(1,?,'signed','signed')").run(supportingFile);
+  db.prepare("INSERT INTO loan_application_generated_documents(application_id,kind,contract_generation_id,link,status,created_at) VALUES(?,'primary',1,'signed:fixture','approved',?)").run(applicationId, now);
   db.prepare("INSERT INTO loan_application_documents(application_id,requirement_key,label,source,status,storage_path,created_at) VALUES(?,'fixture','مدرک ساختگی','manual','approved',?,?)").run(applicationId, supportingFile, now);
   server = fixture.app.listen(0, "127.0.0.1");
   await new Promise(resolve => server.once("listening", resolve));

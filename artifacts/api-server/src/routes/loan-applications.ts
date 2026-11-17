@@ -14,6 +14,9 @@ import path from "node:path";
 import crypto from "node:crypto";
 import multer from "multer";
 import { crmDb, databasePath, execute, executeChanges, queryRow, queryRows, runImmediateTransaction, runTransaction } from "../lib/crm-db";
+import { documentStoreDir, isAllowedStoredFile, migrateStoredFileToDataDir, resolveCrmDataDir } from "../lib/crm-data-dir";
+import { rememberApprovedPlanDocument, seedPlanSlotFromVault, profileOrLoanFileAllowed } from "../lib/customer-profile-documents";
+import { isCustomerLevelDocumentKey, sf816CustomerDocReuse } from "../lib/sf816-documents";
 import { requirePermission } from "../lib/access-control";
 import type { AuthUser } from "../lib/auth";
 import { canCancelLoanCase, registerLoanCaseCancellation } from "../lib/loan-case-cancellation";
@@ -65,15 +68,11 @@ function isFromBaleApp(id: number): boolean {
 
 const now = () => new Date().toISOString();
 const user = (res: any) => res.locals.authUser as AuthUser;
-const uploadRoot = path.join(path.dirname(databasePath), "loan-application-files");
-const identityRoot = path.join(path.dirname(databasePath), "customer-identity-documents");
+const crmFilesDataDir = resolveCrmDataDir(databasePath);
+const uploadRoot = documentStoreDir(crmFilesDataDir, "loan");
+const identityRoot = documentStoreDir(crmFilesDataDir, "identity");
 const contractTemplateRoot = path.resolve(process.env.CONTRACTS_STORAGE_DIR || path.join(path.dirname(databasePath), "contracts"), "templates");
 const contractGenerationRoot = path.resolve(process.env.CONTRACTS_STORAGE_DIR || path.join(path.dirname(databasePath), "contracts"), "generations");
-fs.mkdirSync(uploadRoot, { recursive: true, mode: 0o700 });
-fs.mkdirSync(identityRoot, { recursive: true, mode: 0o700 });
-try { fs.chmodSync(uploadRoot, 0o700); } catch { /* explicit private mode */ }
-const uploadRootReal = fs.realpathSync(uploadRoot);
-const identityRootReal = fs.realpathSync(identityRoot);
 /** REVIEWWAIT web (Armita): the one loan-document size limit — multer checks it and GET /loan-applications/:id sends it as documentUploadMaxBytes, so the upload dialog never hard-codes 10 MB. */
 export const LOAN_DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
 const upload = multer({ limits: { fileSize: LOAN_DOCUMENT_MAX_BYTES }, storage: multer.memoryStorage() });
@@ -171,6 +170,17 @@ function error(res: any, status: number, rawCode: string, rawReason?: string, ra
 function fileExists(rawPath: unknown): boolean {
   if (typeof rawPath !== "string" || !rawPath.trim()) return false;
   try { return fs.statSync(fs.realpathSync(rawPath)).isFile(); } catch { return false; }
+}
+function refreshStoredPath(rawPath: unknown, kind: "identity" | "loan" | "profile", ownerId: number, table: string, id: number): string | null {
+  const migrated = migrateStoredFileToDataDir(rawPath, crmFilesDataDir, kind, ownerId);
+  if (migrated && migrated !== rawPath) executeChanges(`UPDATE ${table} SET storage_path=? WHERE id=?`, [migrated, id]);
+  return migrated || (typeof rawPath === "string" ? rawPath : null);
+}
+function identityFileOk(rawPath: unknown): boolean {
+  return isAllowedStoredFile(rawPath, crmFilesDataDir, "identity");
+}
+function loanFileOk(rawPath: unknown): boolean {
+  return profileOrLoanFileAllowed(rawPath, crmFilesDataDir);
 }
 function shape(r: any, actor: AuthUser): any {
   if (!r) return r;
@@ -297,8 +307,8 @@ const freshIdentityDocumentTypes = new Set([
   "national_card_front", "national_card_back", "birth_cert_p1", "birth_cert_p2", "birth_cert_p3",
 ]);
 export function hasFreshIdentityDocuments(customerId: number): boolean {
-  const rows = queryRows<{ document_type: string }>(
-    `SELECT DISTINCT d.document_type
+  const rows = queryRows<{ id: number; document_type: string; storage_path: string }>(
+    `SELECT d.id,d.document_type,d.storage_path
      FROM customer_identity_documents d
      JOIN customers c ON c.id=d.customer_id
      WHERE d.customer_id=? AND d.is_latest=1
@@ -306,8 +316,12 @@ export function hasFreshIdentityDocuments(customerId: number): boolean {
        AND (c.identity_changed_at IS NULL OR d.created_at>c.identity_changed_at)`,
     [customerId],
   );
-  return rows.length === freshIdentityDocumentTypes.size &&
-    [...freshIdentityDocumentTypes].every((type) => rows.some((row) => row.document_type === type));
+  const present = new Set<string>();
+  for (const row of rows) {
+    const pathNow = refreshStoredPath(row.storage_path, "identity", customerId, "customer_identity_documents", Number(row.id));
+    if (pathNow && identityFileOk(pathNow)) present.add(row.document_type);
+  }
+  return [...freshIdentityDocumentTypes].every((type) => present.has(type));
 }
 export function reusableFilingFeeCharge(customerId: number, planId: number) {
   return queryRow<any>(
@@ -472,7 +486,7 @@ function registrarReviewState(r: any): { allReviewed: boolean; allApproved: bool
   let statuses: string[] = [];
   if (r.stage === "customer_documents_review") {
     const documents = loanProcessingDocuments(r.id);
-    const identities = queryRows<any>("SELECT approved_at,review_reason,storage_path FROM customer_identity_documents WHERE customer_id=? AND is_latest=1 AND document_type IN ('national_card_front','national_card_back','birth_cert_p1','birth_cert_p2','birth_cert_p3')", [r.customer_id]);
+    const identities = queryRows<any>("SELECT id,approved_at,review_reason,storage_path FROM customer_identity_documents WHERE customer_id=? AND is_latest=1 AND document_type IN ('national_card_front','national_card_back','birth_cert_p1','birth_cert_p2','birth_cert_p3')", [r.customer_id]);
     const primary = applicationPrimaryDocument(r);
     const contract = primary ? {
       status: primary.document_status,
@@ -483,8 +497,14 @@ function registrarReviewState(r: any): { allReviewed: boolean; allApproved: bool
       superseded_at: primary.superseded_at,
     } : null;
     statuses = [
-      ...documents.map((d) => ["incomplete", "rejected"].includes(d.status) ? d.status : fileExists(d.storage_path) ? d.status : "pending"),
-      ...(identities.length === 5 ? identities.map((d) => d.review_reason ? "incomplete" : fileExists(d.storage_path) && d.approved_at ? "approved" : "pending") : ["pending"]),
+      ...documents.map((d) => {
+        const stored = refreshStoredPath(d.storage_path, "loan", Number(r.id), "loan_application_documents", Number(d.id)) || d.storage_path;
+        return ["incomplete", "rejected"].includes(d.status) ? d.status : loanFileOk(stored) ? d.status : "pending";
+      }),
+      ...(identities.length === 5 ? identities.map((d) => {
+        const stored = refreshStoredPath(d.storage_path, "identity", Number(r.customer_id), "customer_identity_documents", Number(d.id)) || d.storage_path;
+        return d.review_reason ? "incomplete" : identityFileOk(stored) && d.approved_at ? "approved" : "pending";
+      }) : ["pending"]),
       contract && ["incomplete", "rejected"].includes(contract.status) ? contract.status
         : contract?.link?.startsWith("signed:") && contract.generation_status === "signed" &&
           isStrictSignedProviderState(contract.provider_status) && !contract.superseded_at && fileExists(contract.pdf_path) ? contract.status : "pending",
@@ -574,7 +594,7 @@ router.get("/customers/:customerId/identity-documents/:documentId/download", req
   const d = c && queryRow<any>("SELECT * FROM customer_identity_documents WHERE id=? AND customer_id=?", [Number(req.params.documentId), c.id]);
   if (!d?.storage_path) return error(res, 404, "document_not_found");
   let p: string; try { p = fs.realpathSync(d.storage_path); } catch { return error(res, 404, "document_not_found"); }
-  if (!p.startsWith(identityRootReal + path.sep) || !fs.statSync(p).isFile()) return error(res, 404, "document_not_found");
+  if (!identityFileOk(p)) return error(res, 404, "document_not_found");
   if (req.query.preview === "1" && (rasterImageType(d.mime_type) || d.mime_type === "application/pdf")) { res.type(d.mime_type); res.setHeader("Content-Disposition", "inline"); return res.sendFile(p); }
   return res.download(p, d.original_name);
 });
@@ -583,7 +603,7 @@ router.get("/loan-applications/:id/identity-documents/:documentId/download", req
   const d = r && queryRow<any>("SELECT * FROM customer_identity_documents WHERE id=? AND customer_id=? AND is_latest=1", [Number(req.params.documentId), r.customer_id]);
   if (!d?.storage_path) return error(res, 404, "document_not_found");
   let p: string; try { p = fs.realpathSync(d.storage_path); } catch { return error(res, 404, "document_not_found"); }
-  if (!p.startsWith(identityRootReal + path.sep) || !fs.statSync(p).isFile()) return error(res, 404, "document_not_found");
+  if (!identityFileOk(p)) return error(res, 404, "document_not_found");
   if (req.query.preview === "1" && (rasterImageType(d.mime_type) || d.mime_type === "application/pdf")) { res.type(d.mime_type); res.setHeader("Content-Disposition", "inline"); return res.sendFile(p); }
   return res.download(p, normalizedUploadName(d.original_name));
 });
@@ -592,7 +612,8 @@ router.post("/loan-applications/:id/identity-documents/:documentId/review", requ
   if (!r || r.stage !== "customer_documents_review" || !canAct(r.stage, user(res), r.customer_id, r.status)) return error(res, 403, "action_forbidden");
   if (!["approved", "rejected"].includes(decision) || (decision === "rejected" && !reason)) return error(res, 400, "invalid_document_review");
   const d = queryRow<any>("SELECT id,storage_path FROM customer_identity_documents WHERE id=? AND customer_id=? AND is_latest=1", [Number(req.params.documentId), r.customer_id]);
-  if (!d || !fileExists(d.storage_path)) return error(res, 404, "document_not_found");
+  if (d) d.storage_path = refreshStoredPath(d.storage_path, "identity", Number(r.customer_id), "customer_identity_documents", Number(d.id)) || d.storage_path;
+  if (!d || !identityFileOk(d.storage_path)) return error(res, 404, "document_not_found");
   runTransaction(() => {
     executeChanges("UPDATE customer_identity_documents SET approved_at=?,approved_by_user_id=?,review_reason=? WHERE id=?", [decision === "approved" ? now() : null, decision === "approved" ? user(res).id : null, decision === "approved" ? null : reason, d.id]);
     recordReview(r.id, r.stage, `identity_document_${decision}:${d.id}`, reason || null, user(res).id);
@@ -1739,14 +1760,28 @@ router.get("/loan-applications/:id", requirePermission("loan_applications.view")
   // REL-83 (v1.0.1): the expert opening the file page clears its «پرونده برگشت خورد» badge (own rows only; flag.fc_categories).
   { const me = user(res) as any; if (me?.salespersonId && fcCatOn()) { try { fcMarkOpened(Number(me.salespersonId), Number(r.id)); } catch { /* badge only */ } } }
   r.documents = loanProcessingDocuments(r.id)
-    .map((document) => ({ ...document, original_name: normalizedUploadName(document.original_name), fileAvailable: fileExists(document.storage_path) }));
+    .map((document) => {
+      const stored = refreshStoredPath(document.storage_path, "loan", Number(r.id), "loan_application_documents", Number(document.id)) || document.storage_path;
+      if (stored && stored !== document.storage_path) document.storage_path = stored;
+      return {
+        ...document,
+        original_name: normalizedUploadName(document.original_name),
+        fileAvailable: loanFileOk(stored),
+        scope: isCustomerLevelDocumentKey(document.requirement_key) ? "customer" : "case",
+        reusedFromCustomer: Boolean(document.customer_profile_document_id) && document.status === "approved" && loanFileOk(stored),
+      };
+    });
   r.history = queryRows("SELECT * FROM loan_application_stage_history WHERE application_id=? ORDER BY id", [r.id]);
   r.physicalChecks = queryRows("SELECT * FROM loan_physical_checks WHERE application_id=? ORDER BY id", [r.id]);
   r.physicalDocuments = queryRows<any>("SELECT id,original_name AS originalName,mime_type AS mimeType,size_bytes AS sizeBytes,created_at AS createdAt,storage_path FROM loan_physical_documents WHERE application_id=? ORDER BY id", [r.id])
     .map((document) => ({ ...document, fileAvailable: fileExists(document.storage_path), storage_path: undefined }));
   r.funderDefects = queryRows("SELECT * FROM loan_funder_defects WHERE application_id=? ORDER BY id", [r.id]);
   r.identityDocuments = queryRows<any>("SELECT id,customer_id AS customerId,document_type AS documentType,storage_path,original_name AS originalName,mime_type AS mimeType,size_bytes AS sizeBytes,approved_at AS approvedAt,approved_by_user_id AS approvedByUserId,review_reason AS reviewReason,created_at AS createdAt FROM customer_identity_documents WHERE customer_id=? AND is_latest=1 ORDER BY document_type", [r.customer_id])
-    .map((document) => ({ ...document, fileAvailable: fileExists(document.storage_path), storage_path: undefined }));
+    .map((document) => {
+      const stored = refreshStoredPath(document.storage_path, "identity", Number(r.customer_id), "customer_identity_documents", Number(document.id)) || document.storage_path;
+      const available = identityFileOk(stored);
+      return { ...document, fileAvailable: available, storage_path: undefined, scope: "identity", fileMissing: Boolean(document.approvedAt || document.approved_at) && !available };
+    });
   r.guarantor = queryRow("SELECT * FROM loan_application_guarantors WHERE application_id=?", [r.id]);
   if (r.guarantor) {
     r.guarantor.fullName = r.guarantor.full_name;
@@ -1933,7 +1968,15 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
         : queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [customer.salesperson_id]);
       const appId = execute(`INSERT INTO loan_applications(consultation_id,customer_id,requested_by_user_id,plan_ids,plan_id,requested_amount,duration_months,requested_duration_months,stage,status,plan_snapshot_json,condition_snapshot_json,document_requirements_snapshot_json,primary_manual_values_json,is_pre_registration,salesperson_id_snapshot,salesperson_name_snapshot,new_case_workflow,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [consultationId, customerId, u.id, JSON.stringify([planId]), planId, amount, duration, duration, "draft", "requested", JSON.stringify(plan), JSON.stringify(ignoreCreditRank ? loanRankOverrideSnapshot(condition, u.id, ts, terms.maximum.toString(), overrideReason) : condition ?? null), JSON.stringify(requirements.map((key) => ({ key: String(key), label: documentLabel(String(key)) }))), JSON.stringify(manualInput.values), preRegistration, customer.salesperson_id ?? null, salespersonSnapshot?.name ?? null, 1, ts, ts]);
-     for (const item of requirements) execute("INSERT INTO loan_application_documents(application_id,requirement_key,label,source,created_at) VALUES(?,?,?,?,?)", [appId, String(item), documentLabel(String(item)), "plan", ts]);
+     for (const item of requirements) {
+       const key = String(item);
+       const label = documentLabel(key);
+       if (sf816CustomerDocReuse() && isCustomerLevelDocumentKey(key)
+         && seedPlanSlotFromVault({ applicationId: Number(appId), customerId, documentType: key, label, createdAt: ts, dataDir: crmFilesDataDir })) {
+         continue;
+       }
+       execute("INSERT INTO loan_application_documents(application_id,requirement_key,label,source,created_at) VALUES(?,?,?,?,?)", [appId, key, label, "plan", ts]);
+     }
       execute("INSERT INTO loan_application_stage_history(application_id,to_stage,action,actor_id,created_at) VALUES(?,?,?,?,?)", [appId, "draft", "created", u.id, ts]);
      if (charge) executeChanges("UPDATE loan_filing_fee_charges SET application_id=? WHERE id=? AND application_id IS NULL", [appId, charge.id]);
      if (multi) claimSlotForApplication(customerId, planId, charge ? Number(charge.id) : null, Number(appId));
@@ -2045,10 +2088,13 @@ router.delete("/loan-applications/:id/manual-requirements/:documentId", requireP
 });
 router.post("/loan-applications/:id/documents", requirePermission("loan_applications.update"), docUpload, (req, res) => {
   const r = scoped(Number(req.params.id), user(res)); if (!r) return error(res, 404, "loan_application_not_found");
-  if (!["customer_documents_upload", "funder_documents_correction"].includes(r.stage) || !canAct(r.stage, user(res), r.customer_id, r.status)) return error(res, 409, "document_upload_stage_required");
   if (!req.file) return error(res, 400, "file_required");
   const requirementKey = String(req.body?.requirementKey || "").trim();
   const existing = requirementKey && queryRow<any>("SELECT * FROM loan_application_documents WHERE application_id=? AND requirement_key=? AND source IN ('plan','manual') ORDER BY id LIMIT 1", [r.id, requirementKey]);
+  const missingDuringReview = r.stage === "customer_documents_review" && existing && !loanFileOk(existing.storage_path);
+  const canUploadNow = (["customer_documents_upload", "funder_documents_correction"].includes(r.stage) && canAct(r.stage, user(res), r.customer_id, r.status))
+    || (missingDuringReview && canAct("customer_documents_upload", user(res), r.customer_id, r.status));
+  if (!canUploadNow) return error(res, 409, "document_upload_stage_required");
   if (r.stage === "funder_documents_correction" && (!existing || !queryRow("SELECT 1 FROM loan_funder_defects WHERE application_id=? AND source='document' AND source_id=? AND resolved_at IS NULL", [r.id, existing.id]))) return error(res, 409, "document_not_marked_for_correction");
   const originalName = normalizedUploadName(req.file.originalname);
   const requestedLabel = String(req.body?.label || "").trim();
@@ -2104,7 +2150,7 @@ router.post("/loan-applications/:id/guarantor/documents", requirePermission("loa
 router.get("/loan-applications/:id/guarantor/documents/:documentId/download", requirePermission("loan_applications.view"), (req, res) => {
   const r = scoped(Number(req.params.id), user(res)); const d = r && queryRow<any>("SELECT d.* FROM loan_application_guarantor_documents d JOIN loan_application_guarantors g ON g.id=d.guarantor_id WHERE d.id=? AND g.application_id=?", [Number(req.params.documentId), r.id]);
   if (!d?.storage_path) return error(res, 404, "document_not_found"); let p: string; try { p = fs.realpathSync(d.storage_path); } catch { return error(res, 404, "document_not_found"); }
-  if (!p.startsWith(uploadRootReal + path.sep) || !fs.statSync(p).isFile()) return error(res, 404, "document_not_found");
+  if (!loanFileOk(p)) return error(res, 404, "document_not_found");
   if (req.query.preview === "1" && (rasterImageType(d.mime_type) || d.mime_type === "application/pdf")) {
     res.type(d.mime_type);
     res.setHeader("Content-Disposition", "inline");
@@ -2156,7 +2202,7 @@ router.get("/loan-applications/:id/collateral/:collateralId/download", requirePe
   const r = scoped(Number(req.params.id), user(res)); const d = r && queryRow<any>("SELECT * FROM loan_application_collateral WHERE id=? AND application_id=?", [Number(req.params.collateralId), r.id]);
   if (!d?.storage_path) return error(res, 404, "collateral_not_found");
   let p: string; try { p = fs.realpathSync(d.storage_path); } catch { return error(res, 404, "collateral_not_found"); }
-  if (!p.startsWith(uploadRootReal + path.sep) || !fs.statSync(p).isFile()) return error(res, 404, "collateral_not_found");
+  if (!loanFileOk(p)) return error(res, 404, "collateral_not_found");
   const metadata = parseJson(d.data_json) ?? {};
   if (req.query.preview === "1" && (rasterImageType(metadata.mimeType) || metadata.mimeType === "application/pdf")) {
     res.type(metadata.mimeType);
@@ -2185,7 +2231,7 @@ router.get("/loan-applications/:id/documents/:documentId/download", requirePermi
   const r = scoped(Number(req.params.id), user(res)); const d = r && queryRow<any>("SELECT * FROM loan_application_documents WHERE id=? AND application_id=?", [Number(req.params.documentId), r.id]);
   if (!d?.storage_path) return error(res, 404, "document_not_found");
   let real: string; try { real = fs.realpathSync(d.storage_path); } catch { return error(res, 404, "document_not_found"); }
-  if (!real.startsWith(uploadRootReal + path.sep) || !fs.statSync(real).isFile() || !["plan", "manual"].includes(d.source)) return error(res, 404, "document_not_found");
+  if (!loanFileOk(real) || !["plan", "manual"].includes(d.source)) return error(res, 404, "document_not_found");
   if (req.query.preview === "1" && (rasterImageType(d.mime_type) || d.mime_type === "application/pdf")) {
     res.type(d.mime_type);
     res.setHeader("Content-Disposition", "inline");
@@ -2212,11 +2258,21 @@ router.post("/loan-applications/:id/documents/:documentId/review", requirePermis
   if (!r || !["approved", "incomplete", "rejected"].includes(decision)) return error(res, 400, "invalid_document_review");
   if (r.stage !== "customer_documents_review" || !canAct("customer_documents_review", user(res), r.customer_id, r.status)) return error(res, 403, "action_forbidden");
   if (["incomplete", "rejected"].includes(decision) && !String(req.body?.reason || "").trim()) return error(res, 400, "review_reason_required");
-  const document = queryRow<any>("SELECT id,storage_path FROM loan_application_documents WHERE id=? AND application_id=? AND source IN ('plan','manual') AND storage_path IS NOT NULL", [Number(req.params.documentId), r.id]);
-  if (!document || !fileExists(document.storage_path)) return error(res, 404, "document_not_found");
+  const document = queryRow<any>("SELECT id,storage_path,requirement_key,original_name,mime_type,size_bytes,source FROM loan_application_documents WHERE id=? AND application_id=? AND source IN ('plan','manual') AND storage_path IS NOT NULL", [Number(req.params.documentId), r.id]);
+  if (document) document.storage_path = refreshStoredPath(document.storage_path, "loan", Number(r.id), "loan_application_documents", Number(document.id)) || document.storage_path;
+  if (!document || !loanFileOk(document.storage_path)) return error(res, 404, "document_not_found");
   const reviewedAt = now();
   runTransaction(() => {
     executeChanges("UPDATE loan_application_documents SET status=?,incomplete_reason=?,reviewed_at=? WHERE id=? AND application_id=?", [decision, decision === "approved" ? null : String(req.body.reason).trim(), reviewedAt, Number(req.params.documentId), r.id]);
+    if (decision === "approved" && isCustomerLevelDocumentKey(document.requirement_key)) {
+      const vaultId = rememberApprovedPlanDocument({
+        customerId: Number(r.customer_id), documentType: String(document.requirement_key),
+        storagePath: document.storage_path, originalName: document.original_name || "document",
+        mimeType: document.mime_type || "application/octet-stream", sizeBytes: Number(document.size_bytes || 0),
+        actorId: user(res).id, approvedAt: reviewedAt, dataDir: crmFilesDataDir,
+      });
+      if (vaultId) executeChanges("UPDATE loan_application_documents SET customer_profile_document_id=? WHERE id=?", [vaultId, document.id]);
+    }
     recordReview(r.id, r.stage, `customer_document_${decision}:${req.params.documentId}`, decision === "approved" ? null : String(req.body.reason).trim(), user(res).id);
   });
   res.json({ ok: true, status: decision, stage: r.stage });
@@ -2537,7 +2593,7 @@ router.get("/loan-applications/:id/physical-documents/:documentId/download", req
   if (!document) return error(res, 404, "physical_document_not_found");
   let real: string;
   try { real = fs.realpathSync(document.storage_path); } catch { return error(res, 404, "physical_document_not_found"); }
-  if (!real.startsWith(uploadRootReal + path.sep) || !fs.statSync(real).isFile())
+  if (!loanFileOk(real))
     return error(res, 404, "physical_document_not_found");
   if (req.query.preview === "1") {
     res.type(document.mime_type);

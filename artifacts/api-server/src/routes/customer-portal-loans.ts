@@ -18,6 +18,7 @@ import path from "node:path";
 import crypto, { randomBytes } from "node:crypto";
 import multer from "multer";
 import { databasePath, execute, executeChanges, queryRow, queryRows, runImmediateTransaction, runTransaction } from "../lib/crm-db";
+import { documentStoreDir, isAllowedStoredFile, resolveCrmDataDir } from "../lib/crm-data-dir";
 import { customerPortalSession, requireCustomerPortal } from "../lib/customer-portal-auth";
 import { ensureWalletSchema, getWalletSummaryReadOnly, wallet } from "../lib/wallets";
 import { normalizeMobile, validNationalCode, normalizeDigits } from "../lib/ics24";
@@ -47,14 +48,13 @@ ensureWalletSchema();
 
 const now = () => new Date().toISOString();
 const upload = multer({ limits: { fileSize: 10 * 1024 * 1024 }, storage: multer.memoryStorage() });
-const identityRoot = path.join(path.dirname(databasePath), "customer-identity-documents");
-const applicationRoot = path.join(path.dirname(databasePath), "loan-application-files");
-fs.mkdirSync(identityRoot, { recursive: true, mode: 0o700 });
-fs.mkdirSync(applicationRoot, { recursive: true, mode: 0o700 });
+const crmFilesDataDir = resolveCrmDataDir(databasePath);
+const identityRoot = documentStoreDir(crmFilesDataDir, "identity");
+const applicationRoot = documentStoreDir(crmFilesDataDir, "loan");
+const identityRootReal = (() => { try { return fs.realpathSync(identityRoot); } catch { return identityRoot; } })();
+const applicationRootReal = (() => { try { return fs.realpathSync(applicationRoot); } catch { return applicationRoot; } })();
 try { fs.chmodSync(identityRoot, 0o700); } catch { /* keep private mode where supported */ }
 try { fs.chmodSync(applicationRoot, 0o700); } catch { /* keep private mode where supported */ }
-const identityRootReal = fs.realpathSync(identityRoot);
-const applicationRootReal = fs.realpathSync(applicationRoot);
 
 const identityTypeAliases: Record<string, string> = {
   national_card_front: "national_card_front",
@@ -602,7 +602,7 @@ router.get("/identity-documents/:documentId/preview", (req, res) => {
   let real: string;
   try {
     real = fs.realpathSync(document.storage_path);
-    if (!real.startsWith(identityRootReal + path.sep) || !fs.statSync(real).isFile())
+    if ((!real.startsWith(identityRootReal + path.sep) && !isAllowedStoredFile(real, crmFilesDataDir, "identity")) || !fs.statSync(real).isFile())
       return jsonError(res, 404, "identity_document_not_found");
   } catch { return jsonError(res, 404, "identity_document_not_found"); }
   res.setHeader("Cache-Control", "private, no-store");

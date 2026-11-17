@@ -31,6 +31,8 @@ export type SqlValue = string | number | null;
 
 export const crmDb = new DatabaseSync(databasePath);
 crmDb.exec("PRAGMA busy_timeout=5000");
+crmDb.exec("PRAGMA journal_mode=WAL");
+crmDb.exec("PRAGMA synchronous=NORMAL");
 // Existing databases may already contain triggers using these functions before
 // the migration below updates customers. Register them before any SQL executes.
 registerCustomerIdentityFunctions(crmDb);
@@ -1561,10 +1563,15 @@ reconcileSalespersonUserIdentities(crmDb, (userId, reason) => {
   );
 });
 
+/** Test hook: increments on queryRows / execute / executeChanges. */
+export let __sqlQueryCount = 0;
+export function __resetSqlQueryCount(): void { __sqlQueryCount = 0; }
+
 export function queryRows<T>(
   sql: string,
   params: SqlValue[] = [],
 ): T[] {
+  __sqlQueryCount++;
   return crmDb.prepare(sql).all(...params) as unknown as T[];
 }
 
@@ -1579,6 +1586,7 @@ export function execute(
   sql: string,
   params: SqlValue[] = [],
 ): number {
+  __sqlQueryCount++;
   const result = crmDb.prepare(sql).run(...params);
   return Number(result.lastInsertRowid);
 }
@@ -1587,6 +1595,7 @@ export function executeChanges(
   sql: string,
   params: SqlValue[] = [],
 ): number {
+  __sqlQueryCount++;
   const result = crmDb.prepare(sql).run(...params);
   return Number(result.changes);
 }
@@ -1615,3 +1624,27 @@ export function runImmediateTransaction<T>(operation: () => T): T {
     throw error;
   }
 }
+
+ensureColumn("loan_application_documents", "customer_profile_document_id", "INTEGER");
+crmDb.exec(`
+  CREATE TABLE IF NOT EXISTS customer_profile_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    document_type TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    original_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    sha256 TEXT,
+    created_by_user_id INTEGER,
+    created_at TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    is_latest INTEGER NOT NULL DEFAULT 1,
+    approved_at TEXT,
+    approved_by_user_id INTEGER,
+    review_reason TEXT,
+    FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_customer_profile_documents_latest
+    ON customer_profile_documents(customer_id, document_type, is_latest);
+`);

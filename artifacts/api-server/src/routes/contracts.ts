@@ -34,6 +34,7 @@ import {
 } from "../lib/legacy-toman-replacement";
 import { applyGeneratedDocumentSignatureObservation } from "./loan-applications";
 import { crmDb, databasePath, execute, queryRow, queryRows, runImmediateTransaction } from "../lib/crm-db";
+import { providerContractTitle, providerErrorMessage, safeProviderPdfFilename } from "../lib/provider-document-title";
 
 const router = Router();
 const root = path.resolve(process.env.CONTRACTS_STORAGE_DIR || path.join(path.dirname(databasePath), "contracts"));
@@ -1260,24 +1261,6 @@ function normalizeIranMobile(value: unknown): string | null {
   else if (/^9\d{9}$/.test(normalized)) normalized = `0${normalized}`;
   return /^09\d{9}$/.test(normalized) ? normalized : null;
 }
-function safeProviderPdfFilename(title: string, fallback: string): string {
-  const basename = title
-    .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, "_")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/[. ]+$/g, "")
-    .slice(0, 180);
-  return `${basename || fallback}.pdf`;
-}
-function providerErrorMessage(body: unknown): string | undefined {
-  if (!body || typeof body !== "object") return undefined;
-  const record = body as Record<string, unknown>;
-  for (const key of ["persianMessage", "message", "detail"]) {
-    const value = record[key];
-    if (typeof value === "string" && value.trim() && value.length <= 500) return value.trim();
-  }
-  return undefined;
-}
 function providerResponsePaths(body: unknown): string[] {
   const paths = new Set<string>();
   const visit = (value: unknown, prefix: string, depth: number) => {
@@ -1515,7 +1498,7 @@ const sendGenerationHandler = async (req: Request, res: Response): Promise<void>
       const selectedPlan = queryRow<{ name: string }>("SELECT name FROM loan_plans WHERE id=?", [Number(row.loan_plan_id)]);
       const planName = String(selectedPlan?.name ?? "").trim();
       if (!planName) throw new Error("loan_plan_required");
-      providerTitle = `قرارداد طرح ${planName} - ${customerName}`;
+      providerTitle = providerContractTitle(planName, customerName);
     }
     const collaboratorNationalCode = normalizeIranNationalCode(c.national_code);
     const collaboratorPhone = normalizeIranMobile(c.phone);
