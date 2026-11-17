@@ -19,6 +19,8 @@ import { useSf480 } from "@/features/sales-fixes/api";
 import { FileBox, FileWizard } from "./file-wizard";
 import { CreditCard } from "@/features/credit-panel/CreditCard";
 import { useCpOn } from "@/features/credit-panel/api";
+import { usePaOn } from "@/features/plan-advisor/api";
+import { PlanAdvisorBox } from "@/features/plan-advisor/PlanAdvisorBox";
 import { DciIcon, DciSprites } from "./icons";
 import "./dci.css";
 import "./today-layout.css";
@@ -265,6 +267,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
   const tagCatalog = useListCustomerTags({ query: { queryKey: getListCustomerTagsQueryKey() } });
   const tags = (m.customer.tags || []).map((x) => <span key={x}>{dciTagLabel(x, tagCatalog.data)}</span>);
   const qc = useQueryClient();
+  const paOn = usePaOn(); // plan-advisor v1 (flag.plan_advisor_v1); OFF → no box
   const update = useUpdateCustomer();
   const cancelCase = useCancelLoanApplication();
   const [psError, setPsError] = useState("");
@@ -441,6 +444,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     {dq?.card ?? null}
     {tags.length ? <div className="dci-tags" data-testid="dci-tags">{tags}</div> : null}
     {cp ? <CreditCard key={`cp-${m.customer.id}`} customerId={m.customer.id} /> : <FileCard m={m} userId={userId} wizard={wizard} />}
+    {paOn ? <PlanAdvisorBox customerId={m.customer.id} /> : null}
     <CasesBlock rows={m.cases} href={m.newCaseHref} canEdit={canEditPs} locked={!!m.priorityStatusLocked} busy={cancelCase.isPending} onCancel={openCancel} />
     {pendingPriority !== undefined ? createPortal(<div className="dci-dlgw" data-testid="dci-xfer-wrap" data-nodnd="true">
       <div className="dci-dlg" role="alertdialog" aria-modal="true" aria-labelledby="dci-xfer-t" data-testid="dci-xfer-dialog">

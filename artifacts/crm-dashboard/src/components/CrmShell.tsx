@@ -3,7 +3,7 @@ import { VcHeaderBadge } from '@/features/voip-call/VoipCall';
 import { VoipAnywhereFirstFormHost } from '@/features/voip-call/VoipAnywhere';
 import { useRmConfig } from '@/features/reminder-must/api';
 import { CustomerName } from '@/components/customer/CustomerName';
-import { Moon, Lock, AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, Link2, LifeBuoy, LogOut, Menu, MessageCircle, MoreHorizontal, Sparkles, MessagesSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, ListChecks, type LucideIcon } from 'lucide-react';
+import { Moon, Lock, AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, Link2, LifeBuoy, LogOut, Menu, MessageCircle, MoreHorizontal, Sparkles, MessagesSquare, MessageSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, ListChecks, type LucideIcon } from 'lucide-react';
 import { UserAvatar, AvatarPicker } from '@/components/UserAvatar';
 import { useHealthCheck, getHealthCheckQueryKey, useGetAuthSession, useLogout, useUpdateAuthProfile, useListReminders, useAcknowledgeReminder, getListRemindersQueryKey, getGetAuthSessionQueryKey, type CrmUser, type Reminder } from '@workspace/api-client-react';
 import { Link, useLocation } from 'wouter';
@@ -14,6 +14,9 @@ import { fetchStaffUnread, staffChatPresence } from '@/chat/StaffChatPage';
 import { useTeamInbox } from '@/internal-chat/hooks';
 import { FloatingChat } from '@/chat/FloatingChat';
 import { AssistantDock } from '@/features/assistant/AssistantDock';
+import { usePaOn } from '@/features/plan-advisor/api';
+import { PlanAdvisorHost } from '@/features/plan-advisor/PlanAdvisorHost';
+import { usePlanAdvisorOptional } from '@/features/plan-advisor/PlanAdvisorContext';
 import { useFloatingGuard } from './useFloatingGuard';
 import { usePageUsage } from '@/lib/page-usage';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
@@ -541,6 +544,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
     return (
     <DiagnosticsProvider actorId={user?.id ?? 'anon'} isAdmin={user?.role === 'admin'}>
     <NotificationProvider user={user}>
+    <PlanAdvisorHost>
     <div className={`app-shell ssv2${bnv2 ? ' bnv2' : ''}`} data-testid="ss-shell" data-bnv2={bnv2 ? 'on' : 'off'}>
       <SsMain setMainEl={setMainEl} mainEl={mainEl} stickyTop={stickyTop}>
         <header className="topbar ss-top" ref={setTopEl}>
@@ -610,6 +614,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
         </Modal>
       ) : null}
     </div>
+    </PlanAdvisorHost>
     </NotificationProvider>
     </DiagnosticsProvider>
     );
@@ -792,6 +797,12 @@ function SsNavHost(p: SsHostProps) {
   const toItems = (hrefs: string[]) => hrefs.map(itemOf).filter((x): x is SsItem => x !== null);
   const astItem: SsItem | null = p.ast && !(p.bnv2 && slots.kind === 'admin') ? { key: 'ast', label: 'دستیار', full: `چت دستیار (${p.ast.name})`, icon: <>{p.ast.name.slice(0, 1)}</>, avatar: true, testId: 'ast', onSelect: p.ast.open, moon: p.ast.dnd,
     badge: p.ast.unread ? { n: p.ast.unread, tone: 'n', what: 'پیام تازه از دستیار' } : null } : null;
+  // plan-advisor v1: dock «دستیار» opens the advisor sheet (no FAB). If AI chat is also present, keep it as «چت دستیار» in بیشتر.
+  const paCtl = usePlanAdvisorOptional();
+  const paOn = usePaOn();
+  const paItem: SsItem | null = paOn && paCtl ? { key: 'pa', label: 'دستیار', full: 'دستیار مشاوره', icon: ic(MessageSquare), testId: 'pa-dock', onSelect: () => paCtl.openSheet() } : null;
+  const astOnDock: SsItem | null = paItem ? null : astItem;
+  const astInMore: SsItem | null = paItem && astItem ? { ...astItem, label: 'چت دستیار' } : null;
   const todayHref = slots.before[0] === '/' || slots.before[0] === '/today' ? slots.before[0] : (itemOf('/today') ? '/today' : itemOf('/') ? '/' : null);
   const lists: SsItem[] = [
     ...toItems(slots.listsFirst),
@@ -804,12 +815,13 @@ function SsNavHost(p: SsHostProps) {
     ...(p.canRem && p.mobile ? [{ key: 'remind', label: 'ثبت یادآور', full: 'ثبت یادآور', icon: ic(Bell), testId: 'remind', onSelect: p.onRemind }] : []),
     { key: 'profile', label: 'ویرایش کاربر', full: 'ویرایش کاربر', icon: ic(Pencil), testId: 'profile', onSelect: p.onProfile },
   ];
+  const moreRest = astInMore ? [...rest, astInMore] : rest;
   const groups: SsGroup[] = p.bnv2
-    ? [ ...(rest.length ? [{ title: 'فهرست‌ها', items: rest }] : []), { title: 'حساب من', items: account } ]
-    : [{ title: 'پرونده و پرداخت', items: rest }, { title: 'حساب من', items: account }];
+    ? [ ...(moreRest.length ? [{ title: 'فهرست‌ها', items: moreRest }] : []), { title: 'حساب من', items: account } ]
+    : [{ title: 'پرونده و پرداخت', items: moreRest }, { title: 'حساب من', items: account }];
   const primary = slots.primary ? () => { ssRequestIncoming(); if (p.location !== '/today') setLocation('/today'); } : null;
-  const withAst = (hrefs: string[], includeAst: boolean) => [...toItems(hrefs), ...(includeAst && astItem ? [astItem] : [])];
-  const showAst = Boolean(astItem) && slots.kind !== 'admin';
+  const withAst = (hrefs: string[], includeAst: boolean) => [...toItems(hrefs), ...(paItem ? [paItem] : []), ...(includeAst && astOnDock ? [astOnDock] : [])];
+  const showAst = Boolean(astOnDock) && slots.kind !== 'admin';
   return <SalesShellNav
     before={toItems(slots.before)} after={withAst(slots.after, showAst)} midSep={slots.midSep}
     tabs={toItems(slots.tabs)} daily={withAst(slots.daily, showAst)} groups={groups}
