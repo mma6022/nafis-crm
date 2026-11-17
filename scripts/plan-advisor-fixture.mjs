@@ -52,7 +52,17 @@ try {
   const hasaniSp = queryRow("SELECT salesperson_id sp FROM users WHERE id=?", [HASANI])?.sp;
   assert.ok(kazemiSp, "kazemi salesperson");
   const own = queryRow("SELECT id FROM customers WHERE salesperson_id=? AND merged_into_customer_id IS NULL ORDER BY id DESC LIMIT 1", [kazemiSp]);
-  const other = queryRow("SELECT id FROM customers WHERE salesperson_id!=? AND merged_into_customer_id IS NULL ORDER BY id DESC LIMIT 1", [kazemiSp]);
+  // Not merely "not currently owned": a transferred customer can still sit on the expert's today plan,
+  // which elCustomerAccess treats as "plan". Pick someone off that list so the 403 is meaningful.
+  const tehranDay = new Date().toLocaleString("en-CA", { timeZone: "Asia/Tehran" }).slice(0, 10);
+  const other = queryRow(
+    `SELECT c.id FROM customers c
+      WHERE c.salesperson_id!=? AND c.merged_into_customer_id IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM dp_items i JOIN dp_plans p ON p.id=i.plan_id
+          WHERE p.salesperson_id=? AND p.day=? AND i.customer_id=c.id
+        )
+      ORDER BY c.id DESC LIMIT 1`, [kazemiSp, kazemiSp, tehranDay]);
   assert.ok(own && other && own.id !== other.id, "need own + other customers");
 
   const app = express(); app.use(cookieParser()); app.use(express.json({ limit: "2mb" }));
