@@ -100,6 +100,18 @@ await ok("css: 390 P1 focus ring is padded inside the chips row", () => {
   assert.match(mob[1], /padding:6px/);
   assert.match(mob[1], /overflow-x:auto/);
 });
+await ok("css: at 390 the «اولویت» row is a 2×2 grid with 44px targets; 1280 stays one row", () => {
+  const pri = css.match(/@media\(max-width:767\.98px\)\{[\s\S]*?\.dci-page \.dci-ps-priority \.csx-chips\{([\s\S]*?)\}\n/);
+  assert.ok(pri, "mobile priority chips grid rule");
+  assert.match(pri[1], /display:grid/);
+  assert.match(pri[1], /grid-template-columns:1fr 1fr/);
+  assert.match(pri[1], /overflow:visible/);
+  assert.match(css, /\.dci-page \.dci-ps-priority \.csx-chip,[\s\S]*?min-height:44px;height:44px/);
+  const desk = css.match(/@media\(min-width:768px\)\{[\s\S]*?\.dci-page \.dci-ps \.csx-chips\{([\s\S]*?)\}\n/);
+  assert.ok(desk, "desktop chips stay a single row");
+  assert.match(desk[1], /flex-wrap:nowrap/);
+  assert.doesNotMatch(desk[1], /display:grid/);
+});
 
 const ui = process.env.PERM_CHIP_UI;
 const tokenPath = process.env.PERM_CHIP_TOKEN || "/workspace/perm-status/db/r4b-session.token";

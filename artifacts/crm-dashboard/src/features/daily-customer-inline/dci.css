@@ -379,6 +379,21 @@ body:has([data-testid="dci-page"]) .ts-wz{
   .dci-page .dci-ps .csx-chip:last-child{border-start-end-radius:12px;border-end-end-radius:12px;border-start-start-radius:0;border-end-start-radius:0}
   .dci-page .dci-ps .csx-chip + .csx-chip{border-inline-start-width:0}
   .dci-page .dci-ps .csx-chip[aria-checked="true"]{position:relative;z-index:1}
+  /* Armita post-550000 (shot 04 at 390): all four «اولویت» options must fit in the width.
+     2×2 grid, 44px-high targets. 1280 (min-width:768px) stays one row, unchanged. */
+  .dci-page .dci-ps-priority .csx-chips{
+    display:grid;grid-template-columns:1fr 1fr;gap:8px;overflow:visible;
+    width:100%;max-width:100%;min-width:0;padding:6px;box-sizing:border-box;
+    -webkit-mask-image:none;mask-image:none;
+  }
+  .dci-page .dci-ps-priority .csx-chip,
+  .dci-page .dci-ps-priority .csx-chip:first-child,
+  .dci-page .dci-ps-priority .csx-chip:last-child{
+    min-height:44px;height:44px;flex:none;width:auto;min-width:0;
+    padding:0 10px;font-size:14px;border-radius:12px;margin:0;
+    box-sizing:border-box;justify-content:center;
+  }
+  .dci-page .dci-ps-priority .csx-chip + .csx-chip{border-inline-start-width:1.5px}
 }
 /* Cancel / transfer dialogs — same idea as crm-files-cards v1.3 (red bar, alertdialog). */
 .dci-dlgw{position:fixed;inset:0;z-index:800;background:rgba(16,24,40,.45);display:flex;align-items:center;justify-content:center;padding:16px}
