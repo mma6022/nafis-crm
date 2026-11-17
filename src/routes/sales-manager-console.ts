@@ -11,7 +11,9 @@ import {
   DEFAULT_WEIGHTS, distLog, draftSummary, dropDraft, ensureSmcSchema, expertName, fa, GUARANTOR_STAGES, getDrafts, isSection, isYmd, jFull, liveTeams, loadDoc,
   metaOf, modelFor, overlayExpertQueue, planChips, planStages, previewModel, putDraft, revert, routeLead, rulesNaming, SECTIONS, smcCanManage,
   smcFlagOn, SMC_NEVER_USER, staleRules, SYSTEM_STAGES, teamName, userPicker, validFa, LEVEL_FA, ymdTehran, type Lead, type Model, type Section,
+  samMerged, samAccessRoles,
 } from "../lib/sales-manager-console";
+import { samImport, samRevertTeam, samView, samWriteTeam } from "../lib/sales-admin-merge";
 
 const me = (res: Response) => res.locals.authUser as AuthUser | undefined;
 const router: IRouter = Router();
@@ -60,7 +62,27 @@ function sectionSummaries(userId: number) {
 
 router.get("/sales-admin/me", (_req, res) => {
   const u = me(res)!;
-  res.json({ enabled: true, canManage: true, roleLabel: u.role === "admin" && !u.salesManager && u.baseRole !== "sales_manager" ? "ادمین" : "مدیر فروش" });
+  const roleLabel = u.role === "admin" && !u.salesManager && u.baseRole !== "sales_manager" ? "ادمین" : "مدیر فروش";
+  // v1.2 fields only while flag.sales_admin_merge_v12 is ON, so the v1.1 response stays byte-identical when it is OFF.
+  if (!samMerged()) return void res.json({ enabled: true, canManage: true, roleLabel });
+  res.json({ enabled: true, canManage: true, roleLabel, merged: true, path: "/sales-admin", accessRoles: samAccessRoles() });
+});
+
+/* ---------------- v1.2 merge (flag.sales_admin_merge_v12; OFF → 404 like an unknown path) ---------------- */
+const mergeOff = (res: Response) => { if (samMerged()) return false; res.status(404).json({ error: "not_found" }); return true; };
+router.get("/sales-admin/merge/state", (_req, res) => {
+  if (mergeOff(res)) return;
+  const imp = samImport(me(res)!.id); // idempotent: first open after the flag is turned on carries the values over; later opens write nothing unless live changed
+  if (!imp.ok) return void res.status(imp.status).json(imp);
+  res.json(samView());
+});
+router.put("/sales-admin/merge/teams/:id", (req, res) => {
+  if (mergeOff(res)) return;
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return void res.status(400).json({ error: "bad_id" });
+  const r = samWriteTeam(me(res)!, id, { name: req.body?.name, enabled: req.body?.enabled });
+  if (!r.ok) return void res.status(r.status).json(r);
+  res.json(r);
 });
 
 router.get("/sales-admin/overview", (_req, res) => {
@@ -190,6 +212,11 @@ router.get("/sales-admin/audit", (req, res) => {
 router.post("/sales-admin/audit/:id/revert", (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return void res.status(400).json({ error: "bad_id" });
+  if (samMerged() && queryRow<{ section: string }>("SELECT section FROM smc_audit WHERE id=?", [id])?.section === "teams_live") {
+    const t = samRevertTeam(me(res)!, id);
+    if (!t.ok) return void res.status(t.status).json(t);
+    return void res.json({ ok: true, applied: [{ section: "teams_live", auditId: t.auditId }] });
+  }
   const r = revert(me(res)!, id);
   if (!r.ok) return void res.status(r.status).json(r);
   res.json(r);
