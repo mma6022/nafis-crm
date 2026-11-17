@@ -60,11 +60,19 @@ const directPaths: Record<SapiCheck, string> = {
   postalCodeInfo: "api/sw1/PostalCodeInfo",
   sana: "api/sw1/Sana",
 };
+/** credit-panel v1 (flag.credit_panel_v1): the debt bundle. Same client, same config, same proxy/relay/direct paths. */
+export type SapiDebtCheck = "unpaidChequePro" | "chequeColor" | "activeLoans";
+const debtPaths: Record<SapiDebtCheck, string> = {
+  unpaidChequePro: "api/sw1/UnpaidChequePro",
+  chequeColor: "api/sw1/ChequeColor",
+  activeLoans: "api/sw1/ActiveLoans",
+};
+const pathFor = (pathname: string): string | undefined => directPaths[pathname as SapiCheck] ?? debtPaths[pathname as SapiDebtCheck];
 
 async function call(pathname: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
   if (identityEgress() === "proxy") {
     // identity_egress='proxy' (t687s2662): direct s.api.ir through the Iran proxy, relay not used.
-    const direct = directPaths[pathname as SapiCheck];
+    const direct = pathFor(pathname);
     if (!direct) throw new Error("SAPI request failed (unknown_check)");
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12_000);
@@ -99,7 +107,7 @@ async function call(pathname: string, payload: Record<string, unknown>): Promise
   const token = process.env.SAPI_API_TOKEN;
   if (!base || !token) throw new Error("SAPI provider is not configured");
     headers.authorization = `Bearer ${token}`;
-    url = `${base.replace(/\/$/, "")}/${directPaths[pathname as SapiCheck] ?? pathname.replace(/^\//, "")}`;
+    url = `${base.replace(/\/$/, "")}/${pathFor(pathname) ?? pathname.replace(/^\//, "")}`;
   }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12_000);
@@ -208,4 +216,20 @@ export async function verifyCustomer(
     error: failed.length ? `SAPI checks failed: ${failed.join(", ")}` : undefined,
     providerNoCredit: results.some((item) => (item as { noCredit?: boolean }).noCredit === true),
   };
+}
+/**
+ * credit-panel v1: one debt endpoint. Returns the provider's `data` object (raw: rial amounts, compact Jalali dates).
+ * Throws on transport/HTTP failure or a non-success envelope; the caller stores only successful parts.
+ */
+export async function sapiDebt(check: SapiDebtCheck, nationalCode: string, isCompany = false): Promise<Record<string, unknown>> {
+  const payload: Record<string, unknown> = check === "chequeColor" ? { nationalCode, isCompany } : { nationalCode };
+  const body = await call(check, payload);
+  const nested = asRecord(body.data ?? body.result);
+  const envelope = ["success", "isSuccess", "valid", "status", "result", "code"].some((key) => Object.hasOwn(nested, key)) ? nested : body;
+  if (!success(envelope)) {
+    const noCredit = logProviderFailure("identity", check, 200, body);
+    throw new Error(noCredit ? "sapi_provider_no_credit" : "sapi_debt_failed");
+  }
+  const data = asRecord(envelope.data ?? body.data);
+  return data;
 }
