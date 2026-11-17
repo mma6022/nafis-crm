@@ -61,7 +61,7 @@ import { useTabState } from '@/lib/tab-coordinator';
 
 const nafissLogoUrl = `${import.meta.env.BASE_URL}nafiss-financial-logo.png`;
 
-type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin' | 'discipline'; dp?: 'today' | 'admin'; leadAnnotator?: boolean; ct?: boolean; lp?: boolean; mt?: boolean; smc?: boolean; spPerf?: boolean; bb?: 'inbox' | 'admin' };
+type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin' | 'discipline'; dp?: 'today' | 'admin'; leadAnnotator?: boolean; ct?: boolean; lp?: boolean; mt?: boolean; smc?: boolean; sam?: boolean; spPerf?: boolean; bb?: 'inbox' | 'admin' };
 
 // Routes and permission rules are unchanged; only grouping, order, labels of groups and icons are new.
 const allNavItems: NavItem[] = [
@@ -108,6 +108,7 @@ const allNavItems: NavItem[] = [
   { href: '/settings/links', label: 'صفحه‌ی لینک‌ها', icon: Link2, lp: true }, // links v1.0: only while flag.links_page is ON, admin + sales_manager (server decides)
   { href: '/sales-teams', label: 'تیم‌های فروش', icon: UsersRound, mt: true },
   { href: '/sales-team-admin', label: 'مدیریت تیم', icon: UsersRound, smc: true }, // «مدیریت تیم فروش» v1.1 (flag.sales_manager_console_v1)
+  { href: '/sales-admin', label: 'مدیریت فروش', icon: UsersRound, sam: true }, // «مدیریت فروش» v1.2 (flag.sales_admin_merge_v12): replaces the item above and the five merged pages
   { href: '/call-center', label: 'گزارش مرکز تماس', icon: Headset, ct: true },
   { href: '/lead-annotator', label: 'یادداشت سرنخ (اینستاگرام)', icon: Instagram, leadAnnotator: true },
   { href: '/users', label: 'کاربران CRM', icon: UserCog, permission: 'users.view' },
@@ -130,7 +131,7 @@ const navGroups: NavGroup[] = [
   { id: 'finance', label: 'مالی و پرداخت', icon: Banknote, hrefs: ['/payment-orders', '/wallet-management', '/bank-accounts', '/accounting'] },
   { id: 'comms', label: 'پیام‌ها و تلفن', icon: Headset, hrefs: ['/chat', '/internal-chat', '/messengers', '/settings/bale', '/bale/autoreply', '/instagram-inbox', '/mobile-calls', '/phone', '/call-center'] },
   { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/sales-performance', '/social-monitor-reports', '/voice-notes-usage', '/call-queue-events', '/call-queue-discipline', '/daily-plans'] },
-  { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/sales-teams', '/sales-team-admin', '/settings/notifications', '/settings/assistants', '/settings/default-owner', '/settings/links', '/call-queue-events', '/settings/call-queue', '/settings/releases'] },
+  { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/sales-teams', '/sales-team-admin', '/sales-admin', '/settings/notifications', '/settings/assistants', '/settings/default-owner', '/settings/links', '/call-queue-events', '/settings/call-queue', '/settings/releases'] },
 ];
 
 const OPEN_GROUPS_KEY = 'nafis.nav.openGroups';
@@ -271,7 +272,11 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const ctCfg = useCtConfig(Boolean(user) && isAdminUser).data;
   const bbMe = useBaleBotMe().data; // bale v1.1
   const lpMe = useLinkPageMe(Boolean(user) && isAdminUser).data; // links v1.0
-  const smcMe = useSmcMe(Boolean(user && user.role === 'admin' && !user.salesManager) && !elLocked).data; // t815s2681: plain admins only; 404/403 → no item
+  // v1.1 (t815s2681): the server answers 200 only for plain admins; sales managers get 403 → no item. v1.2 merge ON: admins + sales managers (t356s1307).
+  const smcMe = useSmcMe(Boolean(user && user.role === 'admin') && !elLocked).data;
+  const samOn = Boolean(smcMe?.merged && smcMe.canManage);
+  /** v1.2: pages folded into «مدیریت فروش» leave the menu (merge-v1.2.md §5). «گزارش مدیر · صف تماس» and the daily-list report stay (t355s1298 §6-23). */
+  const SAM_FOLDED = ['/sales-teams', '/settings/default-owner', '/settings/call-queue', '/call-queue-discipline', '/daily-plans'];
   const mtMe = useSalesTeamsMe(Boolean(user) && !elLocked).data; // multi-team v1 — skip for locked experts (not an allowed shell endpoint)
   const spMe = useSalesPerformanceMe(Boolean(user)).data; // sales-performance v1
   const basePageTitle = isAdminUser && (location === '/my-wallet' || location.startsWith('/my-wallet/')) ? 'کیف پول کارشناس‌ها' : location === '/settings/links' && !lpMe?.enabled ? 'تنظیمات' /* links v1.0 off: same title as before */ : location === '/sales-teams' && mtMe?.readonly ? 'تیم من' : titleFor(location);
@@ -299,6 +304,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const navItems = allNavItems.filter(item => {
     // Locked dock / «بیشتر»: hide any tab that is not in EL_ALLOWED_PAGES (no exception for /customers or /reminders, no «نمای کلی»).
     if (elLocked && elMe?.locked && !navHrefAllowedWhenLocked(item.href, elMe.allowedPages)) return false; // lockdown only removes items; the normal checks below still apply
+    if (samOn && SAM_FOLDED.includes(item.href)) return false;
     // crm-call-queue: hidden while its flags are OFF (and for user 29 / trainees, enforced by the server config).
     if (item.dp === 'today') return dpOnForMe;
     if (item.dp === 'admin') return dpManager(dpCfg);
@@ -309,7 +315,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
     if (item.bb === 'admin') return Boolean(bbMe?.enabled && bbMe.canManage);
     if (item.lp) return Boolean(lpMe?.enabled && lpMe.canManage);
     if (item.mt) return Boolean(mtMe?.enabled && (mtMe.canManage || mtMe.canView));
-    if (item.smc) return Boolean(smcMe?.enabled && smcMe.canManage);
+    if (item.smc) return Boolean(smcMe?.enabled && smcMe.canManage && !smcMe.merged);
+    if (item.sam) return samOn;
     if (item.spPerf) return Boolean(spMe?.canView);
     if (item.ct) return Boolean(ctCfg?.enabled && (ctCfg.manager || ctCfg.viewer)); // t742s2933: plain admin keeps the report (read-only)
     if (item.cq === 'discipline') return Boolean(cqCfg?.manager && cqCfg.flags.discipline);

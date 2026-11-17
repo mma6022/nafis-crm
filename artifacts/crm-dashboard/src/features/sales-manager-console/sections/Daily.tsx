@@ -10,8 +10,10 @@ const SRC: Record<QRow["source"], ReactElement> = {
 };
 export function DailySection({ st, doc, docs, set }: SectionProps<'daily'>) {
   const experts = docs.teams.experts.filter((e) => e.teamId && e.status !== 'inactive');
-  const [who, setWho] = useState(experts[0]?.id ?? '');
-  const [date, setDate] = useState(addDays(st.today, 1));
+  // v1.2: /daily-plans/expert/:sp/:date and /daily-plans/capacity/:sp land here as ?expert=&date= / ?capacity= (merge-v1.2.md §4)
+  const [who, setWho] = useState(() => { const q = new URLSearchParams(location.search); const sp = Number(q.get('expert') ?? q.get('capacity'));
+    return (sp ? experts.find((e) => e.salespersonId === sp)?.id : undefined) ?? experts[0]?.id ?? ''; });
+  const [date, setDate] = useState(() => { const d = new URLSearchParams(location.search).get('date'); return d && /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= st.today ? d : addDays(st.today, 1); });
   const [menu, setMenu] = useState<string | null>(null);
   const [adding, setAdding] = useState<number | null>(null);
   const [editBlocks, setEditBlocks] = useState(false);

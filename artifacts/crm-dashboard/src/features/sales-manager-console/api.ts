@@ -54,11 +54,35 @@ export async function smcApi<T>(path: string, init?: { method?: string; body?: u
   return (await r.json()) as T;
 }
 
-/** Nav gate: 404 (flag OFF) and 403 (not a manager) both mean «no item». Never retried. */
+/** Nav gate: 404 (flag OFF) and 403 (not a manager) both mean «no item». Never retried. `merged` only while flag.sales_admin_merge_v12 is ON. */
+export type SmcMe = { enabled: boolean; canManage: boolean; roleLabel: string; merged?: boolean; path?: string; accessRoles?: string[] };
 export function useSmcMe(enabled: boolean) {
-  return useQuery({ queryKey: ['smc-me'], enabled, retry: false, staleTime: 60_000, queryFn: () => smcApi<{ enabled: boolean; canManage: boolean; roleLabel: string }>('/me') });
+  return useQuery({ queryKey: ['smc-me'], enabled, retry: false, staleTime: 60_000, queryFn: () => smcApi<SmcMe>('/me') });
+}
+
+/* ---------------- v1.2 «مدیریت فروش» merge (flag.sales_admin_merge_v12) ---------------- */
+export type LiveMember = { salespersonId: number; name: string; isLead: boolean; ownsNone: boolean; ownsP1: boolean; ownsP2: boolean; ownsP3: boolean; sortOrder: number };
+export type LiveTeam = { id: number; name: string; enabled: boolean; leadSplitQuota: number; members: LiveMember[] };
+export type MergeState = {
+  importedAt: string | null; importedAtFa: string | null; parity: { imported: boolean; ok: boolean; diffs: string[]; importedAt: string | null };
+  values: {
+    teams: LiveTeam[]; intake: { source: 'new_customers' | 'site_leads'; teamId: number; percent: number }[]; intakeSplit: { source: string; teamIds: number[] }[];
+    defaultOwner: { enabled: boolean; ownerSalespersonId: number | null; registrarMode: 'all' | 'selected'; registrarUserIds: number[]; registrarNames: string[]; sourceMode: 'all' | 'selected'; sources: string[] };
+    defaultSourceBySeller: Record<string, string>;
+    queue: { order: string[]; newRedHours: number; p1StaleDays: number; naTemplate: string };
+    daily: { guardPct: number; waitMin: number; firstDayCapacity: number | null };
+    discipline: { onTimeMin: number; onTimeCapMin: number; newPct: number; newMaxOverdue: number; restrictOverdue: number; alertDays: number; wReport: number; wOverdue: number; wNocall: number; dropPct: number; transferMode: 'warn' | 'block'; excludedReceivers: number[] };
+    assist: { settings: { levels: Record<string, number>; snoozeHours?: number }; p1: { quota: number; redDays: number; noCallDays: number } };
+  };
+  labels: { queueGroups: Record<string, string>; regSources: Record<string, string>; leadSources: Record<string, string>; signals: Record<string, string>; sellers: Record<string, string>; receivers: Record<string, string> };
+  conversion: { applicable: boolean; reason: string; teamRule: unknown; memberRule: { teamId: string; rule: { targets: { id: string }[] } } | null; blockers: string[]; writes: { table: string; key: string; note: string }[] };
+  writable: { teamName: boolean; teamEnabled: boolean; other: boolean };
+};
+export function useMergeState(enabled: boolean) {
+  return useQuery({ queryKey: ['smc-merge'], enabled, retry: false, staleTime: 0, refetchOnWindowFocus: false, queryFn: () => smcApi<MergeState>('/merge/state') });
 }
 export function useSmcState() {
   return useQuery({ queryKey: ['smc-state'], retry: false, staleTime: 0, refetchOnWindowFocus: false, queryFn: () => smcApi<SmcState>('/state') });
 }
 export const smcPath = '/sales-team-admin';
+export const samPath = '/sales-admin';

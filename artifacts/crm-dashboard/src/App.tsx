@@ -8,6 +8,7 @@ import NotFound from '@/pages/not-found';
 import LinksAdmin from '@/features/link-page/LinksAdmin';
 import SalesTeamsPage from '@/features/sales-teams/SalesTeamsPage';
 import SalesManagerConsolePage from '@/features/sales-manager-console/SalesManagerConsolePage';
+import { MergedRedirect, SalesAdminGate } from '@/features/sales-manager-console/MergedRedirect';
 import BaleBotInbox from '@/features/bale-bot/BaleBotInbox';
 import BaleBotAdmin from '@/features/bale-bot/BaleBotAdminPage';
 import Dashboard from '@/pages/Dashboard';
@@ -302,27 +303,29 @@ function AppWithRoutes() {
                     <Route path="/social-monitor-reports">
                       <AdminOnlyRoute><SocialMonitorReports /></AdminOnlyRoute>
                     </Route>
-                    <Route path="/sales-assist-settings"><AdminOnlyRoute><SalesAssistSettings /></AdminOnlyRoute></Route>
+                    <Route path="/sales-assist-settings"><MergedRedirect><AdminOnlyRoute><SalesAssistSettings /></AdminOnlyRoute></MergedRedirect></Route>
                     <Route path="/my-queue"><PermissionRoute permission="customers.view"><MyQueuePage /></PermissionRoute></Route>
                     {/* crm-daily-plan «کارهای امروز»: pages answer «فعال نیست» while flag.daily_plan is OFF; the server enforces everything */}
                     <Route path="/today"><PermissionRoute permission="customers.view"><TodaySplitGate><TodayPage /></TodaySplitGate></PermissionRoute></Route>
-                    <Route path="/daily-plans"><AdminOnlyRoute><DpBoardPage /></AdminOnlyRoute></Route>
+                    <Route path="/daily-plans"><MergedRedirect><AdminOnlyRoute><DpBoardPage /></AdminOnlyRoute></MergedRedirect></Route>
                     <Route path="/daily-plans/report"><AdminOnlyRoute><DpReportPage /></AdminOnlyRoute></Route>
-                    <Route path="/daily-plans/settings"><AdminOnlyRoute><DpSettingsPage /></AdminOnlyRoute></Route>
-                    <Route path="/daily-plans/expert/:sp/:date"><AdminOnlyRoute><DpExpertListPage /></AdminOnlyRoute></Route>
-                    <Route path="/daily-plans/capacity/:sp"><AdminOnlyRoute><DpCapacityPage /></AdminOnlyRoute></Route>
-                    <Route path="/settings/call-queue"><AdminOnlyRoute><CallQueueSettingsPage /></AdminOnlyRoute></Route>
+                    <Route path="/daily-plans/settings"><MergedRedirect><AdminOnlyRoute><DpSettingsPage /></AdminOnlyRoute></MergedRedirect></Route>
+                    <Route path="/daily-plans/expert/:sp/:date"><MergedRedirect><AdminOnlyRoute><DpExpertListPage /></AdminOnlyRoute></MergedRedirect></Route>
+                    <Route path="/daily-plans/capacity/:sp"><MergedRedirect><AdminOnlyRoute><DpCapacityPage /></AdminOnlyRoute></MergedRedirect></Route>
+                    <Route path="/settings/call-queue"><MergedRedirect><AdminOnlyRoute><CallQueueSettingsPage /></AdminOnlyRoute></MergedRedirect></Route>
                     <Route path="/call-queue-events"><AdminOnlyRoute><CallQueueEventsPage /></AdminOnlyRoute></Route>
                     <Route path="/settings/links"><LinksAdmin /></Route>
-                    <Route path="/sales-teams"><SalesTeamsPage /></Route>
-                    <Route path="/sales-team-admin"><SalesManagerConsolePage /></Route>
+                    <Route path="/sales-teams"><MergedRedirect><SalesTeamsPage /></MergedRedirect></Route>
+                    <Route path="/sales-team-admin"><MergedRedirect><SalesManagerConsolePage /></MergedRedirect></Route>
+                    {/* «مدیریت فروش» v1.2: only while flag.sales_admin_merge_v12 is ON; otherwise the usual «not found» */}
+                    <Route path="/sales-admin"><SalesAdminGate fallback={<NotFound />}><SalesManagerConsolePage /></SalesAdminGate></Route>
                     <Route path="/bale-bot/admin"><BaleBotAdmin /></Route>{/* bale v1.1: pages render nothing (redirect) while flag.bale_bot is OFF */}
                     <Route path="/bale-bot/:id"><BaleBotInbox /></Route>
                     <Route path="/bale-bot"><BaleBotInbox /></Route>
-                    <Route path="/settings/default-owner"><AdminOnlyRoute><DefaultOwnerSettings /></AdminOnlyRoute></Route>
+                    <Route path="/settings/default-owner"><MergedRedirect><AdminOnlyRoute><DefaultOwnerSettings /></AdminOnlyRoute></MergedRedirect></Route>
                     {/* lead_annotator: the page itself checks /api/lead-annotator/me; the server enforces everything */}
                     <Route path="/lead-annotator"><LeadAnnotator /></Route>
-                    <Route path="/call-queue-discipline"><AdminOnlyRoute><CallQueueDisciplinePage /></AdminOnlyRoute></Route>
+                    <Route path="/call-queue-discipline"><MergedRedirect><AdminOnlyRoute><CallQueueDisciplinePage /></AdminOnlyRoute></MergedRedirect></Route>
                     <Route path="/settings/assistants">
                       <AdminOnlyRoute><AssistantsSettings /></AdminOnlyRoute>
                     </Route>

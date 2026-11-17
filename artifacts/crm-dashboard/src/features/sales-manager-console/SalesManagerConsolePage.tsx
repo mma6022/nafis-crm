@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import './smc.css';
-import { smcApi, useSmcState, SECTION_IDS, type ApiError, type Docs, type SectionId, type SmcState } from './api';
+import { smcApi, useSmcMe, useSmcState, useMergeState, SECTION_IDS, type ApiError, type Docs, type LiveTeam, type MergeState, type SectionId, type SmcState } from './api';
+import { MergeContext, type MergeCtx } from './merge-ctx';
+import { MergeBanner, MergeDaily, MergeDiscipline, MergeDist, MergeModel } from './MergeBlocks';
 import { c, fa, I, Chip } from './ui';
 import { TeamsSection } from './sections/Teams';
 import { DailySection } from './sections/Daily';
@@ -14,11 +16,17 @@ import { DistSection } from './sections/Dist';
 import { StepsSection } from './sections/Steps';
 import { AuditSection } from './sections/Audit';
 
-type AnyId = SectionId | 'audit';
-const SECS: [AnyId, string][] = [
+type AnyId = SectionId | 'audit' | 'discipline';
+const SECS_V11: [AnyId, string][] = [
   ['teams', 'تیم‌ها و کارشناس‌ها'], ['daily', 'لیست روزانه‌ی کارشناس‌ها'], ['access', 'دسترسی کارشناس‌ها'], ['valid', 'مدت اعتبار استعلام‌ها'],
   ['model', 'مدل چیدن لیست روزانه'], ['dist', 'تقسیم مشتری بین تیم‌ها و کارشناس‌ها'], ['steps', 'مراحل پرونده‌ی تسهیلات'], ['audit', 'تاریخچه‌ی تغییرات'],
 ];
+/** v1.2 (merge-v1.2.md §3): nine sections, one page, no tabs. */
+const SECS_V12: [AnyId, string][] = [
+  ['teams', 'تیم‌ها و کارشناس‌ها'], ['daily', 'لیست روزانه و ظرفیت'], ['access', 'دسترسی کارشناس‌ها'], ['valid', 'مدت اعتبار استعلام‌ها'],
+  ['model', 'مدل لیست و صف تماس'], ['dist', 'تقسیم مشتری و قانون ثبت'], ['steps', 'مراحل پرونده‌ی تسهیلات'], ['discipline', 'نظم پیگیری و تحویل'], ['audit', 'تاریخچه‌ی تغییرات'],
+];
+const isDoc = (id: AnyId): id is SectionId => id !== 'audit' && id !== 'discipline';
 export type SectionProps<K extends SectionId> = {
   st: SmcState; doc: Docs[K]; docs: Docs; set: (next: Docs[K], changes?: number) => void; saveNow: () => Promise<void>;
 };
@@ -26,22 +34,30 @@ type Confirm = { sections: SectionId[]; rows: { section: SectionId; lines: strin
 
 export default function SalesManagerConsolePage() {
   const q = useSmcState();
-  if (q.isLoading) return <main className="smc-root smc-page" dir="rtl" lang="fa"><p className={c('loading')}>در حال باز کردن…</p></main>;
+  const me = useSmcMe(true);
+  const merged = Boolean(me.data?.merged);
+  const mq = useMergeState(merged);
+  if (q.isLoading || me.isLoading || (merged && mq.isLoading)) return <main className="smc-root smc-page" dir="rtl" lang="fa"><p className={c('loading')}>در حال باز کردن…</p></main>;
   const err = q.error as ApiError | null;
   if (err) {
     const msg = err.status === 403 ? 'این صفحه فقط برای مدیر فروش و ادمین است.' : err.status === 404 ? 'این صفحه هنوز فعال نیست.' : 'صفحه باز نشد؛ دوباره تلاش کنید.';
     return <main className="smc-root smc-page" dir="rtl" lang="fa"><div className={c('card denied')} role="alert"><I n="lock" /><b>{msg}</b></div></main>;
   }
-  return <Console st={q.data!} />;
+  return <Console st={q.data!} m={merged ? mq.data ?? null : null} roles={me.data?.accessRoles} />;
 }
 
-function Console({ st }: { st: SmcState }) {
+function Console({ st, m, roles }: { st: SmcState; m: MergeState | null; roles?: string[] }) {
+  const SECS = m ? SECS_V12 : SECS_V11;
   const qc = useQueryClient();
   const [work, setWork] = useState<Partial<Docs>>({});
   const [chg, setChg] = useState<Partial<Record<SectionId, number>>>({});
   const timers = useRef<Partial<Record<SectionId, ReturnType<typeof setTimeout>>>>({});
   const pending = useRef<Partial<Record<SectionId, () => Promise<void>>>>({});
-  const initialOpen = useMemo(() => new Set((new URLSearchParams(location.search).get('open') ?? 'teams').split(',')), []);
+  const initialOpen = useMemo(() => {
+    const fromHash = /^#s-([a-z]+)$/.exec(location.hash)?.[1];
+    const q = new URLSearchParams(location.search).get('open');
+    return new Set((q ?? fromHash ?? 'teams').split(',').concat(fromHash && q ? [fromHash] : []));
+  }, []);
   const [open, setOpen] = useState<Set<string>>(initialOpen);
   const [active, setActive] = useState<string>('teams');
   const [confirm, setConfirm] = useState<Confirm | null>(null);
@@ -124,8 +140,8 @@ function Console({ st }: { st: SmcState }) {
       }
     });
   };
-  useEffect(() => { // ?open=model → scroll to it once (shots and links from the history)
-    const first = [...initialOpen][0];
+  useEffect(() => { // ?open=model or #s-model (v1.2 redirects from the old pages) → scroll to it once
+    const first = /^#s-([a-z]+)$/.exec(location.hash)?.[1] ?? [...initialOpen][0];
     if (!first) return;
     requestAnimationFrame(() => {
       if (first !== 'teams') document.getElementById(`s-${first}`)?.scrollIntoView({ block: 'start' });
@@ -139,28 +155,45 @@ function Console({ st }: { st: SmcState }) {
   const body: Record<AnyId, () => ReactElement> = {
     teams: () => <TeamsSection {...props('teams')} />, daily: () => <DailySection {...props('daily')} />, access: () => <AccessSection {...props('access')} />,
     valid: () => <ValidSection {...props('valid')} />, model: () => <ModelSection {...props('model')} />, dist: () => <DistSection {...props('dist')} />,
-    steps: () => <StepsSection {...props('steps')} />, audit: () => <AuditSection st={st} onReverted={() => reload([])} />,
+    steps: () => <StepsSection {...props('steps')} />, audit: () => <AuditSection st={st} onReverted={() => { void qc.invalidateQueries({ queryKey: ['smc-merge'] }); return reload([]); }} />,
+    discipline: () => (m ? <MergeDiscipline m={m} /> : <></>),
   };
+  const extra: Partial<Record<AnyId, () => ReactElement>> = m ? { daily: () => <MergeDaily m={m} />, model: () => <MergeModel m={m} />, dist: () => <MergeDist m={m} /> } : {};
+  const [busy, setBusy] = useState<number | null>(null);
+  const liveWrite = async (teamId: number, body: { name?: string; enabled?: boolean }, okMsg: string) => {
+    setBusy(teamId);
+    try { await smcApi(`/merge/teams/${teamId}`, { method: 'PUT', body }); setToast(okMsg); await qc.invalidateQueries({ queryKey: ['smc-merge'] }); await qc.invalidateQueries({ queryKey: ['smc-state'] }); await qc.invalidateQueries({ queryKey: ['smc-audit'] }); }
+    catch (e) { setToast((e as ApiError).message); }
+    finally { setBusy(null); }
+  };
+  const mctx: MergeCtx | null = m ? {
+    m, busy,
+    liveTeam: (tid: string): LiveTeam | null => (/^t\d+$/.test(tid) ? m.values.teams.find((t) => `t${t.id}` === tid) ?? null : null),
+    rename: (id, name) => liveWrite(id, { name }, 'نام تیم ذخیره شد. در تاریخچه ثبت شد.'),
+    toggle: (id, enabled) => liveWrite(id, { enabled }, enabled ? 'تیم فعال شد. در تاریخچه ثبت شد.' : 'تیم غیرفعال شد. در تاریخچه ثبت شد.'),
+  } : null;
   const teamsLine = st.docs.teams.teams.filter((t) => !t.deleted).map((t) => `${t.name}: ${st.docs.teams.experts.filter((e) => e.teamId === t.id).map((e) => e.displayName.replace(/^(خانم|آقای) /, '')).join('، ') || 'خالی'}`);
 
   return (
-    <main className="smc-root smc-page" dir="rtl" lang="fa" data-testid="sales-manager-console">
+    <MergeContext.Provider value={mctx}>
+    <main className="smc-root smc-page" dir="rtl" lang="fa" data-testid="sales-manager-console" data-merged={m ? 'v12' : undefined}>
       <div className={c('ttl')}>
-        <h1 className="smc-sr">مدیریت تیم فروش</h1>
-        <span className={c('role')}><I n="lock" />فقط مدیر فروش و ادمین</span>
-        <span className={c('hint')}>تیم‌ها، لیست روزانه، دسترسی، اعتبار استعلام، مدل، تقسیم و مراحل پرونده در یک صفحه</span>
+        <h1 className="smc-sr">{m ? 'مدیریت فروش' : 'مدیریت تیم فروش'}</h1>
+        <span className={c('role')}><I n="lock" />{m && roles && !roles.includes('sales_manager') ? 'فقط ادمین' : 'فقط مدیر فروش و ادمین'}</span>
+        <span className={c('hint')}>{m ? 'تیم‌ها، لیست روزانه، دسترسی، اعتبار استعلام، مدل و صف تماس، تقسیم و قانون ثبت، مراحل پرونده و نظم پیگیری در یک صفحه' : 'تیم‌ها، لیست روزانه، دسترسی، اعتبار استعلام، مدل، تقسیم و مراحل پرونده در یک صفحه'}</span>
       </div>
       <div className={c('pg')}>
         <nav className={c('idx')} aria-label="بخش‌های این صفحه">
           <h2>بخش‌ها</h2>
           {SECS.map(([id, t], i) => (
             <a key={id} href={`#s-${id}`} className={c(active === id && 'on')} onClick={() => { setOpen((o) => new Set(o).add(id)); scrollTabIntoRow(id); }}>
-              <span className={c('n')}>{fa(i + 1)}</span>{t}{id !== 'audit' && changesOf(id as SectionId) > 0 ? <span className={c('dot')} aria-label="تغییر ذخیره‌نشده" /> : null}
+              <span className={c('n')}>{fa(i + 1)}</span>{t}{isDoc(id) && changesOf(id) > 0 ? <span className={c('dot')} aria-label="تغییر ذخیره‌نشده" /> : null}
             </a>
           ))}
           <p className={c('who')}>{teamsLine.map((l, i) => <span key={i}>{l}<br /></span>)}</p>
         </nav>
         <div className={c('main')}>
+          {m ? <MergeBanner m={m} /> : null}
           {dirty.length ? (
             <div className={c('draftbar')} role="status">
               <span className={c('grow')}>
@@ -172,14 +205,14 @@ function Console({ st }: { st: SmcState }) {
             </div>
           ) : null}
           {SECS.map(([id, title], i) => {
-            const o = open.has(id); const d = id === 'audit' ? 0 : changesOf(id as SectionId);
+            const o = open.has(id); const d = isDoc(id) ? changesOf(id) : 0;
             return (
               <section key={id} className={c('sec card', o && 'open')} id={`s-${id}`}>
                 <header className={c('sh')}>
                   <button className={c('sh-tg')} type="button" aria-expanded={o} aria-controls={`b-${id}`} onClick={() => toggle(id)}>
                     <span className={c('sn')}>{fa(i + 1)}</span>
-                    <span className={c('stx')}><h2>{title}</h2><p>{st.sums[id]}</p></span>
-                    {d ? <Chip k="g">{fa(d)} تغییر ذخیره‌نشده</Chip> : id === 'audit' ? null : <Chip k="ok">ذخیره‌شده</Chip>}
+                    <span className={c('stx')}><h2>{title}</h2><p>{id === 'discipline' ? (m ? disciplineSum(m) : '') : st.sums[id]}</p></span>
+                    {d ? <Chip k="g">{fa(d)} تغییر ذخیره‌نشده</Chip> : !isDoc(id) ? (id === 'discipline' ? <Chip k="lock">فقط نمایش</Chip> : null) : <Chip k="ok">ذخیره‌شده</Chip>}
                     <I n="chev" cls="chev" />
                   </button>
                   {d ? (
@@ -189,7 +222,7 @@ function Console({ st }: { st: SmcState }) {
                     </div>
                   ) : null}
                 </header>
-                {o ? <div className={c('sb')} id={`b-${id}`}>{body[id]()}</div> : null}
+                {o ? <div className={c('sb')} id={`b-${id}`}>{body[id]()}{extra[id]?.()}</div> : null}
               </section>
             );
           })}
@@ -198,8 +231,10 @@ function Console({ st }: { st: SmcState }) {
       {confirm ? <ConfirmDialog cf={confirm} onBack={() => setConfirm(null)} onApply={(f) => void doApply(f)} /> : null}
       {toast ? <div className={c('toast')} role="status">{toast}</div> : null}
     </main>
+    </MergeContext.Provider>
   );
 }
+const disciplineSum = (m: MergeState) => `پنجره‌ی به‌موقع ${fa(m.values.discipline.onTimeMin)} دقیقه؛ تحویل مشتری: ${m.values.discipline.transferMode === 'block' ? 'جلوگیری' : 'فقط هشدار'}`;
 
 const SEC_FA: Record<SectionId, string> = { teams: 'تیم‌ها', daily: 'لیست روزانه', access: 'دسترسی', valid: 'مدت اعتبار', model: 'مدل', dist: 'تقسیم', steps: 'مراحل' };
 function ConfirmDialog({ cf, onBack, onApply }: { cf: Confirm; onBack: () => void; onApply: (force: boolean) => void }) {

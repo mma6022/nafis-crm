@@ -20,8 +20,9 @@ export const SMC_FLAG = "flag.sales_manager_console_v1";
 export const SMC_NEVER_USER = 29;
 export const SECTIONS = ["teams", "daily", "access", "valid", "model", "dist", "steps"] as const;
 export type Section = (typeof SECTIONS)[number];
-export const SECTION_FA: Record<Section | "audit", string> = {
+export const SECTION_FA: Record<Section | "audit", string> & Record<string, string> = {
   teams: "تیم‌ها", daily: "لیست روزانه", access: "دسترسی", valid: "مدت اعتبار", model: "مدل", dist: "تقسیم", steps: "مراحل", audit: "تاریخچه",
+  merge: "انتقال از صفحه‌های قدیم", teams_live: "تیم‌ها (جدول زنده)",
 };
 export const isSection = (s: unknown): s is Section => typeof s === "string" && (SECTIONS as readonly string[]).includes(s);
 
@@ -29,10 +30,35 @@ export const isSection = (s: unknown): s is Section => typeof s === "string" && 
 export function smcFlagOn(): boolean {
   try { return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [SMC_FLAG])?.value === "1"; } catch { return false; }
 }
-/** t815s2681: only users.role='admin'. Sales managers (effective admin), team leads, experts, and user 29 never. */
+/**
+ * «مدیریت فروش» v1.2 merge (flag.sales_admin_merge_v12, global, default OFF). Only meaningful while SMC_FLAG is ON too.
+ * OFF = v1.1 exactly (admin-only console at /sales-team-admin, old pages untouched).
+ */
+export const SAM_FLAG = "flag.sales_admin_merge_v12";
+export function samFlagOn(): boolean {
+  try { return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [SAM_FLAG])?.value === "1"; } catch { return false; }
+}
+export const samMerged = () => smcFlagOn() && samFlagOn();
+/** Roles that may ever open the page. Experts, leads (users.role='salesperson'), registrars, and user 29 are never allowed, whatever the setting says. */
+export const SAM_ROLE_CHOICES = ["admin", "sales_manager"] as const;
+/** t356s1307 (Mohammad, relayed by Armita): v1.2 opens for the sales manager and the admin. */
+export const SAM_ROLES_DEFAULT: string[] = ["admin", "sales_manager"];
+/** Access roles for the merged page: smc_settings(section='access_roles') = JSON array, else the default. Read-only here (no endpoint writes it). */
+export function samAccessRoles(): string[] {
+  let v: unknown = null;
+  try { const r = queryRow<{ payload_json: string }>("SELECT payload_json FROM smc_settings WHERE section='access_roles'"); v = r ? JSON.parse(r.payload_json) : null; } catch { v = null; }
+  const list = Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && (SAM_ROLE_CHOICES as readonly string[]).includes(x)) : [];
+  return list.length ? [...new Set(list)] : [...SAM_ROLES_DEFAULT];
+}
+/**
+ * v1.1 (merge OFF, live today): only users.role='admin' (t815s2681). Sales managers, team leads, experts, and user 29 never.
+ * v1.2 (merge ON): users.role in samAccessRoles() (default admin + sales_manager, t356s1307). User 29, inactive users, experts, leads never.
+ */
 export function smcCanManage(u: AuthUser | null | undefined): boolean {
   if (!u || Number(u.id) === SMC_NEVER_USER || !u.active) return false;
-  const dbRole = queryRow<{ role: string }>("SELECT role FROM users WHERE id=?", [u.id])?.role;
+  const dbRole = queryRow<{ role: string }>("SELECT role FROM users WHERE id=? AND active=1", [u.id])?.role;
+  if (!dbRole) return false;
+  if (samMerged()) return samAccessRoles().includes(dbRole);
   return dbRole === "admin";
 }
 const FA = "۰۱۲۳۴۵۶۷۸۹";
@@ -730,9 +756,11 @@ export function auditList(section: string | null, limit = 200, now = new Date())
 }
 
 /* ---------------- distribution engine (§3.5) ---------------- */
-export type Lead = Partial<Record<"priority" | "status" | "credit_rank" | "amount" | "job" | "docs" | "bounced_check" | "need_time" | "city" | "source" | "plan" | "retired_intro", string>>;
-export const DIST_FIELDS = ["priority", "status", "credit_rank", "amount", "job", "docs", "retired_intro", "bounced_check", "need_time", "city", "source", "plan"] as const;
+export type Lead = Partial<Record<"priority" | "status" | "credit_rank" | "amount" | "job" | "docs" | "bounced_check" | "need_time" | "city" | "source" | "plan" | "retired_intro" | "registrar" | "reg_source", string>>;
+/** registrar / reg_source (v1.2): the converted «قانون ثبت مشتری» (§6-22). values ["*"] = everyone / every source. */
+export const DIST_FIELDS = ["priority", "status", "credit_rank", "amount", "job", "docs", "retired_intro", "bounced_check", "need_time", "city", "source", "plan", "registrar", "reg_source"] as const;
 function condHit(c: Cond, lead: Lead): boolean {
+  if ((c.field === "registrar" || c.field === "reg_source") && c.values.map(String).includes("*")) return true;
   const v = lead[c.field as keyof Lead];
   if (v == null || v === "") return false;
   if (c.field === "amount") {

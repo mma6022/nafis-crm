@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { SectionProps } from '../SalesManagerConsolePage';
 import type { Expert, TeamsDoc } from '../api';
 import { c, clone, fa, I, Chip, Seg, latin, uid, relDay, addDays } from '../ui';
+import { useMerge, priorityChips } from '../merge-ctx';
 
 const short = (n: string) => n.replace(/^(خانم|آقای) /, '');
 const statusFa = (e: Expert, today: string) => (e.status === 'active' ? 'فعال' : e.status === 'inactive' ? 'غیرفعال' : e.leaveUntil && e.leaveUntil < today ? 'فعال (مرخصی تمام شد)' : `مرخصی${e.leaveUntil ? ` تا ${relDay(today, e.leaveUntil)}` : ''}`);
@@ -13,6 +14,7 @@ export function TeamsSection({ st, doc, set }: SectionProps<'teams'>) {
   const [editing, setEditing] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [drag, setDrag] = useState<string | null>(null);
+  const mg = useMerge(); // v1.2: live sales_teams name / active + member priorities (read-only)
   const teams = doc.teams.filter((t) => !t.deleted);
   const person = (id: string) => st.people.find((p) => p.id === id);
   const upd = (fn: (d: TeamsDoc) => void, n = 1) => { const d = clone(doc); fn(d); set(d, n); };
@@ -31,15 +33,24 @@ export function TeamsSection({ st, doc, set }: SectionProps<'teams'>) {
   const teamCard = (tid: string) => {
     const t = doc.teams.find((x) => x.id === tid)!; const ms = doc.experts.filter((e) => e.teamId === tid);
     const lead = doc.experts.find((e) => e.id === t.leadExpertId);
+    const live = mg?.liveTeam(tid) ?? null;
     return (
-      <div key={tid} className={c('team-c')} onDragOver={(e) => { if (drag) e.preventDefault(); }}
+      <div key={tid} className={c('team-c', live && !live.enabled && 'dis')} data-live-team={live?.id} onDragOver={(e) => { if (drag) e.preventDefault(); }}
         onDrop={(e) => { e.preventDefault(); const ex = doc.experts.find((x) => x.id === drag); if (ex && ex.teamId !== tid) setMoving({ id: ex.id, to: tid, keep: true }); setDrag(null); }}>
         <div className={c('tch')}>
           {renaming === tid
-            ? <input className={c('inp')} defaultValue={t.name} aria-label="نام تیم" autoFocus onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== t.name) upd((d) => { d.teams.find((x) => x.id === tid)!.name = v; }); setRenaming(null); }} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
-            : <h3>{t.name}</h3>}
-          <span className={c('hint')}>{fa(ms.length)} کارشناس</span><span className={c('sp')} />
+            ? <input className={c('inp')} defaultValue={live?.name ?? t.name} aria-label="نام تیم" autoFocus onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (live && mg) { if (v && v !== live.name) void mg.rename(live.id, v); } // v1.2: the live team name (sales_teams), saved at once and audited
+                else if (v && v !== t.name) upd((d) => { d.teams.find((x) => x.id === tid)!.name = v; });
+                setRenaming(null); }} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+            : <h3>{live?.name ?? t.name}</h3>}
+          <span className={c('hint')}>{fa(ms.length)} کارشناس</span>{live && !live.enabled ? <Chip k="g">غیرفعال</Chip> : null}<span className={c('sp')} />
           <button className={c('ib')} type="button" aria-label="تغییر نام تیم" onClick={() => setRenaming(tid)}><I n="edit" /></button>
+          {live && mg ? (
+            <button className={c('btn off')} type="button" disabled={mg.busy === live.id} data-testid={`sam-toggle-${live.id}`}
+              onClick={() => void mg.toggle(live.id, !live.enabled)}>{live.enabled ? 'غیرفعال کردن' : 'فعال کردن'}</button>
+          ) : null}
           <button className={c('ib')} type="button" aria-label={ms.length ? 'حذف تیم؛ اول اعضا را منتقل کنید' : 'حذف تیم'} disabled={ms.length > 0}
             onClick={() => upd((d) => { const x = d.teams.find((y) => y.id === tid)!; if (x.id.startsWith('n')) d.teams = d.teams.filter((y) => y.id !== tid); else x.deleted = true; })}><I n="trash" /></button>
         </div>
@@ -63,6 +74,8 @@ export function TeamsSection({ st, doc, set }: SectionProps<'teams'>) {
                 <span className={c('mn')}>
                   <b>{e.displayName}<span className={c('mchips')}><Chip k={e.status === 'active' ? 'ok' : 'g'}>{statusFa(e, st.today)}</Chip>{e.role === 'lead' ? <Chip k="b">سرپرست</Chip> : null}</span></b>
                   <small>{e.extension ? `داخلی ${fa(e.extension)}` : 'بدون داخلی'}، {e.role === 'lead' ? 'سرپرست' : 'کارشناس فروش'}، {fa(p?.customers ?? 0)} مشتری{e.userId ? '' : '، بدون حساب کاربری'}</small>
+                  {live ? (() => { const lm = live.members.find((x) => x.salespersonId === e.salespersonId); const ch = lm ? priorityChips(lm, live) : [];
+                    return ch.length ? <span className={c('pchips')} aria-label="اولویت‌های این کارشناس">{ch.map((x) => <Chip key={x} k="b">{x}</Chip>)}</span> : null; })() : null}
                 </span>
                 <select className={c('tok n sel')} aria-label={`انتقال ${e.displayName} به تیم دیگر`} value="" onChange={(ev) => { if (ev.target.value) setMoving({ id: e.id, to: ev.target.value, keep: true }); }}>
                   <option value="">{mv ? doc.teams.find((x) => x.id === moving!.to)?.name : 'انتقال به تیم…'}</option>
@@ -108,6 +121,7 @@ export function TeamsSection({ st, doc, set }: SectionProps<'teams'>) {
         </button>
       </div>
       <p className={c('hint')} style={{ marginTop: 10 }}>تیم فقط وقتی خالی است حذف می‌شود؛ اول اعضا را با «انتقال به تیم…» یا کشیدن جابه‌جا کنید.</p>
+      {mg ? <p className={c('hint')}>نام تیم و «غیرفعال کردن» همان تیم زنده‌ی سیستم را فوری عوض می‌کنند و در تاریخچه ثبت می‌شوند. اولویت هر کارشناس از «تیم‌های فروش» آمده و فعلاً فقط نمایش است.</p> : null}
     </>
   );
 }

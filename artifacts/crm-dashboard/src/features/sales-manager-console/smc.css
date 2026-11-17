@@ -342,3 +342,28 @@
   /* Variable is set on .smc-pg (a descendant) so the container query can apply it. Fallback keeps the calc valid. */
   .smc-root:has(.smc-draftbar) .smc-pg{--smc-draft-h:56px;padding-bottom:calc(var(--ss-dock-h, var(--dock-h, 68px)) + var(--smc-draft-h, 56px) + 16px + env(safe-area-inset-bottom, 0px))}
 }
+/* v1.2 «مدیریت فروش» merge blocks (flag.sales_admin_merge_v12) */
+.smc-root .smc-mblock{margin-top:14px;border:1px solid var(--line,#E4E7F2);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;background:#fff}
+.smc-root .smc-mblock h3{margin:0;font-size:15px;font-weight:800}
+.smc-root .smc-mrow{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;min-height:28px}
+.smc-root .smc-mrow > .smc-lbl{flex:0 0 190px;max-width:100%}
+.smc-root .smc-mrow > b{font-weight:700;min-width:0;overflow-wrap:anywhere}
+.smc-root .smc-mrow.smc-col{flex-direction:column;align-items:stretch;gap:4px}
+.smc-root .smc-tmpl{display:block;padding:8px 10px;border-radius:10px;background:var(--brand-50);quotes:"«" "»";line-height:1.8}
+.smc-root .smc-wgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px}
+.smc-root .smc-wgrid .smc-mrow > .smc-lbl{flex-basis:150px}
+.smc-root .smc-hint.smc-ro{display:flex;align-items:center;gap:6px}
+.smc-root .smc-hint.smc-ro .smc-i{width:14px;height:14px;flex:none}
+.smc-root .smc-conv{border:1px dashed var(--brand-100);background:var(--brand-50);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.smc-root .smc-conv p{margin:0;line-height:1.8}
+.smc-root .smc-mbanner{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:12px;margin-bottom:12px;font-size:14px;font-weight:600}
+.smc-root .smc-mbanner.smc-ok{background:#EAF7EF;color:#1D6B3A}
+.smc-root .smc-mbanner.smc-warn{background:#FFF6E5;color:#8A5A00}
+.smc-root .smc-mbanner .smc-i{width:18px;height:18px;flex:none}
+.smc-root .smc-pchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.smc-root .smc-btn.smc-off{border:1px solid var(--line,#E4E7F2);background:#fff;min-height:44px}
+.smc-root .smc-team-c.smc-dis{opacity:.75}
+@media (max-width:640px){
+  .smc-root .smc-mrow > .smc-lbl{flex-basis:100%}
+  .smc-root .smc-wgrid{grid-template-columns:1fr}
+}
