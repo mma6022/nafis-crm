@@ -25,6 +25,7 @@ export const SECTION_FA: Record<Section | "audit", string> & Record<string, stri
   merge: "انتقال از صفحه‌های قدیم", teams_live: "تیم‌ها (جدول زنده)",
   merge_daily: "لیست روزانه (جدول زنده)", merge_capacity: "ظرفیت کارشناس (جدول زنده)", merge_model: "مدل لیست و صف تماس (جدول زنده)",
   merge_discipline: "نظم پیگیری و تحویل (جدول زنده)", merge_owner: "مالک پیش‌فرض مشتری (جدول زنده)",
+  bale_bots: "ربات‌های بله", bale_view: "دیدن پیام‌های بله", bale_quick: "پیام‌های پیش‌فرض بله", voice_mode: "ضبط و تبدیل تماس", voice_batch: "تبدیل تماس به متن",
 };
 export const isSection = (s: unknown): s is Section => typeof s === "string" && (SECTIONS as readonly string[]).includes(s);
 

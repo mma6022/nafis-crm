@@ -124,6 +124,7 @@ function botView(b: ReturnType<typeof botOfUser>) {
   return b ? { id: b.id, username: b.bot_username, name: b.bot_name, status: b.status, connectedAt: b.connected_at, lastOkAt: b.last_ok_at, lastError: b.last_error, hasToken: !!b.token_ct } : null;
 }
 
+import { sabOn, sabQuickMessages } from "../lib/sales-admin-bale";
 import { attachCustomerBotToChat, customerBotFlagsPayload, registerCustomerBaleRoutes } from "./customer-bale";
 import { registerSignReminderRoutes } from "./bale-sign-reminder";
 import { srChatView, srFlagOn } from "../lib/bale-sign-reminder";
@@ -215,6 +216,17 @@ export function createBaleBotRouter(): IRouter {
     res.json({ message: queueOut(c, u, { kind: "text", text, replyTo }) });
   });
 
+  /* «مدیریت فروش» v1.3 canned messages: one tap sends at once (t358s1326) through the same queue as a typed message. OFF → 404. */
+  r.get("/bale-bot/quick", (_req, res) => {
+    if (!sabOn()) return fail(res, 404, "flag_off");
+    res.json({ items: sabQuickMessages().map((q) => ({ id: q.id, title: q.title })) });
+  });
+  r.post("/bale-bot/chats/:id/quick/:qid", (req, res) => {
+    if (!sabOn()) return fail(res, 404, "flag_off");
+    const u = U(res); const c = writable(u, num(req.params.id), res); if (!c) return;
+    const q = sabQuickMessages().find((x) => x.id === String(req.params.qid)); if (!q) return fail(res, 404, "not_found");
+    res.json({ message: queueOut(c, u, { kind: "text", text: q.body.slice(0, BB_LIMITS.textMax), replyTo: null }) });
+  });
   r.post("/bale-bot/chats/:id/request-contact", (req, res) => {
     const u = U(res); const c = writable(u, num(req.params.id), res); if (!c) return;
     if (bcFlagOn()) {

@@ -129,12 +129,22 @@ export function isBotExpert(u: BbUser | undefined | null): boolean {
   return u.role === "salesperson" && !!u.salesperson_id && !isTraineeSalesperson(Number(u.salesperson_id));
 }
 /** "all" = admin + sales manager (read + write every chat); "own" = an expert's own bot; null = no access. Needs both flags. */
-export function bbView(u: BbUser | undefined | null): "all" | "own" | null {
+function bbBaseView(u: BbUser | undefined | null): "all" | "own" | null {
   if (!u || u.active === 0 || BB_EXCLUDED_USER_IDS.includes(u.id) || !bbMasterOn() || !bbUserOn(u.id)) return null;
   if (u.role === "admin") return "all";
   return isBotExpert(u) ? "own" : null;
 }
-export const bbCanManage = (u: BbUser | undefined | null) => bbView(u) === "all";
+/** «مدیریت فروش» v1.3 view level per person/team (own / all / none). Only narrows or re-levels a user who already has access
+ * (both bale flags ON); never opens the inbox to someone the flags keep out. No hook / flag OFF → exactly the base view. */
+type BbViewHook = (u: BbUser, base: "all" | "own") => "all" | "own" | null;
+let viewHook: BbViewHook | null = null;
+export const setBbViewHook = (h: BbViewHook | null) => { viewHook = h; };
+export function bbView(u: BbUser | undefined | null): "all" | "own" | null {
+  const b = bbBaseView(u);
+  return b && viewHook ? viewHook(u!, b) : b;
+}
+/** Bot admin stays role-based (admin / sales manager), independent of the inbox view level. */
+export const bbCanManage = (u: BbUser | undefined | null) => bbBaseView(u) === "all" && bbView(u) !== null;
 
 /* ---------------- Bale HTTP (fetch is replaceable for tests; the URL never leaves this function) ---------------- */
 type FetchLike = (url: string, init?: any) => Promise<Response>;
@@ -199,9 +209,12 @@ export const botSends = (b: BotRow) => {
   if (isSharedCustomerBot(b)) return true;
   const u = bbUser(b.user_id); return !!u && !bbNoSendSp().includes(Number(u.salesperson_id));
 };
+/** v1.3: an expert set to «ربات مشترک» in «مدیریت فروش» keeps the token but the own bot is paused (no poll, no send). No hook → never paused. */
+let botPausedHook: ((b: { id: number; user_id: number }) => boolean) | null = null;
+export const setBotPausedHook = (h: typeof botPausedHook) => { botPausedHook = h; };
 export const botLive = (b: BotRow) => {
   if (isSharedCustomerBot(b)) return b.status === "on" && !!b.token_ct && bbMasterOn();
-  return b.status === "on" && !!b.token_ct && bbMasterOn() && bbUserOn(b.user_id) && isBotExpert(bbUser(b.user_id));
+  return b.status === "on" && !!b.token_ct && bbMasterOn() && bbUserOn(b.user_id) && isBotExpert(bbUser(b.user_id)) && !(botPausedHook && botPausedHook(b));
 };
 
 /* ---------------- inbound ---------------- */

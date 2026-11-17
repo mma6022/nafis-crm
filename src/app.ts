@@ -36,6 +36,8 @@ import { baleInternalRouter } from "./routes/bale";
 import { expertLockdownGuard } from "./lib/expert-lockdown";
 import { filesCarouselGuard } from "./lib/files-carousel";
 
+import { sabBaleAdminRedirect } from "./lib/sales-admin-bale";
+
 const app: Express = express();
 
 app.use(
@@ -60,6 +62,8 @@ app.use(
     },
   }),
 );
+// «مدیریت فروش» v1.3: /bale-bot/admin → 301 /sales-admin#s-bale only while flag.sales_admin_bale_v13 + console flags are ON.
+app.use(sabBaleAdminRedirect);
 // Public website lead intake has its own strict CORS and must run first.
 mountPublicLeads(app);
 // links v1.0: nafisvam.com/links data + click beacon (own CORS; falls through while flag.links_page is OFF)
