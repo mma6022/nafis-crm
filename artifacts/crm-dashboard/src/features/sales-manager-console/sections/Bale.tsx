@@ -2,7 +2,7 @@
 // Ghasemi's read-only bot never appears here (server filters it). Tokens / keys: masked text field (no password field), cleared after save, never shown again.
 import { useState, type ReactNode } from 'react';
 import type { BaleState, QuickMessage, ViewLevel } from '../api';
-import { c, fa, I, Chip, Seg, Tgl, hasPair, safeN } from '../ui';
+import { c, fa, I, Chip, Seg, Tgl, safeN } from '../ui';
 
 export type BaleAct = (path: string, method: 'PUT' | 'POST', body: unknown, okMsg: string) => Promise<boolean>;
 const LV: [ViewLevel, string][] = [['own', 'فقط خودش'], ['all', 'همه'], ['none', 'هیچ']];
@@ -205,4 +205,4 @@ function ChatPreview({ items }: { items: QuickMessage[] }) {
     </div>
   );
 }
-export const whenFa = (iso: string) => { try { const j = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { day: 'numeric', month: 'long', timeZone: 'Asia/Tehran' }).format(new Date(iso)); return hasPair(j) ? '' : j; } catch { return ''; } };
+export const whenFa = (iso: string) => { try { const j = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { day: 'numeric', month: 'long', timeZone: 'Asia/Tehran' }).format(new Date(iso)); return j; } catch { return ''; } };

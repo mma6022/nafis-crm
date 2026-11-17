@@ -88,27 +88,12 @@ export const relDay = (today: string, ymd: string) => {
   const w = sat(ymd) - sat(today);
   return w <= 0 ? wd : w < WEEKS.length ? `${wd}‌ی ${WEEKS[w]}` : wd;
 };
-/** The forbidden digit pair never reaches the page (design rule, user 29). True when a label carries it, Latin or Persian, also across «:»/«/». */
-export const hasPair = (s: string) => /(2|۲)[:/\s]?(9|۹)/.test(s);
-/** A count without the pair: exact when clean, else «حدود» the nearest round number that is clean (۲۹۴ → «حدود ۳۰۰»). */
-export const safeN = (n: number): string => {
-  if (!hasPair(String(n))) return fa(n);
-  for (let p = 10; p <= 1e7; p *= 10) { const r = Math.round(n / p) * p; if (!hasPair(String(r))) return `حدود ${fa(r)}`; }
-  return 'چند';
-};
-/** m:ss call length without the pair (۲:۲۹ → «حدود ۲:۳۰»). */
-export const safeDur = (s: number): string => {
-  const f = (x: number) => `${fa(Math.floor(x / 60))}:${fa(String(x % 60).padStart(2, '0'))}`;
-  if (!hasPair(f(s))) return f(s);
-  for (let d = 1; d < 120; d++) for (const x of [s + d, s - d]) if (x >= 0 && !hasPair(f(x))) return `حدود ${f(x)}`;
-  return 'چند دقیقه';
-};
-/** HH:MM clock without the pair (۱۲:۲۹ → «حدود ۱۲:۳۰»). */
-export const safeClock = (h: number, m: number): string => {
-  const f = (hh: number, mm: number) => `${fa(hh)}:${fa(String(mm).padStart(2, '0'))}`;
-  if (!hasPair(f(h, m))) return f(h, m);
-  for (let d = 1; d < 30; d++) for (const x of [m + d, m - d]) if (x >= 0 && x < 60 && !hasPair(f(h, x))) return `حدود ${f(h, x)}`;
-  return `ساعت ${fa(h)}`;
-};
-/** Free text (names, masked phone tails): Persian digits, and any digit run carrying the pair becomes dots. */
-export const safeText = (s: unknown): string => fa(s).replace(/[۰-۹]+/g, (r) => (hasPair(r) ? '•'.repeat(r.length) : r));
+/** Mohammad t360s1344: on this page every number is shown exactly (Persian digits), even with the pair — no «حدود» rounding.
+ *  Masked phone tails come masked from the server (lastFour) and stay masked; user 29 is filtered server-side. */
+export const safeN = (n: number): string => fa(n);
+/** m:ss call length, exact. */
+export const safeDur = (s: number): string => `${fa(Math.floor(s / 60))}:${fa(String(s % 60).padStart(2, '0'))}`;
+/** HH:MM clock, exact. */
+export const safeClock = (h: number, m: number): string => `${fa(h)}:${fa(String(m).padStart(2, '0'))}`;
+/** Free text (names, masked phone tails): Persian digits only. */
+export const safeText = (s: unknown): string => fa(s);

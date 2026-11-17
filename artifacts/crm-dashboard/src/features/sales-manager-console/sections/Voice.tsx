@@ -1,7 +1,7 @@
 // «مدیریت فروش» v1.3 §10 — تبدیل تماس به متن (bale-voice-v1.3.md §4; t358s1326: default «ذخیره و تبدیل خودکار»). /call-center stays where it is.
 import { useMemo, useState } from 'react';
 import { useVoicePage, type BaleState, type VoiceMode } from '../api';
-import { c, Chip, Seg, I, hasPair, safeClock, safeDur, safeN, safeText } from '../ui';
+import { c, Chip, Seg, I, safeClock, safeDur, safeN, safeText } from '../ui';
 import type { BaleAct } from './Bale';
 
 const MODES: [VoiceMode, string][] = [['auto', 'ذخیره و تبدیل خودکار'], ['manual', 'فقط ذخیره؛ تبدیل دستی'], ['off', 'غیرفعال']];
@@ -9,22 +9,14 @@ export const voiceModeFa = (m: VoiceMode) => MODES.find((x) => x[0] === m)![1];
 const tz = 'Asia/Tehran';
 const ymd = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(d);
 const hm = (d: Date) => { const [h, m] = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).format(d).split(':').map(Number); return safeClock(h! % 24, m!); };
-const WD = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه', 'شنبه'];
 export function whenCall(iso: string, now = new Date()) {
   const d = new Date(iso); const t = ymd(d); const today = ymd(now); const y = ymd(new Date(now.getTime() - 86_400_000));
   if (t === today) return hm(d);
   if (t === y) return `دیروز ${hm(d)}`;
-  const days = Math.round((Date.parse(`${today}T12:00:00Z`) - Date.parse(`${t}T12:00:00Z`)) / 86_400_000);
-  if (days > 1 && days < 7) return `${WD[new Date(`${t}T12:00:00Z`).getUTCDay()]} ${hm(d)}`;
-  try { const j = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { day: 'numeric', month: 'long', timeZone: tz }).format(d); return `${hasPair(j) ? `${safeN(days)} روز پیش` : j} ${hm(d)}`; } catch { return hm(d); }
+  try { const j = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { day: 'numeric', month: 'long', timeZone: tz }).format(d); return `${j} ${hm(d)}`; } catch { return hm(d); }
 }
-/** «صفحه‌ی ۲ از ۲۸»; a number with the forbidden pair is never printed («صفحه‌ی آخر» / «صفحه‌ی بعد از ۲۸»). */
-const pageFa = (p: number, n: number) => {
-  const one = (x: number) => (hasPair(String(x)) ? null : safeN(x));
-  const cur = one(p) ?? (p === n ? 'آخر' : `بعد از ${safeN(p - 1)}`);
-  const all = one(n);
-  return all && p !== n ? `صفحه‌ی ${cur} از ${all}` : p === n ? `صفحه‌ی ${hasPair(String(p)) ? 'آخر' : `${cur} (آخر)`}` : `صفحه‌ی ${cur}`;
-};
+/** «صفحهٔ ۲ از ۲۹» — exact (t360s1344). */
+const pageFa = (p: number, n: number) => `صفحهٔ ${safeN(p)} از ${safeN(n)}`;
 const STATE: Record<string, [string, 'g' | 'b' | 'r' | undefined] | null> = { none: null, failed: ['ناموفق قبلی', 'r'], waiting: ['در نوبت', 'b'], queued: ['در صف', 'b'], processing: ['در حال تبدیل', 'b'] };
 
 export function VoiceSection({ bs, act }: { bs: BaleState; act: BaleAct }) {

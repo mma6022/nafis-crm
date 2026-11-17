@@ -6,11 +6,11 @@ import { useState, type ReactNode } from 'react';
 import type { FoldKey, MergeState } from './api';
 import { useMerge } from './merge-ctx';
 import { useEffect, useRef } from 'react';
-import { c, clone, fa, I, Chip, Pick, Seg, Stp, Tgl, hasPair } from './ui';
-/** «چهارشنبه ۲۷ آبان»: Jalali, Persian digits, never Gregorian; weekday alone if the day would show the forbidden pair. */
+import { c, clone, fa, I, Chip, Pick, Seg, Stp, Tgl } from './ui';
+/** «چهارشنبه ۲۷ آبان»: Jalali, Persian digits, never Gregorian (exact, t360s1344). */
 const jDay = (iso: string) => {
   const d = new Date(iso + 'T12:00:00+03:30'); const fmt = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('fa-IR-u-ca-persian-nu-arabext', { timeZone: 'Asia/Tehran', ...o }).format(d).replace(/[٠-٩]/g, (x) => '۰۱۲۳۴۵۶۷۸۹'['٠١٢٣٤٥٦٧٨٩'.indexOf(x)]!);
-  try { const j = fmt({ weekday: 'long', day: 'numeric', month: 'long' }); return hasPair(j) ? fmt({ weekday: 'long' }) : j; } catch { return ''; }
+  try { return fmt({ weekday: 'long', day: 'numeric', month: 'long' }); } catch { return ''; }
 };
 /** Armita review (13b): an opened form scrolls itself above the dock + unsaved bar (scroll-margin-bottom in smc.css). */
 const useLift = (on: unknown) => { const r = useRef<HTMLDivElement>(null); useEffect(() => { if (on) requestAnimationFrame(() => r.current?.scrollIntoView({ block: 'nearest', behavior: 'auto' })); }, [on]); return r; };

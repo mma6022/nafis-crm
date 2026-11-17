@@ -495,3 +495,20 @@ html.smc-fab.smc-fab .diag-floating{left:var(--smc-fab-x, 18px) !important;right
 .smc-root .smc-pager{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:10px}
 .smc-root .smc-pager .smc-pgn{font-weight:700;color:var(--ink-soft);min-width:120px;text-align:center}
 @media (max-width:640px){ .smc-root .smc-wbar{grid-template-columns:repeat(3,minmax(0,1fr)) !important} .smc-root .smc-wbar .smc-wstep{font-size:12px;padding:0 4px;gap:4px} .smc-root .smc-wbar .smc-wstep .smc-wn{width:18px;height:18px;font-size:11px} }
+/* Armita round 2 (19b): on a phone an expert's bot row is two lines — name, then «ربات خودش/مشترک» + AI switch side by side. */
+@media (max-width:640px){
+  .smc-root .smc-bcard:not(.smc-shared) > .smc-brow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;column-gap:8px;row-gap:8px;align-items:center}
+  .smc-root .smc-bcard:not(.smc-shared) > .smc-brow > .smc-sp{display:none}
+  .smc-root .smc-bcard:not(.smc-shared) > .smc-brow > .smc-bnm{grid-column:2 / -1}
+  .smc-root .smc-bcard:not(.smc-shared) > .smc-brow > .smc-seg{grid-column:1 / 3;justify-self:start;flex-wrap:nowrap}
+  .smc-root .smc-bcard:not(.smc-shared) > .smc-brow > .smc-seg button{padding:0 9px}
+  .smc-root .smc-bcard:not(.smc-shared) > .smc-brow > .smc-tgl,
+  .smc-root .smc-bcard:not(.smc-shared) > .smc-brow > .smc-btn{grid-column:3;justify-self:end;gap:6px;padding:0 8px 0 4px;font-size:13px;white-space:nowrap}
+  .smc-root .smc-bcard:not(.smc-shared) > .smc-brow > .smc-seg:last-child{grid-column:1 / -1}
+}
+@media (max-width:640px){
+  .smc-root .smc-bcard:not(.smc-shared) > .smc-brow > .smc-seg{grid-column:1 / 3;min-width:0}
+  .smc-root .smc-bcard:not(.smc-shared) > .smc-brow > .smc-seg button{padding:0 7px;font-size:12.5px}
+  .smc-root .smc-bcard:not(.smc-shared) > .smc-brow > .smc-tgl{white-space:normal;line-height:1.25;max-width:112px;text-align:start;font-size:12.5px}
+  .smc-root .smc-bcard:not(.smc-shared) > .smc-brow > .smc-tgl .smc-sw{flex:none}
+}

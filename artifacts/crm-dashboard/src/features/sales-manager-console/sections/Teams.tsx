@@ -63,7 +63,7 @@ export function TeamsSection({ st, doc, set }: SectionProps<'teams'>) {
             </> : <>
               <b>«{live.name}» غیرفعال شود؟</b>
               {ask.blocked ? <p className={c('err')} role="alert">{ask.blocked}</p> : <>
-                <span className={c('hint')}>{ask.removed.length ? `${ask.removed.join('، ')} از این تیم بیرون می‌آیند؛ مشتری‌هایشان می‌مانند.` : 'این تیم عضوی ندارد.'}</span>
+                <span className={c('hint')}>{ask.removed.length ? `${ask.removed.join('، ')} از این تیم بیرون می‌آیند؛ مشتری‌ها پیششان می‌مانند.` : 'این تیم عضوی ندارد.'}</span>
               </>}
             </>}
             <div className={c('row1')}><span className={c('sp')} />
