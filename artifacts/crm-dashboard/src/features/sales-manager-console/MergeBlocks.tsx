@@ -60,7 +60,7 @@ export function MergeDist({ m }: { m: MergeState }) {
         <Row k="منبع ورود">{o.sourceMode === 'all' ? 'همه' : o.sources.map((s) => m.labels.regSources[s] ?? s).join('، ') || '—'}</Row>
         {m.conversion.applicable ? (
           <div className={c('conv')} data-testid="sam-conversion">
-            <b>طبق تصمیم محمد (t355s1298) این قانون جدا حذف و به قانون تقسیم تبدیل می‌شود:</b>
+            <b>طبق تصمیم محمد، این قانون جدا حذف و به قانون تقسیم تبدیل می‌شود:</b>
             <p>«اگر ثبت‌کننده {o.registrarMode === 'all' ? 'هر کسی' : o.registrarNames.join(' یا ')} و منبع {o.sourceMode === 'all' ? 'هر منبعی' : o.sources.map((s) => m.labels.regSources[s] ?? s).join(' یا ')} باشد → مستقیم به {owner}»، قانون ۱ بین تیم‌ها و قانون ۱ داخل تیمش.</p>
             <p className={c('hint')}>هنوز اعمال نشده. پیش از اعمال: {m.conversion.blockers[0]}</p>
           </div>

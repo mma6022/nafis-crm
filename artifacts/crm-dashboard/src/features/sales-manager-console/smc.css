@@ -367,3 +367,8 @@
   .smc-root .smc-mrow > .smc-lbl{flex-basis:100%}
   .smc-root .smc-wgrid{grid-template-columns:1fr}
 }
+/* v1.2: live team header = name + count on the first line, actions on the next when the card is narrow (1280 with the sidebar, 390) */
+.smc-root .smc-team-c[data-live-team] .smc-tch{flex-wrap:wrap;row-gap:8px}
+.smc-root .smc-team-c[data-live-team] .smc-tch h3{white-space:nowrap}
+.smc-root .smc-team-c[data-live-team] .smc-tch .smc-hint{white-space:nowrap}
+.smc-root .smc-team-c[data-live-team] .smc-btn.smc-off{white-space:nowrap;padding:0 12px}
