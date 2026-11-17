@@ -11,7 +11,7 @@ export function MergedRedirect({ children }: { children: ReactNode }) {
   const user = session?.user;
   const [loc, setLoc] = useLocation();
   const me = useSmcMe(Boolean(user && user.role === 'admin')).data;
-  const target = me?.merged && me.canManage ? mergedTarget(loc, window.location.search, window.location.hash) : null;
+  const target = me?.merged && me.canManage ? mergedTarget(loc, window.location.search, window.location.hash, { bale: Boolean(me.bale) }) : null;
   useEffect(() => { if (target) setLoc(target, { replace: true }); }, [target, setLoc]);
   if (target) return null;
   return <>{children}</>;

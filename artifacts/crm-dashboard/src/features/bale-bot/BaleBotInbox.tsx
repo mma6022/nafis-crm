@@ -430,7 +430,7 @@ function Composer({ me, chat, reply, edit, clear, toast, err, refresh }: { me: B
         onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void send(); } }} />
       {!n && !file && !edit && typeof MediaRecorder !== 'undefined' ? <button className="ib" type="button" aria-label="ضبط پیام صوتی" onClick={startRec}><I n="mic" /></button> : null}
       <button className="snd" type="button" aria-label={edit ? 'ذخیره‌ی ویرایش' : 'ارسال'} aria-disabled={!canSend} onClick={send}><I n={edit ? 'check' : 'send'} /></button></>;
-  return <div className="cz">{top}<div className="row">{row}</div>
+  return <div className="cz">{top}{!top && !rec && !edit && !file ? <QuickBar chatId={chat.id} toast={toast} err={err} refresh={refresh} /> : null}<div className="row">{row}</div>
     <input ref={pick} type="file" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { const k = kindRef.current === 'document' && /^video\//.test(f.type) ? 'video' : kindRef.current === 'document' && /^image\//.test(f.type) ? 'photo' : kindRef.current; setFile({ f, kind: k }); setPop(null); } }} />
     {rec ? <p className="recm"><b>{fd((recB / 1048576).toFixed(1)).replace('.', '٫')} از {fa(L.voiceBytes / 1048576)} مگابایت</b>؛ اگر بیشتر شود، به‌صورت فایل صوتی فرستاده می‌شود.</p>
       : n >= warn ? <p className="cnt" role="status">{fd(n)} از {fd(L.textMax)} نویسه</p>
@@ -564,4 +564,17 @@ function ManualWiz({ chat, toast, err, refresh, close }: { chat: BbChat; toast: 
         : <><button className="btn pri sm" type="submit" disabled={busy}><I n="check" />تأیید و وصل</button><button className="btn gh sm" type="button" onClick={() => setStep(1)}>برگشت</button></>}
     </div>
   </form>;
+}
+
+/** «مدیریت فروش» v1.3 canned messages (t358s1326): one tap sends that message at once. /api/bale-bot/quick 404s while flag.sales_admin_bale_v13 is OFF → no bar. */
+function QuickBar({ chatId, toast, err, refresh }: { chatId: number; toast: (t: string) => void; err: (e: unknown) => void; refresh: () => void }) {
+  const q = useQuery<{ items: { id: string; title: string }[] } | null>({ queryKey: ['bb-quick'], retry: false, staleTime: 60_000, refetchOnWindowFocus: false,
+    queryFn: () => bbFetch<{ items: { id: string; title: string }[] }>('/bale-bot/quick').catch(() => null) });
+  const [busy, setBusy] = useState<string | null>(null);
+  const items = q.data?.items ?? [];
+  if (!items.length) return null;
+  return <div className="qbar" role="group" aria-label="پیام‌های پیش‌فرض؛ یک ضربه همان لحظه می‌فرستد" data-testid="bb-quickbar">
+    {items.map((it) => <button key={it.id} type="button" className="qb" disabled={busy != null} aria-busy={busy === it.id}
+      onClick={async () => { setBusy(it.id); try { await bbFetch(`/bale-bot/chats/${chatId}/quick/${it.id}`, { body: {} }); toast(`«${it.title}» فرستاده شد`); refresh(); } catch (e) { err(e); } finally { setBusy(null); } }}>{it.title}</button>)}
+  </div>;
 }

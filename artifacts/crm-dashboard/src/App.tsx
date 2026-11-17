@@ -319,7 +319,7 @@ function AppWithRoutes() {
                     <Route path="/sales-team-admin"><MergedRedirect><SalesManagerConsolePage /></MergedRedirect></Route>
                     {/* «مدیریت فروش» v1.2: only while flag.sales_admin_merge_v12 is ON; otherwise the usual «not found» */}
                     <Route path="/sales-admin"><SalesAdminGate fallback={<NotFound />}><SalesManagerConsolePage /></SalesAdminGate></Route>
-                    <Route path="/bale-bot/admin"><BaleBotAdmin /></Route>{/* bale v1.1: pages render nothing (redirect) while flag.bale_bot is OFF */}
+                    <Route path="/bale-bot/admin"><MergedRedirect><BaleBotAdmin /></MergedRedirect></Route>{/* bale v1.1: pages render nothing (redirect) while flag.bale_bot is OFF */}
                     <Route path="/bale-bot/:id"><BaleBotInbox /></Route>
                     <Route path="/bale-bot"><BaleBotInbox /></Route>
                     <Route path="/settings/default-owner"><MergedRedirect><AdminOnlyRoute><DefaultOwnerSettings /></AdminOnlyRoute></MergedRedirect></Route>

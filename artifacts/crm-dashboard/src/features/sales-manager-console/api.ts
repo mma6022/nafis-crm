@@ -55,7 +55,7 @@ export async function smcApi<T>(path: string, init?: { method?: string; body?: u
 }
 
 /** Nav gate: 404 (flag OFF) and 403 (not a manager) both mean «no item». Never retried. `merged` only while flag.sales_admin_merge_v12 is ON. */
-export type SmcMe = { enabled: boolean; canManage: boolean; roleLabel: string; merged?: boolean; path?: string; accessRoles?: string[] };
+export type SmcMe = { enabled: boolean; canManage: boolean; roleLabel: string; merged?: boolean; path?: string; accessRoles?: string[]; bale?: boolean };
 export function useSmcMe(enabled: boolean) {
   return useQuery({ queryKey: ['smc-me'], enabled, retry: false, staleTime: 60_000, queryFn: () => smcApi<SmcMe>('/me') });
 }
@@ -94,3 +94,25 @@ export function useSmcState() {
 }
 export const smcPath = '/sales-team-admin';
 export const samPath = '/sales-admin';
+
+/* ---------------- v1.3 Bale + voice (flag.sales_admin_bale_v13 + console flags; OFF → 404 → sections hidden) ---------------- */
+export type ViewLevel = 'own' | 'all' | 'none';
+export type BaleViewRow = { userId: number; name: string; level: ViewLevel | null; effective: ViewLevel; from: 'user' | 'team' | 'managers' | null; baleOn: boolean };
+export type QuickMessage = { id: string; title: string; body: string };
+export type VoiceMode = 'auto' | 'manual' | 'off';
+export type VoiceRow = { id: number; at: string; direction: 'in' | 'out'; expert: string | null; customer: string; durationS: number; state: 'none' | 'failed' | 'waiting' | 'queued' | 'processing' };
+export type BaleState = {
+  flag: string; canWrite: boolean;
+  bots: {
+    shared: { id: number; name: string; username: string | null; status: string; hasToken: boolean; ai: boolean } | null;
+    experts: { userId: number; name: string; mode: 'own' | 'shared'; paused: boolean; bot: { id: number; username: string | null; name: string | null; status: string; ai: boolean } | null }[];
+    contactFlow: { forced: boolean; sharedOnly: boolean }; aiLive: boolean; aiMaster: boolean; canConnect: boolean; openai: { set: boolean; savedAt: string | null };
+  };
+  view: { managers: { level: ViewLevel; members: BaleViewRow[] }; teams: { id: number; name: string; level: ViewLevel | null; members: BaleViewRow[] }[]; others: BaleViewRow[] };
+  quick: QuickMessage[];
+  voice: { mode: VoiceMode; modeSet: boolean; total: number; pending: number; rows: VoiceRow[] };
+  writes: { part: string; table: string; keys: string }[];
+};
+export function useBaleState(enabled: boolean) {
+  return useQuery({ queryKey: ['smc-bale'], enabled, retry: false, staleTime: 0, refetchOnWindowFocus: false, queryFn: () => smcApi<BaleState>('/bale/state') });
+}

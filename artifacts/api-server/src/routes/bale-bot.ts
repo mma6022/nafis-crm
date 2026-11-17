@@ -6,6 +6,7 @@
  * Manual link search: only the bot owner's own customers. Admin bot setup: admin + sales manager (masked token, never returned).
  */
 import express, { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
+import { perfCacheGetOrSet } from "../lib/perf-poll-cache";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -123,6 +124,7 @@ function botView(b: ReturnType<typeof botOfUser>) {
   return b ? { id: b.id, username: b.bot_username, name: b.bot_name, status: b.status, connectedAt: b.connected_at, lastOkAt: b.last_ok_at, lastError: b.last_error, hasToken: !!b.token_ct } : null;
 }
 
+import { sabOn, sabQuickMessages } from "../lib/sales-admin-bale";
 import { attachCustomerBotToChat, customerBotFlagsPayload, registerCustomerBaleRoutes } from "./customer-bale";
 import { registerSignReminderRoutes } from "./bale-sign-reminder";
 import { srChatView, srFlagOn } from "../lib/bale-sign-reminder";
@@ -141,10 +143,13 @@ export function createBaleBotRouter(): IRouter {
   const kick = () => { setImmediate(() => { void baleBotWorker.flushOutbox(); }); };
 
   r.get("/bale-bot/me", (_req, res) => {
-    const u = U(res); const v = bbView(u)!;
-    const unread = v === "all" ? queryRow<{ n: number }>("SELECT COUNT(*) n FROM bale_bot_chats WHERE unread>0")!.n
-      : queryRow<{ n: number }>("SELECT COUNT(*) n FROM bale_bot_chats c JOIN bale_bots b ON b.id=c.bot_id WHERE b.user_id=? AND c.unread>0", [u.id])!.n;
-    res.json({ enabled: true, view: v, canManage: bbCanManage(u), name: nameOf(u), bot: botView(botOfUser(u.id)), unread, limits: BB_LIMITS, contactFeature: bcFlagOn(), customerBot: customerBotFlagsPayload(), signReminder: srFlagOn() });
+    const u = U(res);
+    res.json(perfCacheGetOrSet(`bale-bot-me:${u.id}`, 3_000, () => {
+      const v = bbView(u)!;
+      const unread = v === "all" ? queryRow<{ n: number }>("SELECT COUNT(*) n FROM bale_bot_chats WHERE unread>0")!.n
+        : queryRow<{ n: number }>("SELECT COUNT(*) n FROM bale_bot_chats c JOIN bale_bots b ON b.id=c.bot_id WHERE b.user_id=? AND c.unread>0", [u.id])!.n;
+      return { enabled: true, view: v, canManage: bbCanManage(u), name: nameOf(u), bot: botView(botOfUser(u.id)), unread, limits: BB_LIMITS, contactFeature: bcFlagOn(), customerBot: customerBotFlagsPayload(), signReminder: srFlagOn() };
+    }));
   });
 
   r.get("/bale-bot/chats", (req, res) => {
@@ -211,6 +216,17 @@ export function createBaleBotRouter(): IRouter {
     res.json({ message: queueOut(c, u, { kind: "text", text, replyTo }) });
   });
 
+  /* «مدیریت فروش» v1.3 canned messages: one tap sends at once (t358s1326) through the same queue as a typed message. OFF → 404. */
+  r.get("/bale-bot/quick", (_req, res) => {
+    if (!sabOn()) return fail(res, 404, "flag_off");
+    res.json({ items: sabQuickMessages().map((q) => ({ id: q.id, title: q.title })) });
+  });
+  r.post("/bale-bot/chats/:id/quick/:qid", (req, res) => {
+    if (!sabOn()) return fail(res, 404, "flag_off");
+    const u = U(res); const c = writable(u, num(req.params.id), res); if (!c) return;
+    const q = sabQuickMessages().find((x) => x.id === String(req.params.qid)); if (!q) return fail(res, 404, "not_found");
+    res.json({ message: queueOut(c, u, { kind: "text", text: q.body.slice(0, BB_LIMITS.textMax), replyTo: null }) });
+  });
   r.post("/bale-bot/chats/:id/request-contact", (req, res) => {
     const u = U(res); const c = writable(u, num(req.params.id), res); if (!c) return;
     if (bcFlagOn()) {

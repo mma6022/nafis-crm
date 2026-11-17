@@ -5,7 +5,11 @@ import {callReportDay}from"./call-reports";
 import {TranscriptionError}from"./recording-transcription";
 import {ctFlag,CT_START_DELAY_SECONDS,SYSTEM_REQUESTER}from"./call-transcripts";
 import {ctfAny,ctfOn,CTF_START_DELAY_SECONDS}from"./ct-fastnote";
+/** «مدیریت فروش» v1.3 voice mode: «فقط ذخیره؛ تبدیل دستی» / «غیرفعال» stop automatic queueing. No hook → today. */
+let autoBlockHook:(()=>boolean)|null=null;
+export const setAutoCallReportsBlockHook=(h:(()=>boolean)|null)=>{autoBlockHook=h;};
 export async function queueAutomaticCallReports(){
+  if(autoBlockHook&&autoBlockHook())return;
   // call-transcripts (auto flag): wait until the recording is likely published, queue as the system requester.
   const auto=ctFlag("auto");
   // CT-FASTNOTE: flagged experts' calls are queued 12 s after hang-up; everyone else keeps CT_START_DELAY_SECONDS.

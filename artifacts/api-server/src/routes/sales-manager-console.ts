@@ -14,6 +14,7 @@ import {
   samMerged, samAccessRoles,
 } from "../lib/sales-manager-console";
 import { isFoldKey, samCanWriteFolded, samImport, samRevertTeam, samSaveFolded, samUndoFolded, samView, samWriteTeam } from "../lib/sales-admin-merge";
+import { isSabSection, sabCanWrite, sabConnectBot, sabOn, sabRequestTranscripts, sabSaveKey, sabSaveQuick, sabSetAi, sabSetMode, sabSetView, sabSetVoiceMode, sabState, sabUndo, startSabVoiceFeeder } from "../lib/sales-admin-bale";
 
 const me = (res: Response) => res.locals.authUser as AuthUser | undefined;
 const router: IRouter = Router();
@@ -65,8 +66,34 @@ router.get("/sales-admin/me", (_req, res) => {
   const roleLabel = u.role === "admin" && !u.salesManager && u.baseRole !== "sales_manager" ? "ادمین" : "مدیر فروش";
   // v1.2 fields only while flag.sales_admin_merge_v12 is ON, so the v1.1 response stays byte-identical when it is OFF.
   if (!samMerged()) return void res.json({ enabled: true, canManage: true, roleLabel });
-  res.json({ enabled: true, canManage: true, roleLabel, merged: true, path: "/sales-admin", accessRoles: samAccessRoles() });
+  res.json({ enabled: true, canManage: true, roleLabel, merged: true, path: "/sales-admin", accessRoles: samAccessRoles(), ...(sabOn() ? { bale: true } : {}) });
 });
+
+/* ---------------- v1.3 Bale + voice (flag.sales_admin_bale_v13 + both console flags; OFF → 404) ---------------- */
+const baleOff = (res: Response) => { if (sabOn()) return false; res.status(404).json({ error: "not_found" }); return true; };
+type SabR = { ok: boolean; status?: number };
+const sabSend = (res: Response, r: SabR) => { if (!r.ok) return void res.status((r as { status: number }).status).json(r); res.json(r); };
+router.get("/sales-admin/bale/state", (_req, res) => {
+  if (baleOff(res)) return;
+  res.json({ ...sabState(), canWrite: sabCanWrite(me(res)) });
+});
+router.put("/sales-admin/bale/ai", (req, res) => { if (baleOff(res)) return; sabSend(res, sabSetAi(me(res)!, req.body ?? {})); });
+router.put("/sales-admin/bale/mode", (req, res) => { if (baleOff(res)) return; sabSend(res, sabSetMode(me(res)!, req.body ?? {})); });
+router.put("/sales-admin/bale/view", (req, res) => { if (baleOff(res)) return; sabSend(res, sabSetView(me(res)!, req.body ?? {})); });
+router.put("/sales-admin/bale/quick", (req, res) => { if (baleOff(res)) return; sabSend(res, sabSaveQuick(me(res)!, req.body ?? {})); });
+router.put("/sales-admin/bale/voice/mode", (req, res) => { if (baleOff(res)) return; sabSend(res, sabSetVoiceMode(me(res)!, req.body ?? {})); });
+router.post("/sales-admin/bale/voice/transcribe", (req, res) => { if (baleOff(res)) return; sabSend(res, sabRequestTranscripts(me(res)!, req.body ?? {})); });
+router.post("/sales-admin/bale/bots/connect", async (req, res) => {
+  if (baleOff(res)) return;
+  try { sabSend(res, await sabConnectBot(me(res)!, req.body ?? {})); }
+  catch { res.status(500).json({ ok: false, error: "unknown", message: "ربات وصل نشد؛ دوباره تلاش کنید." }); } // never echoes the token
+});
+router.post("/sales-admin/bale/key", (req, res) => {
+  if (baleOff(res)) return;
+  try { sabSend(res, sabSaveKey(me(res)!, req.body ?? {})); }
+  catch { res.status(500).json({ ok: false, error: "unknown", message: "کلید ذخیره نشد؛ دوباره تلاش کنید." }); } // never echoes the key
+});
+startSabVoiceFeeder();
 
 /* ---------------- v1.2 merge (flag.sales_admin_merge_v12; OFF → 404 like an unknown path) ---------------- */
 const mergeOff = (res: Response) => { if (samMerged()) return false; res.status(404).json({ error: "not_found" }); return true; };
@@ -227,6 +254,11 @@ router.post("/sales-admin/audit/:id/revert", (req, res) => {
     return void res.json({ ok: true, applied: [{ section: "teams_live", auditId: "auditId" in t ? t.auditId : 0 }] });
   }
   const sec = samMerged() ? queryRow<{ section: string }>("SELECT section FROM smc_audit WHERE id=?", [id])?.section : undefined;
+  if (sec && isSabSection(sec) && sabOn()) {
+    const b = sabUndo(me(res)!, id);
+    if (!b.ok) return void res.status(b.status).json(b);
+    return void res.json({ ok: true, applied: [{ section: sec, auditId: b.auditId }] });
+  }
   if (sec && sec.startsWith("merge_") && isFoldKey(sec.slice(6))) {
     const f = samUndoFolded(me(res)!, id);
     if (!f.ok) return void res.status(f.status).json(f);

@@ -799,6 +799,13 @@ export type AiResult =
 export function cbAiLive(): boolean {
   return cbFlagOn("ai") && aiEnabled();
 }
+/** «مدیریت فروش» v1.3 (flag.sales_admin_bale_v13): per-bot AI switch. No hook / flag OFF → exactly cbAiLive() (today). */
+let aiBotHook: ((bot: { id: number; user_id: number }) => boolean) | null = null;
+export const setCbAiBotHook = (h: typeof aiBotHook) => { aiBotHook = h; };
+export function cbAiLiveFor(bot: { id: number; user_id: number } | null | undefined): boolean {
+  if (!cbAiLive()) return false;
+  return !aiBotHook || !bot ? true : aiBotHook(bot);
+}
 
 export async function cbAnswerAi(question: string, opts?: { fetchFn?: ChatCompletionsFn; timeoutMs?: number }): Promise<AiResult> {
   if (!aiEnabled()) return { kind: "handoff", reason: "error", text: CB_TEXTS.aiHandoffBody };
@@ -967,20 +974,20 @@ export async function cbHandleInbound(ctx: InboundCtx): Promise<CbReply | null> 
 
   /* ---- AI ---- */
   if (t === CB_TEXTS.menuAi) {
-    if (!cbAiLive()) return send(ctx, { text: CB_TEXTS.featureOff, keyboard: "cb_menu" });
+    if (!cbAiLiveFor(ctx.bot)) return send(ctx, { text: CB_TEXTS.featureOff, keyboard: "cb_menu" });
     cbSetAiMode(ctx.chat.id, true);
     return send(ctx, { text: "سؤال خود را بنویسید. پاسخ از پایگاه دانش است و نرخ یا وعده‌ی تصویب داده نمی‌شود.", keyboard: "cb_back" });
   }
 
   const filing = cbActiveFiling(ctx.chat.id);
-  const inAi = cbAiLive() && !filing && t && t !== CB_TEXTS.menuApply && t !== CB_BTNS.apply && t !== CB_BTNS.resume
+  const inAi = cbAiLiveFor(ctx.bot) && !filing && t && t !== CB_TEXTS.menuApply && t !== CB_BTNS.apply && t !== CB_BTNS.resume
     && t !== CB_BTNS.cancel && t !== CB_BTNS.cancelYes && t !== CB_BTNS.confirm && t !== CB_BTNS.sendCode
     && t !== CB_BTNS.later && t !== CB_TEXTS.backMenu;
 
   // If user is mid-filing, text is for the wizard, not AI — except "پرسش"
   const mid = !!filing && filing.cancelled === 0;
 
-  if (cbAiLive() && !mid && t && t !== CB_TEXTS.menuTrack && t !== CB_TEXTS.menuApply && t !== CB_TEXTS.menuExpert
+  if (cbAiLiveFor(ctx.bot) && !mid && t && t !== CB_TEXTS.menuTrack && t !== CB_TEXTS.menuApply && t !== CB_TEXTS.menuExpert
       && t !== CB_BTNS.apply && t !== CB_BTNS.details && t !== CB_BTNS.resume && t.length > 1
       && (cbAiMode(ctx.chat.id) || t === CB_TEXTS.menuAi || looksLikeQuestion(t))) {
     if (t === CB_TEXTS.menuAi) { /* already handled */ }
