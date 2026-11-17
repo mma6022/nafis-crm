@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import {
   CPK_COLUMNS, CPK_PAGE, cpkColumnsForFilter, cpkMoreLabel, cpkUndoMessage,
-  cpkViewKey, formatFollowUp, formatLastCall, readCpkView, writeCpkView,
+  cpkViewKey, faNum, formatFollowUp, formatLastCall, formatPhoneLast4, readCpkView, writeCpkView,
 } from "../src/features/customers-priority-kanban/helpers.ts";
 
 const store = new Map();
@@ -53,6 +53,9 @@ ok("view storage is keyed only by expert id and defaults to فهرست", () => {
 ok("«بیشتر» uses Persian digits and the remaining count", () => {
   assert.equal(cpkMoreLabel(7), "۷ مورد دیگر — بیشتر");
   assert.equal(cpkMoreLabel(15), "۱۵ مورد دیگر — بیشتر");
+  assert.equal(faNum(1275), "۱٬۲۷۵");
+  assert.equal(formatPhoneLast4("9767"), "۹۷۶۷");
+  assert.equal(formatPhoneLast4("0611"), "۰۶۱۱");
 });
 
 ok("follow-up is Jalali month + Tehran clock; undo names the destination column", () => {

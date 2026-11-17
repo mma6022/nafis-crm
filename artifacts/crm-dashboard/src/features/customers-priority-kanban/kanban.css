@@ -172,3 +172,8 @@
   .cpk-seg button[aria-selected="true"] { background: var(--cpk-brand-50); border-color: var(--cpk-brand-200); color: var(--cpk-brand-900); }
   .cpk-grab { display: none; }
 }
+
+/* StatusPill (.csx-st) tokens — same as the admin customers view; .csx is not on «مشتریان من». */
+.cpk [data-s="in_progress"] { --c: var(--nf-brand-700, #212C85); --b: var(--nf-brand-50, #EEF0FA); }
+.cpk [data-s="completed"] { --c: var(--nf-success, #087443); --b: var(--nf-success-50, #E7F6EE); }
+.cpk [data-s="cancelled"] { --c: var(--nf-ink-muted, #5F6B85); --b: var(--nf-surface-2, #EFF1F8); }

@@ -33,6 +33,13 @@ export function writeCpkView(userId: number | undefined | null, view: CpkView): 
 
 export const faNum = (n: number) => n.toLocaleString("fa-IR");
 
+const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
+/** Last four phone digits in Persian, for the locked short-list mask (no full number). */
+export function formatPhoneLast4(last4: string): string {
+  return String(last4).replace(/[0-9]/g, (d) => FA_DIGITS[Number(d)]!)
+    .replace(/[٠-٩]/g, (d) => FA_DIGITS["٠١٢٣٤٥٦٧٨٩".indexOf(d)]!);
+}
+
 export function cpkMoreLabel(remaining: number): string {
   return `${faNum(remaining)} مورد دیگر — بیشتر`;
 }

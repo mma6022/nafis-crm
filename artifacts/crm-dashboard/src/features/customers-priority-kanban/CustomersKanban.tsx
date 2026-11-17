@@ -1,15 +1,15 @@
 /** customers-priority-kanban v1 — compact priority columns for «مشتریان من». Only rendered while flag.customers_priority_kanban_v1 is ON. */
-import { MoreHorizontal, PhoneCall } from "lucide-react";
+import { Check, Copy, MoreHorizontal, PhoneCall } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
 import { Link } from "wouter";
 import { keepPreviousData, useInfiniteQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { listCustomers, type Customer, type ListCustomersParams } from "@workspace/api-client-react";
-import { CallNumber } from "@/features/call-number/CallNumber";
+import { CallNumber, copyText } from "@/features/call-number/CallNumber";
 import { RowActionsMenu, type RowMenuItem } from "@/components/row-menu/RowActionsMenu";
 import { Sheet, StatusPill } from "@/pages/customers-ui";
 import {
   CPK_COLUMNS, CPK_PAGE, CPK_UNDO_MS,
-  cpkColumnLabel, cpkColumnsForFilter, cpkMoreLabel, cpkUndoMessage, faNum, formatFollowUp, formatLastCall,
+  cpkColumnLabel, cpkColumnsForFilter, cpkMoreLabel, cpkUndoMessage, faNum, formatFollowUp, formatLastCall, formatPhoneLast4,
 } from "./helpers";
 import "./kanban.css";
 
@@ -302,7 +302,7 @@ function KanbanColumn({ column, filters, isDesktop, active, canDrag, canCall, on
                   <h3>{customer.name}<span className="cpk-cid">#{faNum(customer.id)}</span></h3>
                 </div>
                 <div className="cpk-phn">
-                  {customer.phone ? <CallNumber phone={customer.phone} customerId={customer.id} via="customers" size="sm" testId={`cpk-ph-${customer.id}`} /> : customer.phoneLast4 ? <span className="cpk-phn-mask" dir="ltr">•••{customer.phoneLast4}</span> : null}
+                  {customer.phone ? <CallNumber phone={customer.phone} customerId={customer.id} via="customers" size="sm" testId={`cpk-ph-${customer.id}`} /> : customer.phoneLast4 ? <CpkMaskedPhone last4={customer.phoneLast4} customerId={customer.id} /> : null}
                 </div>
                 <div className="cpk-meta">
                   <StatusPill status={customer.status} />
@@ -345,3 +345,20 @@ function swipeHandlers(onSwipe: (dir: -1 | 1) => void) {
   };
 }
 
+function CpkMaskedPhone({ last4, customerId }: { last4: string; customerId: number }) {
+  const [done, setDone] = useState(false);
+  useEffect(() => { if (!done) return; const t = window.setTimeout(() => setDone(false), 1800); return () => window.clearTimeout(t); }, [done]);
+  const shown = `•••••••${formatPhoneLast4(last4)}`;
+  const digits = String(last4).replace(/\D/g, "");
+  return (
+    <span className="cn cn-sm" data-testid={`cpk-ph-${customerId}`} data-mode="text">
+      <span className="cn-n" dir="ltr">{shown}</span>
+      <button type="button" className={`cn-c${done ? " done" : ""}`} aria-label={`کپی شماره‌ی ${shown}`} title="کپی شماره"
+        data-testid={`cpk-ph-${customerId}-copy`}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); void copyText(digits).then((ok) => setDone(ok)); }}>
+        {done ? <Check size={18} aria-hidden="true" /> : <Copy size={18} aria-hidden="true" />}
+      </button>
+      {done ? <span className="cn-toast" role="status" data-testid={`cpk-ph-${customerId}-toast`}>کپی شد</span> : null}
+    </span>
+  );
+}

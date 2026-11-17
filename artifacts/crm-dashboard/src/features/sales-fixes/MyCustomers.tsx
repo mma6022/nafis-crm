@@ -10,7 +10,7 @@ import { useGetAuthSession, useUpdateCustomer, getGetAuthSessionQueryKey } from 
 import { toPersianDigits } from '@/lib/customer-id';
 import { useCpkOn, listMyCustomersKanban } from '@/features/customers-priority-kanban/api';
 import { CustomersKanban, type CpkCustomer } from '@/features/customers-priority-kanban/CustomersKanban';
-import { CPK_PAGE, readCpkView, writeCpkView, type CpkView } from '@/features/customers-priority-kanban/helpers';
+import { CPK_PAGE, faNum, readCpkView, writeCpkView, type CpkView } from '@/features/customers-priority-kanban/helpers';
 import { sfApi, fa, faDay, PRIO_FA } from './api';
 import { SfSearchButton } from './SearchOverlay';
 import '@/pages/customers.css';
@@ -87,7 +87,7 @@ export function MyCustomersPage() {
           const n = tabCount(tab.value);
           return <button key={tab.value || 'all'} type="button" role="tab" className="csx-tab" aria-selected={status === tab.value} data-s={tab.value || undefined} onClick={() => setStatus(tab.value)} data-testid={`tab-status-${tab.value || 'all'}`}>
             {tab.label}
-            {countsQ.isError ? null : n == null ? <span className="n sk" aria-hidden="true" /> : <span className="n" aria-label={`${fa(n)} مشتری`}>{fa(n)}</span>}
+            {countsQ.isError ? null : n == null ? <span className="n sk" aria-hidden="true" /> : <span className="n" aria-label={`${faNum(n)} مشتری`}>{faNum(n)}</span>}
           </button>;
         })}
       </div>
