@@ -14,7 +14,7 @@ import {
   samMerged, samAccessRoles,
 } from "../lib/sales-manager-console";
 import { isFoldKey, samCanWriteFolded, samImport, samRevertTeam, samSaveFolded, samUndoFolded, samView, samWriteTeam } from "../lib/sales-admin-merge";
-import { isSabSection, sabCanWrite, sabConnectBot, sabOn, sabRequestTranscripts, sabSaveKey, sabSaveQuick, sabSetAi, sabSetMode, sabSetView, sabSetVoiceMode, sabState, sabUndo, startSabVoiceFeeder } from "../lib/sales-admin-bale";
+import { isSabSection, sabCanWrite, sabConnectBot, sabOn, sabRequestTranscripts, sabVoiceView, sabSaveKey, sabSaveQuick, sabSetAi, sabSetMode, sabSetView, sabSetVoiceMode, sabState, sabUndo, startSabVoiceFeeder } from "../lib/sales-admin-bale";
 
 const me = (res: Response) => res.locals.authUser as AuthUser | undefined;
 const router: IRouter = Router();
@@ -81,6 +81,7 @@ router.put("/sales-admin/bale/ai", (req, res) => { if (baleOff(res)) return; sab
 router.put("/sales-admin/bale/mode", (req, res) => { if (baleOff(res)) return; sabSend(res, sabSetMode(me(res)!, req.body ?? {})); });
 router.put("/sales-admin/bale/view", (req, res) => { if (baleOff(res)) return; sabSend(res, sabSetView(me(res)!, req.body ?? {})); });
 router.put("/sales-admin/bale/quick", (req, res) => { if (baleOff(res)) return; sabSend(res, sabSaveQuick(me(res)!, req.body ?? {})); });
+router.get("/sales-admin/bale/voice", (req, res) => { if (baleOff(res)) return; res.json(sabVoiceView(req.query.page)); });
 router.put("/sales-admin/bale/voice/mode", (req, res) => { if (baleOff(res)) return; sabSend(res, sabSetVoiceMode(me(res)!, req.body ?? {})); });
 router.post("/sales-admin/bale/voice/transcribe", (req, res) => { if (baleOff(res)) return; sabSend(res, sabRequestTranscripts(me(res)!, req.body ?? {})); });
 router.post("/sales-admin/bale/bots/connect", async (req, res) => {

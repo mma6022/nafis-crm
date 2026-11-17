@@ -88,7 +88,7 @@ try {
     live: queryRows("SELECT * FROM bale_bots ORDER BY id").map((b) => [b.id, bb.botLive(b)]), ai: bots.map((b) => [b.id, cb.cbAiLiveFor(b)]),
   });
   flags(null, null, null); const B0 = baseline();
-  const sabPaths = [["GET", "/sales-admin/bale/state"], ["PUT", "/sales-admin/bale/ai", { botId: 1, on: false }], ["PUT", "/sales-admin/bale/view", { scope: "user", id: 8, level: "none" }],
+  const sabPaths = [["GET", "/sales-admin/bale/state"], ["GET", "/sales-admin/bale/voice?page=2"], ["PUT", "/sales-admin/bale/ai", { botId: 1, on: false }], ["PUT", "/sales-admin/bale/view", { scope: "user", id: 8, level: "none" }],
     ["PUT", "/sales-admin/bale/quick", { items: [] }], ["PUT", "/sales-admin/bale/voice/mode", { mode: "off" }], ["POST", "/sales-admin/bale/key", { value: "sk-fixture-0000000000" }]];
 
   await ok("flag OFF (any combination short of all three): /sales-admin/bale/* 404, /bale-bot/quick 404, /bale-bot/admin not redirected, /me has no bale key, hooks = today, nothing written", async () => {
@@ -243,6 +243,13 @@ try {
     const s = (await call(MANAGER, "GET", "/sales-admin/bale/state")).body.voice;
     assert.ok(s.total > 100, `list total ${s.total}`);
     assert.ok(!queryRows("SELECT expert_user_id FROM voip_after_call_events WHERE id IN (" + s.rows.map((r) => r.id).join(",") + ")").some((r) => r.expert_user_id === 29));
+    // Armita review: 20 rows a page, total + pages for every page; page 2 is the next 20; out-of-range clamps; experts 403; OFF 404 (case 1).
+    assert.equal(s.rows.length, 20); assert.equal(s.page, 1); assert.equal(s.per, 20); assert.equal(s.pages, Math.ceil(s.total / 20));
+    const p2 = (await call(MANAGER, "GET", "/sales-admin/bale/voice?page=2")).body;
+    assert.equal(p2.page, 2); assert.equal(p2.total, s.total); assert.equal(p2.rows.length, Math.min(20, s.total - 20));
+    assert.ok(!p2.rows.some((r) => s.rows.some((x) => x.id === r.id)), "page 2 rows differ from page 1");
+    assert.equal((await call(MANAGER, "GET", "/sales-admin/bale/voice?page=99999")).body.page, s.pages);
+    assert.equal((await call(KAZEMI, "GET", "/sales-admin/bale/voice?page=2")).status, 403);
     const completed = queryRow("SELECT e.id FROM voip_after_call_events e JOIN voip_recording_transcripts t ON t.external_id=COALESCE(e.recording_provider_id,e.external_id) AND t.state='completed' AND t.source_file=e.recording_file LIMIT 1");
     assert.ok(!sab.sabUntranscribed(5000).some((r) => r.id === completed.id), "completed calls are not listed");
     assert.ok(sab.sabUntranscribed(5000).some((r) => r.t_state === "failed"), "failed ones are listed (§6-33)");
@@ -254,6 +261,7 @@ try {
     const all = await call(MANAGER, "POST", "/sales-admin/bale/voice/transcribe", { all: true }); assert.equal(all.status, 200);
     assert.ok(queryRow("SELECT COUNT(*) n FROM voip_recording_transcripts WHERE state IN ('queued','processing')").n <= 10, "existing queue cap respected");
     assert.ok(JSON.parse(get(sab.K.voicePending)).length > 100, "the rest waits in sab.voice.pending");
+    assert.ok(JSON.parse(get(sab.K.voicePending)).length > s.per * 2, "«تبدیل همه» covers rows beyond the first pages");
     const off = await call(MANAGER, "PUT", "/sales-admin/bale/voice/mode", { mode: "off" });
     assert.equal((await call(MANAGER, "POST", "/sales-admin/bale/voice/transcribe", { all: true })).status, 409);
     await call(MANAGER, "POST", `/sales-admin/audit/${off.body.auditId}/revert`);
