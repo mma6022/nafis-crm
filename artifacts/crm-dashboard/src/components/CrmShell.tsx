@@ -17,6 +17,7 @@ import { AssistantDock } from '@/features/assistant/AssistantDock';
 import { usePaOn } from '@/features/plan-advisor/api';
 import { PlanAdvisorHost } from '@/features/plan-advisor/PlanAdvisorHost';
 import { usePlanAdvisorOptional } from '@/features/plan-advisor/PlanAdvisorContext';
+import { pa390DockTabs } from '@/features/plan-advisor/dock-tabs';
 import { useFloatingGuard } from './useFloatingGuard';
 import { usePageUsage } from '@/lib/page-usage';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
@@ -797,12 +798,13 @@ function SsNavHost(p: SsHostProps) {
   const toItems = (hrefs: string[]) => hrefs.map(itemOf).filter((x): x is SsItem => x !== null);
   const astItem: SsItem | null = p.ast && !(p.bnv2 && slots.kind === 'admin') ? { key: 'ast', label: 'دستیار', full: `چت دستیار (${p.ast.name})`, icon: <>{p.ast.name.slice(0, 1)}</>, avatar: true, testId: 'ast', onSelect: p.ast.open, moon: p.ast.dnd,
     badge: p.ast.unread ? { n: p.ast.unread, tone: 'n', what: 'پیام تازه از دستیار' } : null } : null;
-  // plan-advisor v1: dock «دستیار» opens the advisor sheet (no FAB). If AI chat is also present, it is «چت هوش مصنوعی» in بیشتر.
+  // plan-advisor v1: dock «دستیار» opens the advisor sheet (no FAB). If AI chat is also present, it is «چت هوش مصنوعی» in بیشتر (including admin, who has no AI dock item).
   const paCtl = usePlanAdvisorOptional();
   const paOn = usePaOn();
   const paItem: SsItem | null = paOn && paCtl ? { key: 'pa', label: 'دستیار', full: 'دستیار مشاوره', icon: ic(MessageSquare), testId: 'pa-dock', onSelect: () => paCtl.openSheet() } : null;
   const astOnDock: SsItem | null = paItem ? null : astItem;
-  const astInMore: SsItem | null = paItem && astItem ? { ...astItem, label: 'چت هوش مصنوعی', full: `چت هوش مصنوعی (${p.ast?.name ?? ''})`.trim() } : null;
+  const astInMore: SsItem | null = paItem && p.ast ? { key: 'ast', label: 'چت هوش مصنوعی', full: `چت هوش مصنوعی (${p.ast.name})`, icon: <>{p.ast.name.slice(0, 1)}</>, avatar: true, testId: 'ast', onSelect: p.ast.open, moon: p.ast.dnd,
+    badge: p.ast.unread ? { n: p.ast.unread, tone: 'n', what: 'پیام تازه از دستیار' } : null } : null;
   const todayHref = slots.before[0] === '/' || slots.before[0] === '/today' ? slots.before[0] : (itemOf('/today') ? '/today' : itemOf('/') ? '/' : null);
   const lists: SsItem[] = [
     ...toItems(slots.listsFirst),
@@ -815,31 +817,30 @@ function SsNavHost(p: SsHostProps) {
     ...(p.canRem && p.mobile ? [{ key: 'remind', label: 'ثبت یادآور', full: 'ثبت یادآور', icon: ic(Bell), testId: 'remind', onSelect: p.onRemind }] : []),
     { key: 'profile', label: 'ویرایش کاربر', full: 'ویرایش کاربر', icon: ic(Pencil), testId: 'profile', onSelect: p.onProfile },
   ];
-  const moreRest = astInMore ? [...rest, astInMore] : rest;
+  const showAst = Boolean(astOnDock) && slots.kind !== 'admin';
+  // t378s1460: while flag.plan_advisor_v1 is ON, 390 tabs are امروز، پرونده‌ها، ربات بله، دستیار، بیشتر. «دستور پرداخت» goes to بیشتر. Flag OFF keeps the live tabs.
+  const rawTabs = toItems(slots.tabs);
+  const arranged = pa390DockTabs(Boolean(paItem) && p.mobile, rawTabs, [...toItems(slots.daily), ...toItems(slots.after), ...toItems(slots.before)], paItem);
+  const tabItems = arranged.tabs;
+  const movedToMore = arranged.movedToMore;
+  const moreRest = [
+    ...movedToMore.filter((t) => !rest.some((r) => r.href && r.href === t.href)),
+    ...rest,
+    ...(astInMore ? [astInMore] : []),
+  ];
   const groups: SsGroup[] = p.bnv2
     ? [ ...(moreRest.length ? [{ title: 'فهرست‌ها', items: moreRest }] : []), { title: 'حساب من', items: account } ]
     : [{ title: 'پرونده و پرداخت', items: moreRest }, { title: 'حساب من', items: account }];
   const primary = slots.primary ? () => { ssRequestIncoming(); if (p.location !== '/today') setLocation('/today'); } : null;
-  const showAst = Boolean(astOnDock) && slots.kind !== 'admin';
-  // 390 tab bar is a fixed 5-column grid. Put «دستیار» on it while the flag is ON; the last tab moves to «بیشتر» so the row stays 5.
-  const rawTabs = toItems(slots.tabs);
-  let tabItems = rawTabs;
-  let extraDaily: SsItem[] = [];
-  if (paItem && p.mobile) {
-    if (rawTabs.length >= 3) {
-      const moved = rawTabs[rawTabs.length - 1];
-      tabItems = [...rawTabs.slice(0, -1), paItem];
-      if (moved && !(moved.href && slots.daily.includes(moved.href))) extraDaily = [moved];
-    } else {
-      tabItems = [...rawTabs, paItem];
-    }
-  }
   const afterItems = [...toItems(slots.after), ...(paItem ? [paItem] : []), ...(showAst && astOnDock ? [astOnDock] : [])];
-  const dailyItems = [...toItems(slots.daily), ...extraDaily, ...(showAst && astOnDock ? [astOnDock] : [])];
+  const dailyItems = [
+    ...toItems(slots.daily).filter((d) => !tabItems.some((t) => t.href && t.href === d.href) && !movedToMore.some((t) => t.href && t.href === d.href)),
+    ...(showAst && astOnDock ? [astOnDock] : []),
+  ];
   return <SalesShellNav
     before={toItems(slots.before)} after={afterItems} midSep={slots.midSep}
     tabs={tabItems} daily={dailyItems} groups={groups}
-    primary={primary} isActive={p.isActive} healthOk={p.healthOk} onLogout={p.onLogout} logoutPending={p.logoutPending}
+    primary={(p.mobile && paItem && tabItems.length >= 4) ? null : primary} isActive={p.isActive} healthOk={p.healthOk} onLogout={p.onLogout} logoutPending={p.logoutPending}
     location={p.location} mobile={p.mobile} blocked={ov.any} userId={p.userId} />;
 }
 
