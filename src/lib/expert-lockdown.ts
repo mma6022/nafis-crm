@@ -3,9 +3,13 @@
  * the three sales experts Kazemi (user 8 / sp 6), Hasani (user 2 / sp 3) and Ghasemi (user 3 / sp 4) may use ONLY
  * «کارهای امروز من», «پرونده‌های من», «دستور پرداخت», «خرید کالا» and the messengers. Every other staff API returns
  * 403 expert_lockdown. A single customer (page + its APIs, by path /customers/:id…, query or body customerId) is open only if
- *  (a) it is in the expert's own daily plan for today, (b) the expert's own «تماس ورودی» search found it (own customer only)
- *  in the last EL_GRANT_MINUTES, or (c) it is the expert's own customer with one of their cases (loan application, goods purchase
- *  or payment order); otherwise 403 expert_lockdown_customer.
+ *  (a) it is in the expert's own daily plan for today, (b) this expert answered a VoIP/Simotel incoming call for that
+ *  customer today (Tehran day) — or a live incoming is still ringing them, (c) the expert's own «تماس ورودی» search found it
+ *  (own customer only) in the last EL_GRANT_MINUTES, or (d) it is the expert's own customer with one of their cases
+ *  (loan application, goods purchase or payment order); otherwise 403 expert_lockdown_customer.
+ * Call report / call result / note saves (POST /calls and sibling report/note paths) are also allowed for any customer
+ * the expert owns (t810u «محدودیت مشتریان من رو فعلا بردار», confirmed t830u), even when that customer is not on
+ * today's list. That does not open other write families (loan apps, transfers, …). Trainees 27/31 stay locked.
  * Everybody else (admins, trainees, registrars, Milad, user 29, the assistant runner tokens) never reaches any check here:
  * the guard returns next() before touching the DB. Flag OFF (or absent) = old behaviour exactly.
  * «تماس ورودی دارم»: exact full mobile or exact full name only; never a list; rate-limited; every click/search is logged
@@ -35,6 +39,8 @@ const csOnSafe = (id: number) => { try { return csOn(id); } catch { return false
 export const EL_FLAG_KEY = "flag.expert_lockdown";
 /** users.id → their salespersons.id (checked against the session: a user whose salespersonId differs is not locked). */
 export const EL_USERS: Readonly<Record<number, number>> = { 8: 6, 2: 3, 3: 4 };
+/** Trainees and user 29 never get the own-customer call-save relaxation (they also never match elTarget). */
+const EL_CALL_SAVE_STILL_LOCKED = new Set([27, 29, 31]);
 /** Flag OFF: the three original experts. Flag ON: every member of an enabled sales team. */
 export function elUsers(): Readonly<Record<number, number>> {
   try { return teamExpertUserMap(EL_USERS); } catch { return EL_USERS; }
@@ -80,10 +86,30 @@ export function ensureElSchema(): void {
 }
 
 /* ---------------- customer access (a)/(b)/(c) ---------------- */
+/** Tehran day bounds, same convention as dci-queue (fixed +03:30, no DST). */
+function elTehranDayBounds(now: Date): { start: string; end: string } {
+  const day = dpToday(now);
+  return { start: new Date(`${day}T00:00:00+03:30`).toISOString(), end: new Date(`${day}T23:59:59.999+03:30`).toISOString() };
+}
+/** Incoming call this expert answered today (or a live incoming still on their extension) — in-scope for the rest of the Tehran day. */
+function elAnsweredIncomingToday(u: U, customerId: number, now: Date): boolean {
+  if (!queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='voip_after_call_events'")) return false;
+  const { start, end } = elTehranDayBounds(now);
+  return Boolean(queryRow(
+    `SELECT 1 x FROM voip_after_call_events
+      WHERE customer_id=? AND expert_user_id=?
+        AND lower(direction) IN ('incoming','inbound')
+        AND (upper(trim(status))='ANSWERED' OR is_live=1)
+        AND julianday(started_at)>=julianday(?) AND julianday(started_at)<=julianday(?)
+      LIMIT 1`,
+    [customerId, Number(u.id), start, end],
+  ));
+}
 export function elCustomerAccess(u: U, customerId: number, now = new Date()): "plan" | "incoming" | "registered" | "case" | null {
   const sp = Number(u.salespersonId);
   if (queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='dp_items'") &&
       queryRow("SELECT 1 x FROM dp_items i JOIN dp_plans p ON p.id=i.plan_id WHERE p.salesperson_id=? AND p.day=? AND i.customer_id=? LIMIT 1", [sp, dpToday(now), customerId])) return "plan";
+  if (elAnsweredIncomingToday(u, customerId, now)) return "incoming";
   ensureElSchema();
   const own = queryRow<{ salesperson_id: number | null }>("SELECT salesperson_id FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [customerId]);
   if (!own || Number(own.salesperson_id) !== sp) return null;
@@ -206,7 +232,17 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   // Shipped with «موارد اجباری»: only while flag.call_summary_fields_v1 is on for the caller (flag off → the old lockdown, unchanged).
   const ownQualifyWrite = ((req.method === "POST" && EL_OWN_QUALIFY_WRITES.some((re) => re.test(path)))
     || (req.method === "PATCH" && /^\/customers\/\d+\/consult-profile$/.test(path))) && csOnSafe(u!.id);
-  const ownLevel = req.method === "GET" || req.method === "HEAD" || reminderWrite || upgradeWrite || ownQualifyWrite || psWrite;
+  // t810u / t830u: call report, call result or note for ANY own customer, not only today's list.
+  // Today's answered incoming still opens the same saves via elCustomerAccess "incoming" (even if not the owner).
+  // Trainees 27/31 stay locked; user 29 is never a target and is excluded here as well.
+  const ownCallWrite = !EL_CALL_SAVE_STILL_LOCKED.has(Number(u!.id)) && (
+    (req.method === "POST" && /^\/(calls|voip\/calls|voip\/click-to-call)$/.test(path))
+    || (req.method === "POST" && /^\/calls\/\d+\/report$/.test(path))
+    || (req.method === "POST" && /^\/voip\/after-call\/\d+\/report$/.test(path))
+    || (req.method === "POST" && /^\/daily-customer-inline\/customers\/\d+\/notes$/.test(path))
+    || (req.method === "POST" && /^\/daily-customer-inline\/inbounds\/\d+\/note$/.test(path))
+  );
+  const ownLevel = req.method === "GET" || req.method === "HEAD" || reminderWrite || upgradeWrite || ownQualifyWrite || psWrite || ownCallWrite;
   // SALES-SHELL v2 (spec §9): «یادآورها» view-only while locked = GET /reminders without a customer (the handler lists only the
   // caller's own rows: r.user_id = caller, assigned scope). Only for users whose sales_shell_v2 flag is ON; writes are unchanged.
   const ownReminderList = req.method === "GET" && path === "/reminders" && ids.length === 0 && ssOn(Number(u!.id));
