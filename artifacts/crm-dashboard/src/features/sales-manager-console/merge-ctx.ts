@@ -1,13 +1,18 @@
 // v1.2 merge context: present only while flag.sales_admin_merge_v12 is ON (null = v1.1 page exactly).
 import { createContext, useContext } from 'react';
-import type { LiveMember, LiveTeam, MergeState } from './api';
+import type { FoldKey, LiveMember, LiveTeam, MergeState, TeamPreview } from './api';
 
 export type MergeCtx = {
   m: MergeState;
   liveTeam: (consoleTeamId: string) => LiveTeam | null;
   rename: (teamId: number, name: string) => Promise<void>;
   toggle: (teamId: number, enabled: boolean) => Promise<void>;
+  /** the confirm step: nothing is written */
+  preview: (teamId: number, enabled: boolean) => Promise<TeamPreview | null>;
+  /** the four folded sections (same tables as the old pages); resolves true when saved */
+  save: (key: FoldKey, body: unknown, okMsg: string) => Promise<boolean>;
   busy: number | null;
+  saving: FoldKey | null;
 };
 export const MergeContext = createContext<MergeCtx | null>(null);
 export const useMerge = () => useContext(MergeContext);

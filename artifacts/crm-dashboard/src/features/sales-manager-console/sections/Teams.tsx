@@ -1,7 +1,7 @@
 // بخش ۱ — تیم‌ها و کارشناس‌ها (§3.0). No password or account creation here: an expert only links to an existing user.
 import { useState } from 'react';
 import type { SectionProps } from '../SalesManagerConsolePage';
-import type { Expert, TeamsDoc } from '../api';
+import type { Expert, TeamPreview, TeamsDoc } from '../api';
 import { c, clone, fa, I, Chip, Seg, latin, uid, relDay, addDays } from '../ui';
 import { useMerge, priorityChips } from '../merge-ctx';
 
@@ -14,7 +14,8 @@ export function TeamsSection({ st, doc, set }: SectionProps<'teams'>) {
   const [editing, setEditing] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [drag, setDrag] = useState<string | null>(null);
-  const mg = useMerge(); // v1.2: live sales_teams name / active + member priorities (read-only)
+  const mg = useMerge(); // v1.2: live sales_teams name / active (+ members on deactivate) + member priorities
+  const [ask, setAsk] = useState<TeamPreview & { enabled: boolean } | null>(null); // the confirm step before (de)activating a live team
   const teams = doc.teams.filter((t) => !t.deleted);
   const person = (id: string) => st.people.find((p) => p.id === id);
   const upd = (fn: (d: TeamsDoc) => void, n = 1) => { const d = clone(doc); fn(d); set(d, n); };
@@ -49,11 +50,33 @@ export function TeamsSection({ st, doc, set }: SectionProps<'teams'>) {
           <button className={c('ib')} type="button" aria-label="تغییر نام تیم" onClick={() => setRenaming(tid)}><I n="edit" /></button>
           {live && mg ? (
             <button className={c('btn off')} type="button" disabled={mg.busy === live.id} data-testid={`sam-toggle-${live.id}`}
-              onClick={() => void mg.toggle(live.id, !live.enabled)}>{live.enabled ? 'غیرفعال کردن' : 'فعال کردن'}</button>
+              onClick={async () => { const p = await mg.preview(live.id, !live.enabled); if (p) setAsk({ ...p, enabled: !live.enabled }); }}>{live.enabled ? 'غیرفعال کردن' : 'فعال کردن'}</button>
           ) : null}
           <button className={c('ib')} type="button" aria-label={ms.length ? 'حذف تیم؛ اول اعضا را منتقل کنید' : 'حذف تیم'} disabled={ms.length > 0}
             onClick={() => upd((d) => { const x = d.teams.find((y) => y.id === tid)!; if (x.id.startsWith('n')) d.teams = d.teams.filter((y) => y.id !== tid); else x.deleted = true; })}><I n="trash" /></button>
         </div>
+        {live && mg && ask && ask.teamId === live.id ? (
+          <div className={c('mvc sam-ask')} role="alertdialog" data-nodnd="" aria-label={ask.enabled ? 'فعال کردن تیم' : 'غیرفعال کردن تیم'} data-testid={`sam-confirm-${live.id}`}>
+            {ask.enabled ? <>
+              <b>«{live.name}» فعال شود؟</b>
+              <span className={c('hint')}>{ask.returning.length ? `${ask.returning.join('، ')} دوباره عضو این تیم می‌شوند، با همان اولویت‌ها.` : 'عضوی برای برگشتن پیدا نشد؛ اول از «تیم‌های فروش» عضو اضافه کنید.'}</span>
+            </> : <>
+              <b>«{live.name}» غیرفعال شود؟</b>
+              {ask.blocked ? <p className={c('err')} role="alert">{ask.blocked}</p> : <>
+                <span className={c('hint')}>{ask.removed.length ? `${ask.removed.join('، ')} از این تیم بیرون می‌آیند.` : 'این تیم عضوی ندارد.'} مشتری‌ها و پرونده‌هایشان سر جایشان می‌مانند. در «تاریخچه» ثبت می‌شود و «برگرداندن» همه را برمی‌گرداند.</span>
+              </>}
+            </>}
+            <div className={c('row1')}><span className={c('sp')} />
+              <button className={c('btn gh')} type="button" onClick={() => setAsk(null)}>انصراف</button>
+              {!ask.blocked && (ask.enabled ? ask.returning.length > 0 : true) ? (
+                <button className={c('btn', ask.enabled ? 'pri' : 'bad gh')} type="button" data-testid={`sam-confirm-yes-${live.id}`} disabled={mg.busy === live.id}
+                  onClick={async () => { await mg.toggle(live.id, ask.enabled); setAsk(null); }}>{ask.enabled ? 'بله، فعال کن' : 'بله، غیرفعال کن'}</button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+        {live && !live.enabled ? <p className={c('hint')} data-testid={`sam-off-note-${live.id}`}>این تیم غیرفعال است و اعضایش از تیم بیرون آمده‌اند. «فعال کردن» همان‌ها را با همان اولویت‌ها برمی‌گرداند.</p> : null}
+        {live && !live.enabled ? null : <>
         <div className={c('row1 tlead')}>
           <span className={c('lbl')}>سرپرست</span>
           <select className={c('tok n sel')} aria-label={`سرپرست ${t.name}`} value={lead?.id ?? ''} onChange={(e) => upd((d) => {
@@ -104,6 +127,7 @@ export function TeamsSection({ st, doc, set }: SectionProps<'teams'>) {
             </div>
           );
         })}
+        </>}
         {moving && moving.to === tid ? <div className={c('mem ghost')}><span className={c('hint')}><I n="down" /> {doc.experts.find((x) => x.id === moving.id)?.displayName} اینجا می‌آید</span></div> : null}
         {adding === tid
           ? <ExpertForm st={st} doc={doc} teamId={tid} onCancel={() => setAdding(null)} onSave={(x) => { upd((d) => { d.experts.push(x); syncLead(d, x); }); setAdding(null); }} />
@@ -121,7 +145,7 @@ export function TeamsSection({ st, doc, set }: SectionProps<'teams'>) {
         </button>
       </div>
       <p className={c('hint')} style={{ marginTop: 10 }}>تیم فقط وقتی خالی است حذف می‌شود؛ اول اعضا را با «انتقال به تیم…» یا کشیدن جابه‌جا کنید.</p>
-      {mg ? <p className={c('hint')}>نام تیم و «غیرفعال کردن» همان تیم زنده‌ی سیستم را فوری عوض می‌کنند و در تاریخچه ثبت می‌شوند. اولویت هر کارشناس از «تیم‌های فروش» آمده و فعلاً فقط نمایش است.</p> : null}
+      {mg ? <p className={c('hint')}>نام تیم و «غیرفعال کردن» همان تیم زنده‌ی سیستم را عوض می‌کنند و در تاریخچه ثبت می‌شوند؛ غیرفعال کردن اعضا را از تیم بیرون می‌آورد. اولویت هر کارشناس از «تیم‌های فروش» آمده و فعلاً فقط نمایش است.</p> : null}
     </>
   );
 }

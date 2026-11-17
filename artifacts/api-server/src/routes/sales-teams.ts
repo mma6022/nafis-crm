@@ -18,6 +18,7 @@ import {
   presentIntake,
   presentTeam,
   putIntake,
+  updateTeam,
   type MemberInput,
 } from "../lib/sales-teams-admin";
 import { loadTeam, migrateMultiTeam, mtFlagOn, teamOfSalesperson } from "../lib/multi-team";

@@ -107,9 +107,27 @@ export function saveDefaultOwnerConfig(config: DefaultOwnerConfig, actorUserId: 
   execute("INSERT INTO default_owner_rule_settings_log(old_value,new_value,actor_user_id,via,created_at) VALUES (?,?,?,?,?)", [old, value, actorUserId, via, at]);
 }
 
-export type OwnerDecision = { apply: true; ownerSalespersonId: number } | { apply: false; skip: string };
+export type OwnerDecision = { apply: true; ownerSalespersonId: number; via?: "dist"; ruleId?: string } | { apply: false; skip: string };
+/**
+ * «مدیریت فروش» v1.2 (t358s1318): intake follows the console's distribution rules when flag.sales_manager_console_v1 AND
+ * flag.sales_admin_merge_v12 are ON. The hook (installed by sales-admin-merge) returns null when either flag is OFF or no explicit
+ * distribution rule matches, so the old «قانون ثبت مشتری» decides exactly as before. Pure read (no counters, no rows).
+ */
+export type IntakeDistHook = (source: RegistrationSource, registrarUserId: number | null | undefined) => OwnerDecision | null;
+let intakeDistHook: IntakeDistHook | null = null;
+export function setIntakeDistHook(fn: IntakeDistHook | null): void { intakeDistHook = fn; }
+export const intakeDistHookInstalled = (): boolean => intakeDistHook != null;
 /** Pure read: does the rule own this new customer? */
-export function defaultOwnerDecision(source: RegistrationSource, registrarUserId: number | null | undefined, cfg = getDefaultOwnerConfig()): OwnerDecision {
+export function defaultOwnerDecision(source: RegistrationSource, registrarUserId: number | null | undefined, cfg?: DefaultOwnerConfig): OwnerDecision {
+  if (!cfg && intakeDistHook) {
+    let d: OwnerDecision | null = null;
+    try { d = intakeDistHook(source, registrarUserId); } catch { d = null; }
+    if (d) return d;
+  }
+  return legacyDefaultOwnerDecision(source, registrarUserId, cfg ?? getDefaultOwnerConfig());
+}
+/** The old «قانون ثبت مشتری» decision, unchanged. */
+export function legacyDefaultOwnerDecision(source: RegistrationSource, registrarUserId: number | null | undefined, cfg: DefaultOwnerConfig = getDefaultOwnerConfig()): OwnerDecision {
   if (!cfg.enabled) return { apply: false, skip: "disabled" };
   if (cfg.sourceMode === "selected" && !cfg.sources.includes(source)) return { apply: false, skip: "source_not_selected" };
   if (cfg.registrarMode === "selected" && (registrarUserId == null || !cfg.registrarUserIds.includes(Number(registrarUserId)))) return { apply: false, skip: "registrar_not_selected" };

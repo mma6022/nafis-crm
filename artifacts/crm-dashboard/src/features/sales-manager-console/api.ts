@@ -74,10 +74,18 @@ export type MergeState = {
     discipline: { onTimeMin: number; onTimeCapMin: number; newPct: number; newMaxOverdue: number; restrictOverdue: number; alertDays: number; wReport: number; wOverdue: number; wNocall: number; dropPct: number; transferMode: 'warn' | 'block'; excludedReceivers: number[] };
     assist: { settings: { levels: Record<string, number>; snoozeHours?: number }; p1: { quota: number; redDays: number; noCallDays: number } };
   };
-  labels: { queueGroups: Record<string, string>; regSources: Record<string, string>; leadSources: Record<string, string>; signals: Record<string, string>; sellers: Record<string, string>; receivers: Record<string, string> };
-  conversion: { applicable: boolean; reason: string; teamRule: unknown; memberRule: { teamId: string; rule: { targets: { id: string }[] } } | null; blockers: string[]; writes: { table: string; key: string; note: string }[] };
-  writable: { teamName: boolean; teamEnabled: boolean; other: boolean };
+  labels: { queueGroups: Record<string, string>; regSources: Record<string, string>; leadSources: Record<string, string>; signals: Record<string, string>; sellers: Record<string, string>; receivers: Record<string, string>;
+    activeSellers: { id: number; name: string }[]; registrars: { id: number; name: string }[] };
+  conversion: { applicable: boolean; reason: string; teamRule: unknown; memberRule: { teamId: string; rule: { targets: { id: string }[] } } | null; blockers: string[]; writes: { table: string; key: string; note: string }[];
+    intakeFollowsDist: boolean; parity: { ok: boolean; cases: number; mismatches: string[] } | null };
+  writable: { teamName: boolean; teamEnabled: boolean; folded: boolean };
+  foldWrites: Record<FoldKey, { table: string; keys: string }[]>;
+  intakeFollowsDist: boolean;
+  capacity: { day: string | null; dayFa: string | null; experts: { salespersonId: number; name: string; capacity: number | null }[] };
+  canWriteFolded: boolean;
 };
+export type FoldKey = 'daily' | 'capacity' | 'model' | 'discipline' | 'owner';
+export type TeamPreview = { ok: true; preview: true; teamId: number; name: string; removed: string[]; blocked: string | null; returning: string[] };
 export function useMergeState(enabled: boolean) {
   return useQuery({ queryKey: ['smc-merge'], enabled, retry: false, staleTime: 0, refetchOnWindowFocus: false, queryFn: () => smcApi<MergeState>('/merge/state') });
 }

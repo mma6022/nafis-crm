@@ -372,3 +372,22 @@
 .smc-root .smc-team-c[data-live-team] .smc-tch h3{white-space:nowrap}
 .smc-root .smc-team-c[data-live-team] .smc-tch .smc-hint{white-space:nowrap}
 .smc-root .smc-team-c[data-live-team] .smc-btn.smc-off{white-space:nowrap;padding:0 12px}
+/* v1.2 t358s1318: editable folded blocks, team confirm step, undo in the toast */
+.smc-root .smc-mbh{display:flex;align-items:center;gap:8px;min-height:44px}
+.smc-root .smc-mblock.smc-editing{border-color:var(--brand);box-shadow:0 0 0 3px color-mix(in srgb, var(--brand) 12%, transparent)}
+.smc-root .smc-mrow.smc-ed{align-items:center;min-height:44px}
+.smc-root .smc-mctl{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
+.smc-root .smc-mrow.smc-ed .smc-inp{flex:1 1 220px;min-height:44px}
+.smc-root .smc-inp.smc-ta{min-height:88px;padding:10px 12px;resize:vertical;width:100%}
+.smc-root .smc-mact{border-top:1px solid var(--line);padding-top:10px;margin-top:4px;flex-wrap:wrap}
+.smc-root .smc-ord{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.smc-root .smc-ord li{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:12px;padding:0 6px 0 12px;min-height:48px}
+.smc-root .smc-picks{display:flex;flex-wrap:wrap;gap:8px}
+.smc-root .smc-sam-ask{border-color:var(--bad, #C2410C)}
+.smc-root .smc-toast .smc-tundo{color:#fff;text-decoration:underline;min-height:44px;margin-inline-start:8px}
+@media (max-width: 640px){
+  .smc-root .smc-mact .smc-hint{flex-basis:100%}
+  .smc-root .smc-mact .smc-btn{flex:1 1 0}
+}
+.smc-root .smc-mrow.smc-col > .smc-lbl{flex:0 0 auto}
+.smc-root .smc-mrow.smc-col.smc-ed{align-items:stretch}

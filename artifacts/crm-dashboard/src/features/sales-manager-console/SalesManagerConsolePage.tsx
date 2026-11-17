@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import './smc.css';
-import { smcApi, useSmcMe, useSmcState, useMergeState, SECTION_IDS, type ApiError, type Docs, type LiveTeam, type MergeState, type SectionId, type SmcState } from './api';
+import { smcApi, useSmcMe, useSmcState, useMergeState, SECTION_IDS, type ApiError, type Docs, type FoldKey, type LiveTeam, type MergeState, type SectionId, type SmcState, type TeamPreview } from './api';
 import { MergeContext, type MergeCtx } from './merge-ctx';
 import { MergeBanner, MergeDaily, MergeDiscipline, MergeDist, MergeModel } from './MergeBlocks';
 import { c, fa, I, Chip } from './ui';
@@ -116,7 +116,7 @@ function Console({ st, m, roles }: { st: SmcState; m: MergeState | null; roles?:
       else setConfirm({ ...confirm, busy: false, error: (e as ApiError).message });
     }
   };
-  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t); }, [toast]);
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), m ? 8000 : 4000); return () => clearTimeout(t); }, [toast, m]);
   useEffect(() => () => { void flush(); }, [flush]);
 
   // Active section in the index (IntersectionObserver, §1 of the handoff).
@@ -160,17 +160,36 @@ function Console({ st, m, roles }: { st: SmcState; m: MergeState | null; roles?:
   };
   const extra: Partial<Record<AnyId, () => ReactElement>> = m ? { daily: () => <MergeDaily m={m} />, model: () => <MergeModel m={m} />, dist: () => <MergeDist m={m} /> } : {};
   const [busy, setBusy] = useState<number | null>(null);
+  const [saving, setSaving] = useState<FoldKey | null>(null);
+  const [undoId, setUndoId] = useState<number | null>(null);
+  const refresh = async () => { await qc.invalidateQueries({ queryKey: ['smc-merge'] }); await qc.invalidateQueries({ queryKey: ['smc-state'] }); await qc.invalidateQueries({ queryKey: ['smc-audit'] }); };
   const liveWrite = async (teamId: number, body: { name?: string; enabled?: boolean }, okMsg: string) => {
     setBusy(teamId);
-    try { await smcApi(`/merge/teams/${teamId}`, { method: 'PUT', body }); setToast(okMsg); await qc.invalidateQueries({ queryKey: ['smc-merge'] }); await qc.invalidateQueries({ queryKey: ['smc-state'] }); await qc.invalidateQueries({ queryKey: ['smc-audit'] }); }
-    catch (e) { setToast((e as ApiError).message); }
+    try { const r = await smcApi<{ auditId?: number }>(`/merge/teams/${teamId}`, { method: 'PUT', body }); setToast(okMsg); setUndoId(r.auditId || null); await refresh(); }
+    catch (e) { setToast((e as ApiError).message); setUndoId(null); }
     finally { setBusy(null); }
+  };
+  const saveFolded = async (key: FoldKey, body: unknown, okMsg: string) => {
+    setSaving(key);
+    try {
+      const r = await smcApi<{ changed: boolean; auditId: number }>(`/merge/section/${key}`, { method: 'PUT', body });
+      setToast(r.changed ? okMsg : 'چیزی عوض نشده بود.'); setUndoId(r.changed ? r.auditId : null); await refresh(); return true;
+    } catch (e) { setToast((e as ApiError).message); setUndoId(null); return false; }
+    finally { setSaving(null); }
+  };
+  const undoLast = async () => {
+    if (!undoId) return;
+    try { await smcApi(`/audit/${undoId}/revert`, { method: 'POST' }); setToast('برگشت. در تاریخچه ثبت شد.'); }
+    catch (e) { setToast((e as ApiError).message); }
+    setUndoId(null); await refresh();
   };
   const mctx: MergeCtx | null = m ? {
     m, busy,
     liveTeam: (tid: string): LiveTeam | null => (/^t\d+$/.test(tid) ? m.values.teams.find((t) => `t${t.id}` === tid) ?? null : null),
     rename: (id, name) => liveWrite(id, { name }, 'نام تیم ذخیره شد. در تاریخچه ثبت شد.'),
-    toggle: (id, enabled) => liveWrite(id, { enabled }, enabled ? 'تیم فعال شد. در تاریخچه ثبت شد.' : 'تیم غیرفعال شد. در تاریخچه ثبت شد.'),
+    toggle: (id, enabled) => liveWrite(id, { enabled }, enabled ? 'تیم فعال شد و اعضایش برگشتند. در تاریخچه ثبت شد.' : 'تیم غیرفعال شد و اعضایش از تیم بیرون آمدند. در تاریخچه ثبت شد.'),
+    preview: async (id, enabled) => { try { return await smcApi<TeamPreview>(`/merge/teams/${id}`, { method: 'PUT', body: { enabled, preview: true } }); } catch (e) { setToast((e as ApiError).message); return null; } },
+    save: saveFolded, saving,
   } : null;
   const teamsLine = st.docs.teams.teams.filter((t) => !t.deleted).map((t) => `${t.name}: ${st.docs.teams.experts.filter((e) => e.teamId === t.id).map((e) => e.displayName.replace(/^(خانم|آقای) /, '')).join('، ') || 'خالی'}`);
 
@@ -229,7 +248,7 @@ function Console({ st, m, roles }: { st: SmcState; m: MergeState | null; roles?:
         </div>
       </div>
       {confirm ? <ConfirmDialog cf={confirm} onBack={() => setConfirm(null)} onApply={(f) => void doApply(f)} /> : null}
-      {toast ? <div className={c('toast')} role="status">{toast}</div> : null}
+      {toast ? <div className={c('toast')} role="status">{toast}{undoId ? <button className={c('btn lk tundo')} type="button" data-testid="sam-undo" onClick={() => void undoLast()}>برگرداندن</button> : null}</div> : null}
     </main>
     </MergeContext.Provider>
   );
