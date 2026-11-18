@@ -92,7 +92,7 @@ try {
     assert.equal(queryRow("SELECT count(*) n FROM call_logs").n, logsBefore + 1);
   });
   await ok("no stored phone is a non-phone string", () => {
-    const bad = queryRows("SELECT phone FROM voip_after_call_events WHERE external_id LIKE 't861-%'").filter(r => r.phone !== "" && vac.normalizePhone(r.phone) !== r.phone);
+    const bad = queryRows("SELECT phone FROM voip_after_call_events WHERE external_id LIKE 't861-%'").filter(r => r.phone !== "" && vac.dialedNumber(r.phone) !== r.phone);
     assert.deepEqual(bad, []);
   });
   vac.ingestAfterCalls(rows, now);
@@ -102,6 +102,8 @@ try {
   await ok("cdrPeerPhone validates", () => {
     assert.equal(vac.cdrPeerPhone(rows[0]), null); assert.equal(vac.cdrPeerPhone({ ...rows[0], dst: "*" }), null);
     assert.equal(vac.cdrPeerPhone({ ...rows[0], dst: "+989120000861" }), P1);
+    assert.equal(vac.cdrPeerPhone({ ...rows[0], dst: "00441234567890" }), "00441234567890", "an international number as dialed is kept");
+    assert.equal(vac.cdrPeerPhone({ ...rows[0], dst: "FAILED " }), null);
   });
   await ok("today queue never shows «failed»; no-number calls stay separate items", () => {
     const u = { id: USER, role: "salesperson", salespersonId: SP, fullName: "x", username: "x", permissions: ["calls.create", "calls.view", "customers.view"], customerScope: "assigned", active: true };
@@ -111,7 +113,7 @@ try {
     const items = (q.items ?? q.queue ?? []).filter(i => String(i.id ?? "").startsWith("e-"));
     const ids = items.map(i => i.id);
     const cId = `e-${ev("t861-c").id}`, dId = `e-${ev("t861-d").id}`;
-    if (ids.length) { assert.ok(ids.includes(cId) && ids.includes(dId), `separate items ${ids}`); for (const i of items) assert.ok(i.phone == null || vac.normalizePhone(i.phone) === i.phone); }
+    if (ids.length) { assert.ok(ids.includes(cId) && ids.includes(dId), `separate items ${ids}`); for (const i of items) assert.ok(i.phone == null || vac.dialedNumber(i.phone) === i.phone); }
     else assert.fail("no unknown items found in the queue: " + Object.keys(q));
   });
   console.log(`t861 fixture: ${passed} passed`);

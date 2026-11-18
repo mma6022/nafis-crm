@@ -16,7 +16,7 @@ import { sf480IncomingNow } from "./sales-fixes-480000";
 import { dpBaleHandoffTags, dpToday } from "./daily-plan";
 import { FC_STAGE_LABELS, fcExpertStep } from "./files-carousel";
 import { paymentCustomer } from "./payment-orders";
-import { customerMatcher, experts, normalizePhone, resolveEvent } from "./voip-after-call";
+import { customerMatcher, dialedNumber, experts, normalizePhone, resolveEvent } from "./voip-after-call";
 import { insertCustomerRecord } from "./customer-create";
 import { dciIsManager, dciOwnsCustomer, tehranClock } from "./daily-customer-inline";
 
@@ -261,7 +261,7 @@ export function dqQueue(user: AuthUser, now = new Date()) {
       const later = e.customer_id != null && !!queryRow(
         `SELECT 1 x FROM call_logs l WHERE l.customer_id=? AND l.id<>COALESCE(?,0) AND julianday(l.created_at) > julianday(?) ${sp != null ? "AND (l.salesperson_id=? OR l.created_by_user_id=?)" : ""}${notAttempt} LIMIT 1`,
         sp != null ? [e.customer_id, e.call_log_id, e.started_at, sp, user.id] : [e.customer_id, e.call_log_id, e.started_at]);
-      const eph = normalizePhone(String(e.phone || "")) ?? "";
+      const eph = dialedNumber(e.phone) ?? "";
       const back = inn && !!eph && outs.find((o) => o.ph === eph && o.at > String(e.started_at));
       const done = Boolean(m || (e.completed_at && e.completed_by_user_id != null) || later || back);
       const fresh = now.getTime() - Date.parse(String(e.started_at)) < urgentMs;
@@ -270,7 +270,7 @@ export function dqQueue(user: AuthUser, now = new Date()) {
       if (e.customer_id != null) add(Number(e.customer_id), p);
       else if (Number(e.expert_user_id) === user.id) {
         // t861: never show a non-phone string (e.g. a CDR «failed») as the number; such calls stay separate, with no number.
-        const ph = normalizePhone(String(e.phone || "")) ?? "";
+        const ph = dialedNumber(e.phone) ?? "";
         const gk = ph || `ev-${e.id}`;
         const g = byUnknown.get(gk) ?? { eventId: Number(e.id), phone: ph, parts: [] };
         g.parts.push(p); byUnknown.set(gk, g);

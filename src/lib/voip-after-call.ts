@@ -392,9 +392,15 @@ export function resolveEvent(id: number, available: Expert[], lookupCustomer: (p
       [resolved.salesperson_id, resolved.expert_name, resolved.call_log_id]);
   }
 }
-/** t861: the counterpart number of a CDR row, validated as an Iranian phone; never a status word such as «failed». */
+/** t861: a dialed number for display/storage: a valid Iranian phone (normalized), else a plain digit string (e.g. an
+ *  international or short number as dialed), else null — never a word such as «failed» or a feature code such as «*». */
+export function dialedNumber(value: unknown): string | null {
+  const raw = String(value ?? "").trim();
+  return normalizePhone(raw) ?? (/^\+?\d{3,18}$/.test(raw) ? raw : null);
+}
+/** t861: the counterpart number of a CDR row (see dialedNumber). */
 export function cdrPeerPhone(row: SimotelCall): string | null {
-  return normalizePhone(String((row.type === "incoming" ? row.src : row.dst) ?? ""));
+  return dialedNumber(row.type === "incoming" ? row.src : row.dst);
 }
 /** t861: the expert's click-to-call record behind a failed-originate CDR (dst «failed»). Exact by originated_call_id when the PBX sent it;
  *  otherwise the one click call of the same extension created up to 45 s before the CDR start (or 1 s after) and not already over 2 s before
