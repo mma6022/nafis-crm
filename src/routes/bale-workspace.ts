@@ -35,7 +35,7 @@ const fail = (res: Response, status: number, error: string, extra: Record<string
 const num = (v: unknown) => { const n = Number(v); return Number.isSafeInteger(n) && n > 0 ? n : 0; };
 const JOB_FA: Record<string, string> = { employee: "کارمند", retired: "بازنشسته", self_employed: "شغل آزاد", no_fixed_income: "بدون درآمد ثابت" };
 const PURPOSE_FA: Record<string, string> = { goods: "خرید کالا", wedding: "ازدواج", medical: "درمان", home: "مسکن", business: "کسب‌وکار", other: "سایر" };
-const STATUS_FA: Record<string, string> = { in_progress: "در حال انجام", cancelled: "لغو شده", completed: "اتمام", pending: "در انتظار", approved: "تأیید شده", rejected: "رد شده" };
+const STATUS_FA: Record<string, string> = { in_progress: "در حال انجام", cancelled: "لغو شده", completed: "اتمام", pending: "در انتظار", approved: "تأیید شده", rejected: "رد شده", requested: "درخواست شده", reviewing: "در حال بررسی" };
 
 function context(u: BbUser, customerId: number) {
   const c = queryRow<any>("SELECT id,name,phone,national_code,salesperson_id,credit_grade,credit_rank,registration_source,lead_source,source FROM customers WHERE id=?", [customerId]);
