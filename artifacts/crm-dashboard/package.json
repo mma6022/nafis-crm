@@ -39,7 +39,8 @@
     "test:customer-extra-phones": "node --experimental-strip-types scripts/customer-extra-phones-ui-fixture.mjs",
     "test:file-details-t854": "node --experimental-strip-types scripts/file-details-t854-ui-fixture.mjs",
     "test:plans-list-t859": "node --experimental-strip-types scripts/plans-list-t859-check.mjs",
-    "test:board-default-t863": "node --experimental-strip-types scripts/board-default-t863-fixture.mjs"
+    "test:board-default-t863": "node --experimental-strip-types scripts/board-default-t863-fixture.mjs",
+    "test:military-female-t862": "node scripts/military-female-t862-ui-fixture.mjs"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

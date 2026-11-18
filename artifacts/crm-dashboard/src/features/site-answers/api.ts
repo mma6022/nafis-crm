@@ -29,7 +29,7 @@ export const SA_LABELS: Record<keyof SiteAnswers, [string, Record<string, string
   job_status: ['شغل', { employee: 'کارمند', retired: 'بازنشسته', self_employed: 'آزاد', no_fixed_income: 'بدون درآمد ثابت' }],
   credit_rank: ['رتبه‌ی اعتباری', { A: 'A', B: 'B', C: 'C', D: 'D', E: 'E', unknown: 'نمی‌داند' }],
   documents: ['مدارک', { payslip: 'فیش حقوقی', salary_deduction_cert: 'گواهی کسر از حقوق', sayadi_cheque: 'چک صیادی', guarantor: 'ضامن', none: 'هیچ‌کدام' }],
-  has_military_card: ['پایان خدمت', { yes: 'دارد', no: 'ندارد', not_applicable: 'مشمول نیست' }],
+  has_military_card: ['پایان خدمت', { yes: 'دارد', no: 'ندارد', not_applicable: 'مشمول نیست', female: 'خانم' }],
   can_refer_retiree: ['معرفی بازنشسته', { yes: 'بله، می‌تواند معرفی کند', no: 'خیر' }],
   has_bounced_or_overdue: ['چک برگشتی / معوق', { yes: 'بله، دارد', no: 'خیر' }],
   need_timing: ['زمان نیاز', { this_week: 'همین هفته', this_month: 'این ماه', just_browsing: 'فقط دارد بررسی می‌کند' }],
