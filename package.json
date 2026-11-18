@@ -15,6 +15,7 @@
     "fixture:voip": "node scripts/voip-fixture.mjs",
     "test:simotel-recordings": "node scripts/simotel-recordings-fixture.mjs",
     "test:recording-download": "node scripts/recording-download-fixture.mjs",
+    "test:customer-extra-phones": "NODE_ENV=production node scripts/run-bundled-fixture.mjs scripts/customer-extra-phones-fixture.mjs",
     "test:voip-after-call": "node scripts/voip-after-call-fixture.mjs",
     "test:after-call-fix": "node scripts/after-call-fix-fixture.mjs",
     "test:voip-task-hold": "NODE_ENV=production node scripts/run-bundled-fixture.mjs scripts/voip-task-hold-fixture.mjs",

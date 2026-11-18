@@ -140,7 +140,7 @@ export function findOtherOwnerMatches(
   const match = lookup.kind === "id"
     ? { sql: "c.id=?", params: [lookup.id] as (string | number)[] }
     : lookup.kind === "phone"
-      ? { sql: "crm_customer_mobile_key(c.phone)=?", params: [lookup.phone] }
+      ? { sql: "(crm_customer_mobile_key(c.phone)=? OR EXISTS (SELECT 1 FROM customer_phones xp WHERE xp.customer_id=c.id AND crm_customer_mobile_key(xp.phone)=?))", params: [lookup.phone, lookup.phone] }
       // Exact (normalised) equality; mirrors exactNameKey in SQL (ZWNJ → space, double spaces collapsed, trimmed).
       : { sql: "trim(replace(replace(replace(replace(crm_persian_search_key(c.name),char(8204),' '),'   ',' '),'  ',' '),'  ',' '))=?", params: [lookup.name] };
   const rows = queryRows<{ id: number; name: string; phone: string | null; owner_id: number; owner_name: string | null }>(

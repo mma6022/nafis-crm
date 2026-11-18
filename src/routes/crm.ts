@@ -11,6 +11,7 @@ import { callNoteError } from "../lib/call-note-rule";
 import { CROSS_OWNER_EXCLUDED_USER_IDS, crossOwnerEligible, redactForeignCustomer, findOtherOwnerMatches, transferCallHint, maskCustomerPhone } from "../lib/cross-owner-search";
 import { myTransfers } from "../lib/my-transfers";
 import { customerSearchSql } from "../lib/customer-id-search";
+import { ANY_PHONE_LIKE_SQL, ensureCustomerPhonesSchema, findOwnerByAnyPhone } from "../lib/customer-phones";
 import { identityValuesChanged } from "../lib/identity-change";
 import { CNE_MSG, cneApplyNameChangeInTx, cnePartsFromFullName, cnePrepareNameChange, type CnePrepared } from "../lib/customer-name-edit";
 import { propagateContractTemplateChange } from "../lib/contract-template-updates";
@@ -281,7 +282,7 @@ function findActiveCustomerIdentityConflict(
     `SELECT id,phone,national_code FROM customers
      WHERE merged_into_customer_id IS NULL AND COALESCE(status,'in_progress') <> 'cancelled'`,
   );
-  return rows.find((row) => {
+  const hit = rows.find((row) => {
     if (customerId !== null && Number(row.id) === customerId) return false;
     const mobileConflict = identity.phone !== undefined &&
       normalizeCustomerIdentity(row.phone) === normalizeCustomerIdentity(identity.phone);
@@ -290,6 +291,20 @@ function findActiveCustomerIdentityConflict(
     const nationalConflict = Boolean(code && ics24.validNationalCode(code) && code === existingCode);
     return mobileConflict || nationalConflict;
   });
+  if (hit) return hit;
+  if (identity.phone !== undefined) {
+    ensureCustomerPhonesSchema();
+    const key = normalizeCustomerIdentity(identity.phone);
+    const extra = queryRow<{ id: number; phone: string; national_code: string | null }>(
+      `SELECT c.id, c.phone, c.national_code
+         FROM customer_phones p JOIN customers c ON c.id=p.customer_id
+        WHERE c.merged_into_customer_id IS NULL AND COALESCE(c.status,'in_progress') <> 'cancelled'
+          AND crm_customer_mobile_key(p.phone)=?`,
+      [key],
+    );
+    if (extra && (customerId === null || Number(extra.id) !== customerId)) return extra;
+  }
+  return undefined;
 }
 
 /** «کد ملی» is optional in the customer form (PM, 2026-10-24): '' / whitespace means "not entered" and is stored as NULL. */
@@ -317,16 +332,18 @@ function hasActiveCustomerIdentityConflict(
 function findCustomerByPhone(phone: string): CustomerRow | undefined {
   const normalized = normalizeCustomerMobile(phone);
   if (!normalized) return undefined;
+  ensureCustomerPhonesSchema();
   const matches = queryRows<CustomerRow>(
     `${customerSelect}
      WHERE crm_customer_mobile_key(c.phone) = ?
+        OR EXISTS (SELECT 1 FROM customer_phones xp WHERE xp.customer_id=c.id AND crm_customer_mobile_key(xp.phone)=?)
      GROUP BY c.id
      ORDER BY CASE
        WHEN c.merged_into_customer_id IS NULL AND COALESCE(c.status,'in_progress') <> 'cancelled' THEN 0
        WHEN c.merged_into_customer_id IS NULL THEN 1
        ELSE 2 END,
        c.created_at DESC,c.id DESC`,
-    [normalized],
+    [normalized, normalized],
   );
   for (const match of matches) {
     if (match.merged_into_customer_id == null) return match;
@@ -1745,8 +1762,8 @@ router.get(
     const idSearch = search ? customerSearchSql(search) : null;
     if (search && idSearch) {
       const clause = idSearch.where(
-        "(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR c.phone LIKE ?)",
-        [`%${idSearch.text}%`, `%${idSearch.text}%`],
+        `(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR c.phone LIKE ? OR ${ANY_PHONE_LIKE_SQL})`,
+        [`%${idSearch.text}%`, `%${idSearch.text}%`, `%${idSearch.text}%`],
         "c.id",
       );
       filters.push(clause.sql);
@@ -5539,8 +5556,8 @@ router.get(
     if (search && consultIdSearch) {
       const t = consultIdSearch.text;
       const clause = consultIdSearch.where(
-        "(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR c.phone LIKE ? OR LOWER(COALESCE(cf.loan_purpose, '')) LIKE LOWER(?))",
-        [`%${t}%`, `%${t}%`, `%${t}%`],
+        `(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR c.phone LIKE ? OR ${ANY_PHONE_LIKE_SQL} OR LOWER(COALESCE(cf.loan_purpose, '')) LIKE LOWER(?))`,
+        [`%${t}%`, `%${t}%`, `%${t}%`, `%${t}%`],
         "c.id",
       );
       filters.push(clause.sql);

@@ -114,9 +114,15 @@ function elAnsweredIncomingToday(u: U, customerId: number, now: Date): boolean {
   );
   if (evs.some((e) => e.customer_id != null && Number(e.customer_id) === Number(customerId))) return true;
   const row = queryRow<{ phone: string | null }>("SELECT phone FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [customerId]);
+  const keys = new Set<string>();
   const want = elPhoneKey(row?.phone);
-  if (!want) return false;
-  return evs.some((e) => e.customer_id == null && elPhoneKey(e.phone) === want);
+  if (want) keys.add(want);
+  try {
+    const extras = queryRows<{ phone: string }>("SELECT phone FROM customer_phones WHERE customer_id=?", [customerId]);
+    for (const x of extras) { const k = elPhoneKey(x.phone); if (k) keys.add(k); }
+  } catch { /* table created lazily */ }
+  if (!keys.size) return false;
+  return evs.some((e) => { const k = elPhoneKey(e.phone); return e.customer_id == null && k != null && keys.has(k); });
 }
 export function elCustomerAccess(u: U, customerId: number, now = new Date()): "plan" | "incoming" | "registered" | "case" | null {
   const sp = Number(u.salespersonId);
@@ -416,9 +422,11 @@ const rateLimited = (u: U, now: Date) => Number(queryRow<{ n: number }>("SELECT 
   [Number(u.id), new Date(now.getTime() - EL_SEARCH_WINDOW_MS).toISOString()])?.n ?? 0) >= EL_SEARCH_LIMIT;
 /** Same match as POST /customers' duplicate check (findCustomerByPhone): crm_customer_mobile_key(phone), any status, merged → survivor. */
 function phoneOwner(phone: string): { id: number; name: string; sp: number | null; owner_name: string | null } | null {
-  const rows = queryRows<{ id: number; merged: number | null }>(`SELECT c.id, c.merged_into_customer_id merged FROM customers c WHERE crm_customer_mobile_key(c.phone)=?
+  const rows = queryRows<{ id: number; merged: number | null }>(`SELECT c.id, c.merged_into_customer_id merged FROM customers c
+    WHERE crm_customer_mobile_key(c.phone)=?
+       OR EXISTS (SELECT 1 FROM customer_phones xp WHERE xp.customer_id=c.id AND crm_customer_mobile_key(xp.phone)=?)
     ORDER BY CASE WHEN c.merged_into_customer_id IS NULL AND COALESCE(c.status,'in_progress')<>'cancelled' THEN 0 WHEN c.merged_into_customer_id IS NULL THEN 1 ELSE 2 END,
-      c.created_at DESC, c.id DESC LIMIT 1`, [phone]);
+      c.created_at DESC, c.id DESC LIMIT 1`, [phone, phone]);
   if (!rows.length) return null;
   let id = Number(rows[0].id), merged = rows[0].merged;
   for (let i = 0; merged != null && i < 10; i++) {
@@ -509,13 +517,13 @@ export function elIncomingSearch(u: U, raw: unknown, now = new Date(), ctx: ElCt
     return { result: "invalid", message: "شماره‌ی موبایل کامل (۱۱ رقم) یا نام و نام خانوادگی کامل مشتری را بنویس." }; }
   const hash = hashQuery(lk.kind, lk.kind === "phone" ? lk.phone : lk.name);
   const match = lk.kind === "phone"
-    ? { sql: "crm_customer_mobile_key(c.phone)=?", p: lk.phone }
-    : { sql: "trim(replace(replace(replace(replace(crm_persian_search_key(c.name),char(8204),' '),'   ',' '),'  ',' '),'  ',' '))=?", p: lk.name };
+    ? { sql: "(crm_customer_mobile_key(c.phone)=? OR EXISTS (SELECT 1 FROM customer_phones xp WHERE xp.customer_id=c.id AND crm_customer_mobile_key(xp.phone)=?))", p: [lk.phone, lk.phone] as (string | number)[] }
+    : { sql: "trim(replace(replace(replace(replace(crm_persian_search_key(c.name),char(8204),' '),'   ',' '),'  ',' '),'  ',' '))=?", p: [lk.name] as (string | number)[] };
   // SEARCH-C: another expert's customer is reachable ONLY by the full number; an exact name resolves the caller's own customers only.
   const ownOnly = lk.kind === "name" ? " AND c.salesperson_id=?" : "";
   const rows = queryRows<{ id: number; name: string; sp: number | null; owner_name: string | null }>(
     `SELECT c.id, c.name, c.salesperson_id sp, s.name owner_name FROM customers c LEFT JOIN salespersons s ON s.id=c.salesperson_id
-      WHERE c.merged_into_customer_id IS NULL AND ${match.sql}${ownOnly} ORDER BY c.id LIMIT 3`, ownOnly ? [match.p, Number(u.salespersonId)] : [match.p]);
+      WHERE c.merged_into_customer_id IS NULL AND ${match.sql}${ownOnly} ORDER BY c.id LIMIT 3`, ownOnly ? [...match.p, Number(u.salespersonId)] : [...match.p]);
   if (!rows.length) { log(u, { action: ctx === "new_file" ? "file_search" : "search", kind: lk.kind, hash, result: "none" }, at);
     return { result: "none", message: "مشتری‌ای با این مشخصات پیدا نشد." }; }
   if (rows.length > 1) { log(u, { action: ctx === "new_file" ? "file_search" : "search", kind: lk.kind, hash, result: "ambiguous" }, at);
@@ -650,11 +658,17 @@ export function elIncomingSuggest(u: U, raw: unknown, now = Date.now()): ElSugge
     // Live rows store phones in mixed shapes (+98…, Persian digits, 10-digit 9…): compare on crm_customer_mobile_key (→ 09…).
     const rows = queryRows<Row>(`SELECT id, name, pk AS phone, priority,
         CASE WHEN pk=? THEN 0 WHEN pk LIKE ? ESCAPE '\\' THEN 1 WHEN pk LIKE ? ESCAPE '\\' THEN 2 ELSE 3 END rk
-      FROM (SELECT c.id, c.name, c.priority, crm_customer_mobile_key(c.phone) pk FROM customers c
-        WHERE c.salesperson_id=? AND c.merged_into_customer_id IS NULL AND c.phone IS NOT NULL AND c.phone<>'')
+      FROM (
+        SELECT c.id, c.name, c.priority, crm_customer_mobile_key(c.phone) pk FROM customers c
+          WHERE c.salesperson_id=? AND c.merged_into_customer_id IS NULL AND c.phone IS NOT NULL AND c.phone<>''
+        UNION ALL
+        SELECT c.id, c.name, c.priority, crm_customer_mobile_key(p.phone) pk
+          FROM customer_phones p JOIN customers c ON c.id=p.customer_id
+          WHERE c.salesperson_id=? AND c.merged_into_customer_id IS NULL
+      )
       WHERE pk LIKE ? ESCAPE '\\' OR pk LIKE ? ESCAPE '\\'
       ORDER BY rk, id DESC LIMIT ${EL_SUGGEST_MAX}`,
-      [ph.canon, `${c}%`, `%${d}`, sp, `%${d}%`, `${c}%`]);
+      [ph.canon, `${c}%`, `%${d}`, sp, sp, `%${d}%`, `${c}%`]);
     return out(rows, "phone", /^09\d{9}$/.test(ph.canon) ? ph.canon : undefined);
   }
   const key = elNameKey(q);
