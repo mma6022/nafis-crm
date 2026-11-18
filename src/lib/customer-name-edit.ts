@@ -69,8 +69,12 @@ export function cneSplitName(name: string | null | undefined, first: string | nu
   const l = (last ?? "").trim();
   if (f || l) return { firstName: f, lastName: l };
   const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
-  if (parts.length <= 1) return { firstName: parts[0] ?? "", lastName: "" };
-  return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
+  // t848u: a stored name like «اقای دوست 0914 …» must not put the phone into lastName.
+  // Keep only Persian-letter tokens when at least one exists; the heading still shows the full name.
+  const words = parts.filter((p) => CNE_FA_RE.test(p));
+  const use = words.length ? words : parts;
+  if (use.length <= 1) return { firstName: use[0] ?? "", lastName: "" };
+  return { firstName: use[0], lastName: use.slice(1).join(" ") };
 }
 
 export function ensureCneSchema(): void {

@@ -93,19 +93,30 @@ function elTehranDayBounds(now: Date): { start: string; end: string } {
   const day = dpToday(now);
   return { start: new Date(`${day}T00:00:00+03:30`).toISOString(), end: new Date(`${day}T23:59:59.999+03:30`).toISOString() };
 }
-/** Incoming call this expert answered today (or a live incoming still on their extension) — in-scope for the rest of the Tehran day. */
+/** Same mobile key as customerMatcher / normalizePhone (0 + 10 or 11 digits). */
+function elPhoneKey(raw: unknown): string | null {
+  const n = normalizeCustomerMobile(raw);
+  return /^0\d{9,10}$/.test(n) ? n : null;
+}
+/** Incoming call this expert answered today (or a live incoming still on their extension) — in-scope for the rest of the Tehran day.
+ *  Matches the event's customer_id, or (t848u) an unlinked event (customer_id IS NULL) whose phone is this customer's number.
+ *  No write: a missed ingest link still opens the same customer for this expert. A different number does not. */
 function elAnsweredIncomingToday(u: U, customerId: number, now: Date): boolean {
   if (!queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='voip_after_call_events'")) return false;
   const { start, end } = elTehranDayBounds(now);
-  return Boolean(queryRow(
-    `SELECT 1 x FROM voip_after_call_events
-      WHERE customer_id=? AND expert_user_id=?
+  const evs = queryRows<{ customer_id: number | null; phone: string | null }>(
+    `SELECT customer_id, phone FROM voip_after_call_events
+      WHERE expert_user_id=?
         AND lower(direction) IN ('incoming','inbound')
         AND (upper(trim(status))='ANSWERED' OR is_live=1)
-        AND julianday(started_at)>=julianday(?) AND julianday(started_at)<=julianday(?)
-      LIMIT 1`,
-    [customerId, Number(u.id), start, end],
-  ));
+        AND julianday(started_at)>=julianday(?) AND julianday(started_at)<=julianday(?)`,
+    [Number(u.id), start, end],
+  );
+  if (evs.some((e) => e.customer_id != null && Number(e.customer_id) === Number(customerId))) return true;
+  const row = queryRow<{ phone: string | null }>("SELECT phone FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [customerId]);
+  const want = elPhoneKey(row?.phone);
+  if (!want) return false;
+  return evs.some((e) => e.customer_id == null && elPhoneKey(e.phone) === want);
 }
 export function elCustomerAccess(u: U, customerId: number, now = new Date()): "plan" | "incoming" | "registered" | "case" | null {
   const sp = Number(u.salespersonId);

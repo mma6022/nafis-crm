@@ -242,9 +242,18 @@ export function dqQueue(user: AuthUser, now = new Date()) {
        ORDER BY e.started_at, e.id`, [startIso, endIso, user.id, sp ?? -1, user.id]);
     // 450000 §7: a callback (this expert's outgoing call to the same number after the ring) closes the incoming task.
     const outs = rows.filter((x) => x.dir === "outgoing" || x.dir === "outbound").map((x) => ({ ph: normalizePhone(String(x.phone || "")) ?? String(x.phone || ""), at: String(x.started_at) }));
+    const lookup = customerMatcher(); // t848u: resolve an unlinked event by phone at read time (no write)
     for (const e of rows) {
       const inn = e.dir === "incoming" || e.dir === "inbound";
-      if (e.customer_id != null && e.csp != null && sp != null && Number(e.csp) !== sp) continue; // another expert's customer
+      if (e.customer_id == null && inn) {
+        const hit = lookup(String(e.phone || ""));
+        if (hit) {
+          const c = custRow(hit.id);
+          if (c) { e.customer_id = c.id; e.csp = c.salesperson_id; e.cname = c.name; }
+        }
+      }
+      // another expert's customer: skip unless this event rang the current expert (they still need to see the name)
+      if (e.customer_id != null && e.csp != null && sp != null && Number(e.csp) !== sp && Number(e.expert_user_id) !== user.id) continue;
       const key = `${inn ? "in" : "out"}-${e.id}`; const m = marks.get(key);
       const later = e.customer_id != null && !!queryRow(
         `SELECT 1 x FROM call_logs l WHERE l.customer_id=? AND l.id<>COALESCE(?,0) AND julianday(l.created_at) > julianday(?) ${sp != null ? "AND (l.salesperson_id=? OR l.created_by_user_id=?)" : ""}${notAttempt} LIMIT 1`,
