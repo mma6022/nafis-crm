@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { identityEgress, sapiViaProxy } from "./identity-egress";
-import { logProviderFailure } from "./provider-credit";
+import { logProviderFailure, providerReason } from "./provider-credit";
 
 type SapiCheck = "shahkarLite" | "personInfo" | "postalCodeInfo" | "sana";
 
@@ -218,18 +218,92 @@ export async function verifyCustomer(
   };
 }
 /**
- * credit-panel v1: one debt endpoint. Returns the provider's `data` object (raw: rial amounts, compact Jalali dates).
+ * credit-panel v1: one debt endpoint. Returns the provider's payload (raw: rial amounts, compact Jalali dates).
  * Throws on transport/HTTP failure or a non-success envelope; the caller stores only successful parts.
+ *
+ * Envelope vs payload (t847u): a successful UnpaidChequePro / ChequeColor body may put the useful object on
+ * `result` rather than `data`. Treating a payload that merely has `code` or `status` (e.g. chequeColorCode as
+ * `code`) as the envelope used to drop the payload or mark a good reply as failed. Only success / isSuccess /
+ * valid promote a nested object to the envelope. `parseSapiDebtBody` is exported for fixtures (no network).
  */
+const ENVELOPE_FLAGS = ["success", "isSuccess", "valid"] as const;
+const DEBT_KEYS = [
+  "chequeList", "cheque_list", "ChequeList", "cheques", "unpaidCheques",
+  "chequeColor", "chequeColorCode", "ChequeColor", "cheque_color", "cheque_color_code",
+  "count", "info",
+];
+
+export class SapiDebtError extends Error {
+  readonly kind: "sapi_provider_no_credit" | "sapi_debt_failed";
+  readonly providerMessage: string;
+  constructor(kind: "sapi_provider_no_credit" | "sapi_debt_failed", providerMessage = "") {
+    super(kind);
+    this.name = "SapiDebtError";
+    this.kind = kind;
+    this.providerMessage = providerMessage;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function looksLikeDebtPayload(value: unknown): boolean {
+  if (Array.isArray(value) && value.length >= 0) return true;
+  if (!isRecord(value)) return false;
+  const keys = Object.keys(value);
+  if (!keys.length) return false;
+  if (DEBT_KEYS.some((key) => Object.hasOwn(value, key))) return true;
+  const envelopeOnly = keys.every((key) =>
+    [...ENVELOPE_FLAGS, "status", "result", "code", "message", "messages", "error", "errors"].includes(key));
+  return !envelopeOnly;
+}
+
+function asDebtPayload(value: unknown): Record<string, unknown> | null {
+  if (Array.isArray(value)) return { count: value.length, chequeList: value };
+  if (!looksLikeDebtPayload(value) || !isRecord(value)) return null;
+  return value;
+}
+
+/** Safe, short provider text for the credit-panel UI (digits ≥5 already masked by providerReason). */
+export function sapiDebtStaffMessage(body: unknown): string {
+  const text = providerReason(body).providerMessage.trim();
+  if (!text) return "";
+  if (/[؀-ۿ]/.test(text)) return text.slice(0, 240);
+  return "";
+}
+
+/**
+ * Pull the debt payload out of a provider body that already passed HTTP 200.
+ * Throws SapiDebtError when the envelope is not a success (including ChequeColor 503
+ * «استعلام مورد نظر پاسخ نمی دهد»).
+ */
+export function parseSapiDebtBody(bodyUnknown: unknown, operation: SapiDebtCheck | string = "debt"): Record<string, unknown> {
+  const body = asRecord(bodyUnknown);
+  const nested = isRecord(body.data) ? asRecord(body.data)
+    : isRecord(body.result) ? asRecord(body.result)
+    : Array.isArray(body.data) ? {} : {};
+  const innerIsEnvelope = ENVELOPE_FLAGS.some((key) => Object.hasOwn(nested, key));
+  const envelope = innerIsEnvelope ? nested : body;
+  if (!success(envelope)) {
+    const noCredit = logProviderFailure("identity", operation, 200, bodyUnknown);
+    throw new SapiDebtError(
+      noCredit ? "sapi_provider_no_credit" : "sapi_debt_failed",
+      sapiDebtStaffMessage(bodyUnknown),
+    );
+  }
+  const candidates: unknown[] = innerIsEnvelope
+    ? [envelope.data, envelope.result, nested, body.data, body.result]
+    : [body.data, body.result, nested];
+  for (const candidate of candidates) {
+    const payload = asDebtPayload(candidate);
+    if (payload) return payload;
+  }
+  return {};
+}
+
 export async function sapiDebt(check: SapiDebtCheck, nationalCode: string, isCompany = false): Promise<Record<string, unknown>> {
   const payload: Record<string, unknown> = check === "chequeColor" ? { nationalCode, isCompany } : { nationalCode };
   const body = await call(check, payload);
-  const nested = asRecord(body.data ?? body.result);
-  const envelope = ["success", "isSuccess", "valid", "status", "result", "code"].some((key) => Object.hasOwn(nested, key)) ? nested : body;
-  if (!success(envelope)) {
-    const noCredit = logProviderFailure("identity", check, 200, body);
-    throw new Error(noCredit ? "sapi_provider_no_credit" : "sapi_debt_failed");
-  }
-  const data = asRecord(envelope.data ?? body.data);
-  return data;
+  return parseSapiDebtBody(body, check);
 }

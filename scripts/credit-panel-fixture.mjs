@@ -34,6 +34,7 @@ try {
   const auth = await import("../src/lib/auth.ts");
   const { default: router } = await import("../src/routes/index.ts");
   const cp = await import("../src/lib/credit-panel.ts");
+  const { SapiDebtError } = await import("../src/lib/sapi.ts");
   const el = await import("../src/lib/expert-lockdown.ts");
   const { queryRow, queryRows, execute } = db;
   const setKey = (k, v) => v == null ? execute("DELETE FROM call_queue_settings WHERE key=?", [k])
@@ -51,6 +52,7 @@ try {
   cp.setCpClient(async (part, code, isCompany) => {
     calls.push({ part, code: code === FAKE_A ? "A" : code === FAKE_B ? "B" : "?", isCompany });
     if (mode[part] === "fail") throw new Error("SAPI request failed (500)");
+    if (mode[part] === "provider503") throw new SapiDebtError("sapi_debt_failed", "استعلام مورد نظر پاسخ نمی دهد | باز گشت هزینه فراخوانی");
     if (part === "unpaidChequePro") return { nationalCode: code, legalId: "", name: "نمونه", count: 1, chequeList: [{ accountNumber: "0101234567001", amount: 250000000, bouncedAmount: 250000000,
       bankCode: "18", branchCode: "1", branchDescription: "بانک تجارت — شعبه مرکزی", dishonoringBranchName: "بانک تجارت — شعبه ولیعصر", dishonorReason: "حساب دارای کسری موجودی است.",
       branchCodeBounced: "2", chequeDate: "14030120", backDate: "14030122", chequeID: "x1", chequeNumber: "0001234567" }] };
@@ -106,7 +108,14 @@ try {
 
   setKey(cp.CP_FLAG, "1");
   await ok("ON: /me enabled; empty view (no inquiry yet, validity 24h default from «اعتبارسنجی»); masked code only; GET writes nothing but the additive table", async () => {
-    assert.equal((await call(KAZEMI, "GET", "/credit-panel/me")).body.enabled, true);
+    setKey("flag.instant_credit_check.user.8", null);
+    const me0 = await call(KAZEMI, "GET", "/credit-panel/me");
+    assert.equal(me0.body.enabled, true);
+    assert.equal(me0.body.icc, false, "ICS24 / اعتبارسنجی فوری is a separate per-user flag, off when absent");
+    setKey("flag.instant_credit_check.user.8", "1");
+    assert.equal((await call(KAZEMI, "GET", "/credit-panel/me")).body.icc, true);
+    assert.equal((await call(ADMIN, "GET", "/credit-panel/me")).body.icc, false, "admin has no per-user ICC flag");
+    setKey("flag.instant_credit_check.user.8", null);
     const h0 = hashAll();
     const r = await call(KAZEMI, "GET", `/credit-panel/customers/${CA}`);
     assert.equal(r.status, 200); assert.equal(r.body.lastAt, null); assert.equal(r.body.valid, false); assert.equal(r.body.validHours, 24);
@@ -163,6 +172,18 @@ try {
     const r2 = await call(ADMIN, "POST", `/credit-panel/customers/${CA}/inquiry`, { only: ["chequeColor"] });
     assert.equal(r2.status, 200); assert.deepEqual(calls.slice(n).map((c) => c.part), ["chequeColor"]); assert.equal(r2.body.parts.chequeColor.error, false);
     assert.equal(r2.body.parts.activeLoans.data.count, 3);
+  });
+
+  await ok("failed ChequeColor with a provider sentence: errorDetail is that sentence (not a bare failed flag)", async () => {
+    execute("UPDATE customer_debt_inquiries SET created_at=? WHERE customer_id=?", [new Date(Date.now() - 3 * 86400000).toISOString(), CA]);
+    mode = { chequeColor: "provider503" };
+    const r = await call(ADMIN, "POST", `/credit-panel/customers/${CA}/inquiry`, {});
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.failed, ["chequeColor"]);
+    assert.equal(r.body.parts.chequeColor.error, true);
+    assert.match(String(r.body.parts.chequeColor.errorDetail), /استعلام مورد نظر پاسخ نمی دهد/);
+    assert.equal(r.body.parts.chequeColor.data.chequeColor, "زرد", "previous colour kept");
+    mode = {};
   });
 
   await ok("complete failure → 502 «استعلام الآن انجام نشد», the previous result and its time stay", async () => {

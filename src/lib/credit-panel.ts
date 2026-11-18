@@ -8,7 +8,7 @@
  */
 import { crmDb, execute, queryRow, queryRows } from "./crm-db";
 import { CREDIT_LIMITS, auditCredit } from "./credit-check-guard";
-import { sapiDebt, type SapiDebtCheck } from "./sapi";
+import { sapiDebt, SapiDebtError, type SapiDebtCheck } from "./sapi";
 
 export const CP_FLAG = "flag.credit_panel_v1";
 export const cpOn = (): boolean => {
@@ -50,6 +50,25 @@ const COL: Record<CpPart, { json: string; err: string }> = {
   activeLoans: { json: "loans_json", err: "loans_error" },
 };
 
+
+/** Map a stored part-error (legacy codes or a safe provider sentence) for the expert UI. */
+export function cpStaffError(err: string | number | null | undefined): string | null {
+  if (err == null || err === "") return null;
+  const text = String(err);
+  if (text === "failed") return "استعلام این بخش انجام نشد";
+  if (text === "provider_no_credit") return "شارژ سرویس استعلام تمام شده، به مدیر سیستم بگویید";
+  return text.slice(0, 240);
+}
+
+function partErrorValue(e: unknown): string {
+  if (e instanceof SapiDebtError) {
+    if (e.kind === "sapi_provider_no_credit") return "provider_no_credit";
+    if (e.providerMessage) return e.providerMessage.slice(0, 240);
+  }
+  if (e instanceof Error && e.message === "sapi_provider_no_credit") return "provider_no_credit";
+  return "failed";
+}
+
 /** «اعتبارسنجی» duration from «مدیریت فروش» — read-only (no seed insert). null = forever. */
 export function cpValidHours(): number | null {
   try {
@@ -76,7 +95,7 @@ function scrub(v: unknown): unknown {
 }
 
 type Row = { id: number; created_at: string; valid_hours: number | null; ok_parts: number } & Record<string, string | number | null>;
-export type CpPartView = { data: Record<string, unknown> | null; at: string | null; error: boolean };
+export type CpPartView = { data: Record<string, unknown> | null; at: string | null; error: boolean; errorDetail: string | null };
 export type CpView = {
   enabled: true;
   customerId: number;
@@ -99,7 +118,7 @@ export function cpView(customerId: number, now = Date.now()): CpView {
     let data: Record<string, unknown> | null = null;
     try { data = hit ? JSON.parse(String(hit[COL[p].json])) as Record<string, unknown> : null; } catch { data = null; }
     const tried = rows.find((r) => r[COL[p].json] != null || r[COL[p].err] != null);
-    parts[p] = { data, at: hit?.created_at ?? null, error: Boolean(tried && tried[COL[p].err] != null) };
+    parts[p] = { data, at: hit?.created_at ?? null, error: Boolean(tried && tried[COL[p].err] != null), errorDetail: cpStaffError(tried?.[COL[p].err]) };
   }
   const lastErrors = CP_PARTS.filter((p) => parts[p].error);
   const validHours = last ? (last.valid_hours == null ? null : Number(last.valid_hours)) : cpValidHours();
@@ -145,7 +164,7 @@ export async function cpRun(opts: {
   try {
     const results = await Promise.all(parts.map(async (p) => {
       try { return { p, data: scrub(await client(p, nationalCode, opts.isCompany === true)) as Record<string, unknown>, err: null as string | null }; }
-      catch (e) { return { p, data: null, err: e instanceof Error && e.message === "sapi_provider_no_credit" ? "provider_no_credit" : "failed" }; }
+      catch (e) { return { p, data: null, err: partErrorValue(e) }; }
     }));
     const okParts = results.filter((r) => r.data).length;
     const vals: Record<string, string | null> = {};
