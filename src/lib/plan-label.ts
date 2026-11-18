@@ -19,3 +19,12 @@ export function planLabelForCustomer(bankName: string | null | undefined): strin
   const bank = publicBankNames(bankName);
   return bank ? `لندتک / ${bank}` : "لندتک";
 }
+
+/** Internal CRM label: loan_plans.name first. Fall back to the old bank-based «لندتک / {بانک}» only when the name is empty.
+ *  Customer-facing Bale / portal copy still uses planLabelForCustomer. Never writes loan_plans. */
+export function internalPlanLabel(planName: string | null | undefined, bankName: string | null | undefined): string {
+  const name = String(planName ?? "").trim();
+  if (name) return name;
+  return planLabelForCustomer(bankName);
+}
+

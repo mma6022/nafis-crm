@@ -271,7 +271,7 @@ export function paSuggest(customerId: number): {
     const reasons = e.reasons.filter((r) => r.kind === "met" || r.kind === "unknown" || r.kind === "warning").slice(0, 3).map((r) => shortReason(r.code, planReasonText(r), e));
     const info: string[] = [];
     if (credit.bouncedCount && credit.bouncedCount > 0) info.push(`${credit.bouncedCount.toLocaleString("fa-IR")} چک برگشتی`);
-    const name = [e.planName, e.bankName].filter(Boolean).join(" — ") || e.planName;
+    const name = String(e.planName ?? "").trim() || (e.bankName ? `لندتک / ${e.bankName}` : "لندتک");
     return { planId: e.planId, name, bankName: e.bankName, loanType: e.loanType, status: e.status, max: e.max, installments: terms.length ? terms : e.installments, reasons, info };
   });
   return { customer: { id: Number(c.id), name: String(c.name ?? "") }, chips, credit, plans, answers };

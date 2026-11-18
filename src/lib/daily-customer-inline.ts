@@ -305,13 +305,12 @@ const STAGE_ACTION: Record<string, string> = {
 };
 
 function planLabel(bankName: string | null | undefined, planName: string | null | undefined): string {
+  // t853u: internal CRM (today box / cases) shows loan_plans.name; bank-based label only if the name is empty.
+  const name = String(planName ?? "").trim();
+  if (name) return name;
   const bank = String(bankName ?? "").trim();
   if (bank) return `لندتک / ${bank}`;
-  const name = String(planName ?? "").trim();
-  // Never invent a bank; if only a plan name exists, still prefix with لندتک when it is not already.
-  if (!name) return "لندتک";
-  if (name.startsWith("لندتک")) return name;
-  return `لندتک / ${name}`;
+  return "لندتک";
 }
 
 function caseHref(id: number, stage: string | null, customerId: number): string {
