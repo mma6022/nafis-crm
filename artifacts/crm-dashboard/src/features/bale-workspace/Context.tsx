@@ -13,7 +13,7 @@ const Row = ({ k, v, chip }: { k: string; v: React.ReactNode; chip?: React.React
 export function FileBlock({ c }: { c: Full }) {
   const d = c.dossier;
   return <section className="bws-blk" aria-label="پرونده‌ی مشتری"><h3>پروندهٔ مشتری</h3>
-    {d ? <>
+    {d && (d.job || d.purpose || d.amountToman || d.guarantor) ? <>
       <Row k="شغل" v={d.job} chip={d.fromSite ? <span className="bws-chip">از سایت</span> : null} />
       <Row k="برای" v={d.purpose} />
       <Row k="مبلغ" v={d.amountToman ? `${faNum(d.amountToman)} تومان` : null} />
@@ -32,7 +32,7 @@ export function CreditBlock({ c, toast }: { c: Full; toast: (t: string) => void 
       {k.bounced != null ? <span className="bws-chip">{k.bounced ? `${fd(k.bounced)} چک برگشتی` : 'بدون چک برگشتی'}</span> : c.dossier?.bounced === true ? <span className="bws-chip">چک برگشتی یا معوق دارد</span> : null}
       {k.debtRial != null ? <span className="bws-chip">مانده بدهی {toman(k.debtRial)}</span> : null}
     </div>
-    {k.lastAt ? <p className="bws-mut">آخرین استعلام: {jDate(k.lastAt)}</p> : null}
+    {k.lastAt ? <p className="bws-mut">آخرین استعلام: {jDate(k.lastAt)}</p> : <p className="bws-mut">هنوز استعلامی ثبت نشده است.</p>}
     {k.panel ? <button className="bws-btn" type="button" disabled={busy} onClick={run} data-testid="bws-inquiry">{busy ? 'در حال استعلام…' : 'استعلام جدید'}</button> : null}
   </section>;
 }
@@ -68,7 +68,7 @@ export function BwContext({ data, only, toast }: { data: BwsChatCtx | undefined;
   if (!c) return <aside className={cls} aria-label="زمینه‌ی مشتری"><section className="bws-blk"><h3>زمینهٔ مشتری</h3><p className="bws-mut">این گفتگو هنوز به پرونده وصل نیست.</p></section><AssetsBlock a={data.assets} /></aside>;
   if (c.restricted) return <aside className={cls} aria-label="زمینه‌ی مشتری"><section className="bws-blk"><h3>پروندهٔ کارشناس دیگر</h3><p className="bws-mut">{c.customer.name}{c.customer.expert ? ` · کارشناس: ${c.customer.expert}` : ''}</p></section></aside>;
   return <aside className={only ? 'bws-ctx tab' : 'pane cp bws-ctx'} aria-label="زمینه‌ی مشتری" data-testid="bws-ctx">
-    {!only ? <h2 className="bws-h2">زمینهٔ مشتری</h2> : null}
+    {!only ? <h2 className="bws-h2">زمینهٔ مشتری</h2> : <div className="bws-tabhd"><b>{c.customer.name}</b><span>#{fd(c.customer.id)}</span>{c.customer.expert ? <span>· {c.customer.expert}</span> : null}</div>}
     {!only || only === 'file' ? <><FileBlock c={c} />{only ? <CasesBlock c={c} /> : null}</> : null}
     {!only || only === 'credit' ? <CreditBlock c={c} toast={toast} /> : null}
     {!only ? <CasesBlock c={c} /> : null}
