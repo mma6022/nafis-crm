@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { SectionProps } from '../SalesManagerConsolePage';
 import type { Stage, StepsDoc } from '../api';
 import { c, clone, fa, I, Chip, Pick, Tgl } from '../ui';
+import { withPlanPrefix } from '@/lib/multi-case-plan-label';
 
 export function StepsSection({ st, doc, set }: SectionProps<'steps'>) {
   const [plan, setPlan] = useState<string>('default');
@@ -24,7 +25,7 @@ export function StepsSection({ st, doc, set }: SectionProps<'steps'>) {
     <>
       <div className={c('plans')}>
         <Pick on={plan === 'default'} onClick={() => setPlan('default')} cnt={doc.plans.default ? 'سفارشی' : undefined}>پیش‌فرض سیستم</Pick>
-        {st.plans.map((p) => <Pick key={p.key} on={plan === p.key} onClick={() => setPlan(p.key)} cnt={doc.plans[p.key] ? 'سفارشی' : undefined}>طرح {p.name}</Pick>)}
+        {st.plans.map((p) => <Pick key={p.key} on={plan === p.key} onClick={() => setPlan(p.key)} cnt={doc.plans[p.key] ? 'سفارشی' : undefined}>{withPlanPrefix(p.name)}</Pick>)}
       </div>
       <div className={c('row1')} style={{ marginTop: 12 }}>
         <Tgl on={groupOff(g.contract)} onClick={() => setGroup(g.contract, !groupOff(g.contract))}>قرارداد لازم نیست</Tgl>

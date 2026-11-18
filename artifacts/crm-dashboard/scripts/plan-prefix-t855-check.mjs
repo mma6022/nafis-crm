@@ -35,9 +35,10 @@ for (const [file, re] of [
   ["pages/LoanApplicationDetail.tsx", /withPlanPrefix\(planHeading\)/],
   ["components/multi-case/CaseContextPicker.tsx", /withPlanPrefix\(multiCasePlanLabel\(row\)\)/],
   ["components/loan-applications/CreateWizard.tsx", /withPlanPrefix\(multiCasePlanLabel\(\{ planId: openCase\.planId/],
+  ["features/sales-manager-console/sections/Steps.tsx", /withPlanPrefix\(p\.name\)/],
 ]) {
   const s = src(file);
   assert.match(s, re, file);
-  assert.ok(!/[>،·]\s*طرح \{(f\.plan|label|planHeading|multiCasePlanLabel)/.test(s), `raw «طرح {» left in ${file}`);
+  assert.ok(!/[>،·]\s*طرح \{(f\.plan|label|planHeading|multiCasePlanLabel|p\.name)/.test(s), `raw «طرح {» left in ${file}`);
 }
 console.log("PASS plan prefix t855");
