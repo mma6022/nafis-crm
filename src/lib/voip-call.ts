@@ -576,13 +576,21 @@ export function vcHistory(u: U, customerId: number, now = new Date()) {
   items.sort((a, b) => ms(b.at) - ms(a.at));
   return { items: items.slice(0, 40) };
 }
+/** Own call (or admin) vs missing file, without widening play access. */
+export function vcRecordingAccess(u: U, eventId: number):
+  { ok: true; file: string; startedAt: string; eventId: number } | { ok: false; status: 403 | 404 } {
+  const e = queryRow<{ recording_file: string | null; expert_user_id: number | null; is_live: number; started_at: string | null }>(
+    "SELECT recording_file, expert_user_id, is_live, started_at FROM voip_after_call_events WHERE id=?", [eventId]);
+  if (!e || e.is_live) return { ok: false, status: 404 };
+  const own = e.expert_user_id === u.id || (vcTableExists() && !!queryRow("SELECT 1 x FROM voip_click_calls WHERE event_id=? AND user_id=?", [eventId, u.id]));
+  if (!(u.role === "admin" || own)) return { ok: false, status: 403 };
+  if (!e.recording_file || !e.started_at) return { ok: false, status: 404 };
+  return { ok: true, file: e.recording_file, startedAt: e.started_at, eventId };
+}
 /** Own call (or admin) → the provider recording file name of a CDR-final event. */
 export function vcRecordingFile(u: U, eventId: number): string | null {
-  const e = queryRow<{ recording_file: string | null; expert_user_id: number | null; is_live: number; extension: string | null }>(
-    "SELECT recording_file, expert_user_id, is_live, extension FROM voip_after_call_events WHERE id=?", [eventId]);
-  if (!e || e.is_live || !e.recording_file) return null;
-  const own = e.expert_user_id === u.id || (vcTableExists() && !!queryRow("SELECT 1 x FROM voip_click_calls WHERE event_id=? AND user_id=?", [eventId, u.id]));
-  return u.role === "admin" || own ? e.recording_file : null;
+  const r = vcRecordingAccess(u, eventId);
+  return r.ok ? r.file : null;
 }
 /** Event ids linked to a click call, hidden from the generic after-call queue while the flag is on (the click call asks for the result once). */
 export function vcClickEventFilterSql(): string {

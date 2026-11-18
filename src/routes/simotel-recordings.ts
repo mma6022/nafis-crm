@@ -10,6 +10,7 @@ import { crmDb } from "../lib/crm-db";
 import { isExcludedCallPhone } from "../lib/call-display-exclusions";
 import { CALL_LIST_FROM } from "../lib/call-list-cutoff";
 import { callExtensions, callStartedAt, getSimotelAudio, getSimotelCalls, SimotelError, type SimotelCall } from "../lib/simotel";
+import { recordingDownloadDisposition, recordingDownloadFilename } from "../lib/recording-download";
 
 const router: IRouter = Router();
 const LIMIT = 20;
@@ -141,6 +142,39 @@ router.get("/voip/recordings/:id/audio", requirePermission("calls.view"), async 
     res.setHeader("Content-Type", response.headers.get("content-type")!);
     const suffix = row.record.split(".").pop()!.toLowerCase();
     res.setHeader("Content-Disposition", `attachment; filename="call-${id}.${suffix}"`);
+    const source = Readable.fromWeb(response.body as any);
+    const abort = () => source.destroy();
+    res.on("close", abort);
+    let bytes = 0;
+    const guard = new Transform({ transform(chunk, _encoding, callback) {
+      bytes += chunk.length;
+      callback(bytes > 100 * 1024 * 1024 ? new Error("audio_size_limit") : null, chunk);
+    } });
+    try { await pipeline(source, guard, res); }
+    finally { res.off("close", abort); }
+  } catch (error) { handleError(res, error); }
+});
+
+
+router.get("/voip/recordings/:id/download", requirePermission("calls.view"), async (req, res) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  try {
+    const user = res.locals.authUser as AuthUser;
+    const own = extensionFor(user);
+    const id = String(req.params.id);
+    if (!/^[A-Za-z0-9_.-]{1,128}$/.test(id)) throw new SimotelError("invalid_id", 400, "شناسهٔ تماس معتبر نیست.");
+    const { from, to } = dateRange(req.query);
+    const { rows } = await getSimotelCalls(from, to);
+    const match = rows.find(x => x._id === id);
+    if (!match) throw new SimotelError("recording_missing", 404, "فایل صوتی این تماس ذخیره نشده است.");
+    // Same exposure as /audio for hidden numbers (404). Other experts' rows stay 403 as required for download.
+    if (isExcludedCallPhone(match.src) || isExcludedCallPhone(match.dst)) throw new SimotelError("recording_missing", 404, "فایل صوتی این تماس ذخیره نشده است.");
+    if (!visible(match, user, own)) throw new SimotelError("recording_forbidden", 403, "این فایل صوتی برای شما در دسترس نیست.");
+    if (!match.record) throw new SimotelError("recording_missing", 404, "فایل صوتی این تماس ذخیره نشده است.");
+    const response = await getSimotelAudio(match.record);
+    res.setHeader("Content-Type", response.headers.get("content-type") ?? "application/octet-stream");
+    res.setHeader("Content-Disposition", recordingDownloadDisposition(recordingDownloadFilename(id, callStartedAt(match), match.record)));
     const source = Readable.fromWeb(response.body as any);
     const abort = () => source.destroy();
     res.on("close", abort);

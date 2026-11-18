@@ -9,7 +9,8 @@ import { pipeline } from "node:stream/promises";
 import type { AuthUser } from "../lib/auth";
 import { requirePermission } from "../lib/access-control";
 import { getSimotelAudio, SimotelError } from "../lib/simotel";
-import { vcCustomerAllowed, vcDismiss, vcHistory, vcMe, vcOn, vcRecordingFile, vcStart } from "../lib/voip-call";
+import { vcCustomerAllowed, vcDismiss, vcHistory, vcMe, vcOn, vcRecordingAccess, vcRecordingFile, vcStart } from "../lib/voip-call";
+import { recordingDownloadDisposition, recordingDownloadFilename } from "../lib/recording-download";
 import { runImmediateTransaction, runTransaction } from "../lib/crm-db";
 import { s132CloseBar, s132Fix, s132IsFirstCall, s132Note, s132On, s132SetStatus } from "../lib/simotel132";
 import { vcAnywhereFlagOn, vcAnywhereOn, vcAnywhereOwnIds } from "../lib/voip-anywhere";
@@ -130,6 +131,35 @@ router.get("/voip-call/calls/:eventId/audio", requirePermission("calls.view"), a
     const response = await getSimotelAudio(file);
     res.setHeader("Content-Type", response.headers.get("content-type") ?? "audio/mpeg");
     res.setHeader("Content-Disposition", `inline; filename="call-${id}.${file.split(".").pop()!.toLowerCase()}"`);
+    const source = Readable.fromWeb(response.body as any);
+    const abort = () => source.destroy();
+    res.on("close", abort);
+    let bytes = 0;
+    const guard = new Transform({ transform(chunk, _e, cb) { bytes += chunk.length; cb(bytes > 100 * 1024 * 1024 ? new Error("audio_size_limit") : null, chunk); } });
+    try { await pipeline(source, guard, res); } finally { res.off("close", abort); }
+  } catch (e) {
+    if (res.headersSent) { res.destroy(); return; }
+    const k = e instanceof SimotelError ? e : new SimotelError("audio_failed", 502, "دریافت فایل صوتی ناموفق بود.");
+    res.status(k.status).json({ error: k.code, message: k.message });
+  }
+});
+
+router.get("/voip-call/calls/:eventId/download", requirePermission("calls.view"), async (req, res) => {
+  if (off(res)) return;
+  res.setHeader("Cache-Control", "private, no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  const id = Number(req.params.eventId);
+  if (!Number.isSafeInteger(id) || id <= 0) return void res.status(404).json({ error: "recording_missing", message: "فایل صوتی این تماس ذخیره نشده است." });
+  const access = vcRecordingAccess(me(res) as any, id);
+  if (!access.ok) {
+    return void res.status(access.status).json(access.status === 403
+      ? { error: "recording_forbidden", message: "این فایل صوتی برای شما در دسترس نیست." }
+      : { error: "recording_missing", message: "فایل صوتی این تماس ذخیره نشده است." });
+  }
+  try {
+    const response = await getSimotelAudio(access.file);
+    res.setHeader("Content-Type", response.headers.get("content-type") ?? "audio/mpeg");
+    res.setHeader("Content-Disposition", recordingDownloadDisposition(recordingDownloadFilename(access.eventId, access.startedAt, access.file)));
     const source = Readable.fromWeb(response.body as any);
     const abort = () => source.destroy();
     res.on("close", abort);

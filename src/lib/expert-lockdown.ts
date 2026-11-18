@@ -306,13 +306,13 @@ function mcLockdownIds(req: Request, path: string): number[] | null {
   return row ? [Number(row.customer_id)] : null;
 }
 /** call-transcripts v1.1: null = not opened (normal lockdown rules apply); [] = feature switch; [customerId] = that customer's check. */
-// CT-OWN (Mohammad 2026-11-03): a locked expert opens the transcript, summary and audio of THEIR OWN calls (expert_user_id = caller),
+// CT-OWN (Mohammad 2026-11-03): a locked expert opens the transcript, summary, audio and download of THEIR OWN calls (expert_user_id = caller),
 // whatever the customer's current list; other experts' calls keep the customer rule here and the handlers' own-call check (403/404).
 function ctOwnEvent(where: string, arg: string | number, userId: number): boolean {
   return !!queryRow(`SELECT 1 x FROM voip_after_call_events WHERE ${where} AND is_live=0 AND expert_user_id=? LIMIT 1`, [arg, userId]);
 }
 function ctLockdownIds(req: Request, path: string, userId: number): number[] | null {
-  const audio = /^\/voip\/recordings\/([A-Za-z0-9_.-]{1,128})\/audio$/.exec(path);
+  const audio = /^\/voip\/recordings\/([A-Za-z0-9_.-]{1,128})\/(audio|download)$/.exec(path);
   if (!audio && !path.startsWith("/call-transcripts/")) return null;
   try { if (queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key='flag.call_transcripts.ui'")?.value !== "1") return null; } catch { return null; }
   if (audio) return req.method === "GET" && ctOwnEvent("COALESCE(recording_provider_id,external_id)=?", audio[1], userId) ? [] : null; // route re-checks own extension
@@ -370,7 +370,7 @@ function vcLockdownIds(req: Request, path: string, userId: number): number[] | n
   }
   // SIMOTEL-132 B (flag on only): own-call endpoints; the handler checks the call / customer is the expert's own
   if (/^\/voip-call\/b\//.test(path) && s132bFlagOn(userId)) return [];
-  const a = /^\/voip-call\/calls\/(\d+)\/audio$/.exec(path);
+  const a = /^\/voip-call\/calls\/(\d+)\/(audio|download)$/.exec(path);
   if (a && req.method === "GET") {
     const r = queryRow<{ cid: number | null }>(`SELECT COALESCE(l.customer_id,e.customer_id) cid FROM voip_after_call_events e
       LEFT JOIN call_logs l ON l.id=e.call_log_id WHERE e.id=?`, [Number(a[1])]);
