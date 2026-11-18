@@ -11,6 +11,7 @@ import SalesManagerConsolePage from '@/features/sales-manager-console/SalesManag
 import { MergedRedirect, SalesAdminGate } from '@/features/sales-manager-console/MergedRedirect';
 import BaleBotInbox from '@/features/bale-bot/BaleBotInbox';
 import BaleBotAdmin from '@/features/bale-bot/BaleBotAdminPage';
+import { BwsAutomationPage, BwsTrainingPage } from '@/features/bale-workspace/Admin';
 import Dashboard from '@/pages/Dashboard';
 import Customers from '@/pages/Customers';
 import MyTransfers from '@/pages/MyTransfers';
@@ -319,6 +320,9 @@ function AppWithRoutes() {
                     <Route path="/sales-team-admin"><MergedRedirect><SalesManagerConsolePage /></MergedRedirect></Route>
                     {/* «مدیریت فروش» v1.2: only while flag.sales_admin_merge_v12 is ON; otherwise the usual «not found» */}
                     <Route path="/sales-admin"><SalesAdminGate fallback={<NotFound />}><SalesManagerConsolePage /></SalesAdminGate></Route>
+                    {/* «فضای کار بله» v1.0: pages answer «فعال نیست» while flag.bale_workspace_v1 is OFF; manager-only on the server */}
+                    <Route path="/bale-workspace/automation"><BwsAutomationPage /></Route>
+                    <Route path="/bale-workspace/training"><BwsTrainingPage /></Route>
                     <Route path="/bale-bot/admin"><MergedRedirect><BaleBotAdmin /></MergedRedirect></Route>{/* bale v1.1: pages render nothing (redirect) while flag.bale_bot is OFF */}
                     <Route path="/bale-bot/:id"><BaleBotInbox /></Route>
                     <Route path="/bale-bot"><BaleBotInbox /></Route>

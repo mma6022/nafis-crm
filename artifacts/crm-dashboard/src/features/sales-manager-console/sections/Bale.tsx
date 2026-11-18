@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import type { BaleState, QuickMessage, ViewLevel } from '../api';
 import { c, fa, I, Chip, Seg, Tgl, safeN } from '../ui';
+import { BwsConsoleBlocks } from '@/features/bale-workspace/Admin'; // «فضای کار بله» د/ز/و (flag.bale_workspace_v1; nothing while OFF)
 
 export type BaleAct = (path: string, method: 'PUT' | 'POST', body: unknown, okMsg: string) => Promise<boolean>;
 const LV: [ViewLevel, string][] = [['own', 'فقط خودش'], ['all', 'همه'], ['none', 'هیچ']];
@@ -114,6 +115,8 @@ export function BaleSection({ bs, act }: { bs: BaleState; act: BaleAct }) {
 
       <H>پیش‌نمایش گفتگو</H>
       <ChatPreview items={bs.quick} />
+
+      <BwsConsoleBlocks />
     </div>
   );
 }
