@@ -1,3 +1,4 @@
+import { RecordingDownloadButton, simotelRecordingDownloadUrl } from '@/components/voip/RecordingDownloadButton';
 /** CT-CHAT (flag.call_transcripts.chat): Armita «متن تماس به شکل چت» v1.0, the «فایل ضبط و متن کامل مکالمه» section of /call-view/<id> as a chat.
  *  Expert left / customer right (2 speakers with roles), neutral «گوینده ۱/۲» left/right without roles, one right-aligned column with colour chips
  *  for 1 or 3+ speakers, flat full text when no speaker was separated. Sticky player, click-to-seek, «در حال پخش» + follow, «برگرد به لحظه‌ی پخش».
@@ -96,7 +97,8 @@ export function ChatTranscriptCard({ c, onSaved, before }: { c: CtCall; onSaved:
     <button className="spd" type="button" aria-label={`سرعت پخش: ${fa(String(SPEEDS[sp])).replace('.', '٫')} برابر`} data-testid="ct-speed"
       onClick={() => { const n = (sp + 1) % SPEEDS.length; setSp(n); if (audio.current) audio.current.playbackRate = SPEEDS[n]; }}>{rateText(SPEEDS[sp])}</button>
     {aErr ? <span className="rp-err" role="status" data-testid="ct-audio-error">پخش فایل ضبط الان ممکن نیست؛ متن مکالمه در دسترس است.</span> : null}
-  </div> : null;
+    <RecordingDownloadButton href={simotelRecordingDownloadUrl(c.recording!.externalId, c.recording!.from, c.recording!.to)} testId="button-ct-chat-download" />
+  </div> : <RecordingDownloadButton missing testId="button-ct-chat-download" />;
 
   /* ---------- body by textState ---------- */
   let body: ReactNode = null;

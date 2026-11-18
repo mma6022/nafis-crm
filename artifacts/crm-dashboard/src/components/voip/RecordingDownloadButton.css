@@ -1,0 +1,7 @@
+.rec-dl{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px}
+.rec-dl-btn.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;min-width:40px;padding:0 12px;font-size:13px}
+.rec-dl-missing{margin:8px 0 0;font-size:13px;color:var(--nf-ink-muted,#667)}
+.rec-dl-err{display:block;width:100%}
+@media (max-width:390px){
+  .rec-dl-btn.btn{min-height:40px;min-width:40px;padding:0 12px}
+}

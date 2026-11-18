@@ -13,6 +13,7 @@ import {
 import { Modal } from '@/components/DataTools';
 import { formatDateTime } from '@/components/CrmShell';
 import './CallReportDialog.css';
+import { RecordingDownloadButton, simotelRecordingDownloadUrl } from './RecordingDownloadButton';
 import { VoiceNoteButton } from '@/features/voice-notes/VoiceNoteButton';
 
 export type ReportSource = { kind: 'call'; id: number } | { kind: 'event'; id: number };
@@ -160,7 +161,10 @@ export function CallReportEditor({ source, onDirtyChange, onSaved, footer }: {
     {dirty && live && !error ? <p className="subtle-note">{saving ? 'در حال ذخیره خودکار...' : 'تغییرات به‌زودی ذخیره می‌شود.'}</p> : null}
     <div className="cr-ai" data-testid="text-report-summary"><b>خلاصه سیستم (هوش مصنوعی، جدا از متن کارشناس)</b>
       {summary || (aiBusy ? 'در حال تهیه خلاصه...' : 'خلاصه‌ای ثبت نشده است.')}</div>
-    {audioOk ? <audio className="cr-audio" controls preload="none" src={audioSrc} data-testid="audio-report" /> : null}
+    {audioOk ? <div className="cr-rec-dl">
+      <audio className="cr-audio" controls preload="none" src={audioSrc} data-testid="audio-report" />
+      <RecordingDownloadButton href={simotelRecordingDownloadUrl(report.externalId!, report.recordingFrom!, report.recordingTo!)} testId="button-report-download" />
+    </div> : (!report.isLive ? <RecordingDownloadButton missing testId="button-report-download" /> : null)}
     {t?.state === 'completed' && (t.segments.length || t.text) ? <details className="cr-transcript" data-testid="details-report-transcript"><summary>متن کامل تماس</summary>
       {t.segments.length ? t.segments.map((s, i) => <p key={i}><b>{t.speakers.find((x) => x.id === s.speakerId)?.label ?? s.speakerId}:</b> {s.text}</p>) : <p style={{ whiteSpace: 'pre-wrap' }}>{t.text}</p>}</details>
       : aiBusy ? <p className="subtle-note">در حال تبدیل صدا به متن...</p> : t?.state === 'failed' ? <p className="form-error">{t.error || 'تبدیل صدا به متن ناموفق بود.'}</p> : null}

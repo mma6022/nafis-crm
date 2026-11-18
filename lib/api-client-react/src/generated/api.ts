@@ -19367,7 +19367,7 @@ export const getDownloadVoipRecordingUrl = (id: string,
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/voip/recordings/${id}/audio?${stringifiedParams}` : `/api/voip/recordings/${id}/audio`
+  return stringifiedParams.length > 0 ? `/api/voip/recordings/${id}/download?${stringifiedParams}` : `/api/voip/recordings/${id}/download`
 }
 
 export const downloadVoipRecording = async (id: string,

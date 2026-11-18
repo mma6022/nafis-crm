@@ -11,6 +11,7 @@ import { faNum } from '@/features/call-queue/api';
 import { atText, durText, mmss, TXS, useCtConfig, useCustomerCtCalls, type TextState } from '@/features/call-transcripts/api';
 import { Link } from 'wouter';
 import { useS132First, useVcHistory, useVcMe, vcApi, vcAudioSrc, VcError, VC_ME_KEY, vcRefresh, type S132Bar, type S132Status, type VcCall, type VcHistItem, type VcMe } from './api';
+import { RecordingDownloadButton, voipCallRecordingDownloadUrl } from '@/components/voip/RecordingDownloadButton';
 import './voip-call.css';
 import { vthOf, vthApi, vthRefresh, type VcMeVth } from '@/features/voip-task-hold/api';
 
@@ -261,8 +262,9 @@ export function VcPlayer({ eventId, seconds }: { eventId: number; seconds: numbe
 function Rec({ i }: { i: Pick<VcHistItem, 'kind' | 'recording' | 'playable' | 'eventId' | 'durationSeconds' | 'status'> }) {
   if (i.recording === 'processing') return <div className="vc-rp proc" role="status" data-testid="vc-rec-proc"><span className="vc-rpb" aria-hidden="true"><Clock className="i" /></span>
     <span className="vc-rpt"><b>فایل ضبط در حال آماده شدن است</b><small>معمولاً چند دقیقه؛ خودش همین‌جا پخش‌شدنی می‌شود.</small></span></div>;
-  if (i.recording === 'ready' && i.playable && i.eventId != null) return <VcPlayer eventId={i.eventId} seconds={i.durationSeconds} />;
+  if (i.recording === 'ready' && i.playable && i.eventId != null) return <div className="vc-rec-dl"><VcPlayer eventId={i.eventId} seconds={i.durationSeconds} /><RecordingDownloadButton href={voipCallRecordingDownloadUrl(i.eventId)} testId={`button-vc-download-${i.eventId}`} /></div>;
   if (i.recording === 'ready') return <p className="vc-rp none"><Lock className="i" aria-hidden="true" /><span>فایل ضبط فقط برای کارشناس همین تماس و مدیر پخش می‌شود.</span></p>;
+  if (i.status === 'answered' && i.recording === 'none') return <RecordingDownloadButton missing testId="button-vc-download-missing" />;
   if (i.kind === 'manual') return <p className="vc-rp none"><EyeOff className="i" aria-hidden="true" /><span>ثبت دستی پیش از سیموتل؛ مدت و فایل ضبط ندارد.</span></p>;
   return <p className="vc-rp none"><EyeOff className="i" aria-hidden="true" /><span>فایل ضبط ندارد؛ مکالمه‌ای برقرار نشد.</span></p>;
 }

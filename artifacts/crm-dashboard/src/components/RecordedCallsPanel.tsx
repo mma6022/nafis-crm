@@ -1,10 +1,11 @@
+import { RecordingDownloadButton, simotelRecordingDownloadUrl } from '@/components/voip/RecordingDownloadButton';
 import { CustomerName } from '@/components/customer/CustomerName';
 import { useMemo, useState } from 'react';
 import { useTableState } from '@/hooks/use-table-state';
 import { useQueryClient } from '@tanstack/react-query';
-import { Download, FileText, RefreshCw, Users } from 'lucide-react';
+import { FileText, RefreshCw, Users } from 'lucide-react';
 import {
-  useListVoipRecordings, getListVoipRecordingsQueryKey, getDownloadVoipRecordingUrl,
+  useListVoipRecordings, getListVoipRecordingsQueryKey,
   useGetAuthSession, getGetAuthSessionQueryKey, type ListVoipRecordingsParams, type VoipRecording,
   getListUsersQueryKey,
 } from '@workspace/api-client-react';
@@ -40,12 +41,6 @@ function errInfo(err: unknown): { status?: number; message: string } {
   return { status, message: (status && labels[status]) || 'دریافت گزارش تماس‌ها ناموفق بود؛ دوباره تلاش کنید.' };
 }
 
-function fileExtension(disposition: string | null): string {
-  if (!disposition) return 'mp3';
-  const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
-  const ext = m ? /\.([A-Za-z0-9]{2,5})$/.exec(m[1].trim())?.[1]?.toLowerCase() : undefined;
-  return ext && ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'opus', 'webm', 'gsm'].includes(ext) ? ext : 'mp3';
-}
 
 const fa = (n: number) => n.toLocaleString('fa-IR');
 const duration = (s: number) => { const m = Math.floor(s / 60); return `${fa(m)}:${fa(s % 60).padStart(2, '۰')}`; };
@@ -55,9 +50,7 @@ export function RecordedCallsPanel() {
   const [draft, setDraft] = useTableState('recordedCalls.draft', { ...initial, phone: '', extension: '', status: '', recordedOnly: false });
   const [applied, setApplied] = useTableState('recordedCalls.applied', draft);
   const [page, setPage] = useTableState('recordedCalls.page', 1);
-  const [pending, setPending] = useState<Record<string, boolean>>({});
   const [transcript, setTranscript] = useState<{ id: string; from: string; to: string } | null>(null);
-  const [dlError, setDlError] = useState<Record<string, string>>({});
   const session = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   const isAdmin = session.data?.user?.role === 'admin';
 
@@ -74,30 +67,6 @@ export function RecordedCallsPanel() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / (data.limit || LIMIT))) : 1;
 
   const apply = (e: React.FormEvent) => { e.preventDefault(); setApplied(draft); setPage(1); };
-
-  const download = async (row: VoipRecording) => {
-    setPending((p) => ({ ...p, [row.id]: true }));
-    setDlError((p) => { const n = { ...p }; delete n[row.id]; return n; });
-    try {
-      const res = await fetch(getDownloadVoipRecordingUrl(row.id, { from: data?.from ?? params.from!, to: data?.to ?? params.to! }), { credentials: 'include' });
-      if (!res.ok) {
-        let msg = 'دریافت فایل ضبط‌شده ناموفق بود.';
-        try { const j = await res.clone().json(); if (typeof j?.error === 'string' && j.error) msg = j.error; } catch { /* keep default */ }
-        throw new Error(msg);
-      }
-      const blob = await res.blob();
-      const safeId = row.id.replace(/[^A-Za-z0-9_.-]/g, '_');
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `call-${safeId}.${fileExtension(res.headers.get('Content-Disposition'))}`;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
-    } catch (e) {
-      setDlError((p) => ({ ...p, [row.id]: e instanceof Error ? e.message : 'دریافت فایل ناموفق بود.' }));
-    } finally {
-      setPending((p) => { const n = { ...p }; delete n[row.id]; return n; });
-    }
-  };
 
   return <div className="data-page" data-testid="panel-recorded-calls">
     <div className="page-intro"><div><div className="eyebrow">تماس‌های مرکز تلفن</div><h2>گزارش مرکز تماس</h2></div>
@@ -133,7 +102,7 @@ export function RecordedCallsPanel() {
         <td>{r.expertNames.length ? r.expertNames.join('، ') : 'نامشخص'}{r.extensions.length ? <span className="secondary-cell" dir="ltr">{r.extensions.join(', ')}</span> : null}</td>
         <td>{statusLabels[r.status] ?? r.status}</td>
         <td>{duration(r.durationSeconds)} / {duration(r.talkSeconds)}</td>
-        <td>{r.hasRecording ? <><button type="button" className="btn btn-ghost" disabled={!!pending[r.id]} onClick={() => download(r)} data-testid={`button-rc-download-${r.id}`}><Download size={14} /> {pending[r.id] ? 'در حال دریافت...' : 'دانلود'}</button>{dlError[r.id] ? <span role="alert" className="form-error" style={{ display: 'block', marginTop: 4 }}>{dlError[r.id]}</span> : null}</> : <span className="secondary-cell">بدون ضبط</span>}</td>
+        <td>{r.hasRecording && data ? <RecordingDownloadButton href={simotelRecordingDownloadUrl(r.id, data.from, data.to)} testId={`button-rc-download-${r.id}`} /> : <RecordingDownloadButton missing testId={`button-rc-download-${r.id}`} />}</td>
       <td><button type="button" className="btn btn-ghost" disabled={!r.hasRecording || !data} title={r.hasRecording ? 'تبدیل مکالمه به متن' : 'این تماس فایل ضبط‌شده ندارد'} onClick={() => data && setTranscript({ id: r.id, from: data.from, to: data.to })} data-testid={`button-transcribe-${r.id}`}><FileText size={14} /> تبدیل مکالمه به متن</button></td>
       </tr>) : <tr><td colSpan={9}><EmptyState title="تماسی یافت نشد" description="بازه تاریخ یا فیلترها را تغییر دهید." /></td></tr>}
     </tbody></table>

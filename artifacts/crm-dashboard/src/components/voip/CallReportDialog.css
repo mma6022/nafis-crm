@@ -11,3 +11,6 @@
 .cr-subject{font-weight:800;font-size:14px;color:var(--ink-deep)}
 .cr-notes{font-weight:700;font-size:13px;color:var(--ink-deep);white-space:pre-wrap}
 .cr-sys{font-size:11px;color:#94a3b8;white-space:pre-wrap}
+
+.cr-rec-dl{display:flex;flex-direction:column;gap:0;width:100%}
+

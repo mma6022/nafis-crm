@@ -1,3 +1,4 @@
+import { RecordingDownloadButton, simotelRecordingDownloadUrl } from '@/components/voip/RecordingDownloadButton';
 /** «یک تماس» page (design v1.1 scenes 18–21 expert, 24–26 manager): summary on top, sticky player, chat transcript with speakers.
  *  CT-CHAT: when the server marks the call `chat` (flag.call_transcripts.chat ON for this user) the transcript section is ChatTranscriptCard; otherwise the old TranscriptCard. */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -122,7 +123,8 @@ function TranscriptCard({ c, onSaved, mgr }: { c: CtCall; onSaved: (c: CtCall) =
       <span className="rpn"><bdi>{mmss(t)}</bdi> از <bdi>{mmss(total)}</bdi></span></span>
     <button className="rps" type="button" aria-label={`سرعت پخش، ${fa(SPEEDS[sp])} برابر`} onClick={() => { const n = (sp + 1) % SPEEDS.length; setSp(n); if (audio.current) audio.current.playbackRate = SPEEDS[n]; }}>{fa(SPEEDS[sp])}x</button>
     {aErr ? <span className="rp-err" role="status" data-testid="ct-audio-error">پخش فایل ضبط الان ممکن نیست؛ متن مکالمه در دسترس است.</span> : null}
-  </div> : <p className="rp none"><Eye className="i" /><span>فایل ضبط ندارد؛ مکالمه‌ای برقرار نشد.</span></p>;
+    <RecordingDownloadButton href={simotelRecordingDownloadUrl(c.recording!.externalId, c.recording!.from, c.recording!.to)} testId="button-ct-download" />
+  </div> : <p className="rp none" data-testid="button-ct-download-missing"><Eye className="i" /><span>فایل صوتی این تماس ذخیره نشده است.</span></p>;
   let body: ReactNode = null;
   if (pending(c.textState)) { const k = c.textState === 'processing' ? phaseIndex(c.textPhase) : -1;
     body = <div className="txw" role="status" data-testid="ct-processing"><ol className="steps txp" aria-label="مراحل تبدیل به متن">{PHASES.map(([, l], i) => <li key={l} className={i < k ? 'dn' : i === k ? 'on' : ''} aria-current={i === k ? 'step' : undefined}><b>{i < k ? <Check className="i" /> : fa(i + 1)}</b>{l}</li>)}</ol>
