@@ -152,7 +152,8 @@ export const DOC_FA: Record<string, string> = {
 };
 export const DOC_ORDER = ["payslip", "salary_deduction_cert", "sayadi_cheque", "guarantor", "none"] as const;
 export const DOC_OTHER: [string, string][] = [["payslip", "فیش حقوقی"], ["sayadi_cheque", "چک صیادی"]];
-export const MILITARY_FA: Record<string, string> = { yes: "دارد", no: "ندارد", not_applicable: "مشمول نیست" };
+// t862 (Mohammad t862s2908): «خانم» next to «مشمول نیست»; plan matching treats it as exempt (never removes a plan).
+export const MILITARY_FA: Record<string, string> = { yes: "دارد", no: "ندارد", not_applicable: "مشمول نیست", female: "خانم" };
 export const MILITARY_OPTS = Object.entries(MILITARY_FA);
 export const REFER_FA: Record<string, string> = { yes: "بله، می‌تواند معرفی کند", no: "خیر" };
 export const REFER_OPTS = Object.entries(REFER_FA);

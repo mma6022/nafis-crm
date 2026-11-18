@@ -7,7 +7,7 @@ import { saText, type SiteAnswers } from './api';
 
 export type SitePrefill = Partial<{
   urgency: 'now' | 'month' | 'curious'; cheque: 'check'; gAvail: 'yes'; docsReady: 'none'; bounced: 'no';
-  military: 'has_card' | 'no_card'; jobType: 'retired';
+  military: 'has_card' | 'no_card' | 'female'; jobType: 'retired';
 }>;
 export type SiteHints = Partial<Record<'amount' | 'docsReady' | 'bounced' | 'military' | 'jobType' | 'sso' | 'gAvail', string>>;
 
@@ -23,6 +23,7 @@ export function sitePrefill(a: SiteAnswers): SitePrefill {
   if (a.has_bounced_or_overdue === 'no') p.bounced = 'no';
   if (a.has_military_card === 'yes') p.military = 'has_card';
   else if (a.has_military_card === 'no') p.military = 'no_card';
+  else if (a.has_military_card === 'female') p.military = 'female'; // t862: site «خانم» → «مشتری خانم است»
   if (a.job_status === 'retired') p.jobType = 'retired';
   return p;
 }
