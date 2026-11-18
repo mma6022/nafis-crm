@@ -10,6 +10,7 @@ import { s132bPendingFilterSql } from "./simotel132b";
 import { s132CdrTarget, s132TagCdr } from "./simotel132";
 import { perfCacheGetOrSet, perfCacheInvalidate, perfPollCacheOn } from "./perf-poll-cache";
 import { storedCallSummaries } from "./recording-summary-jobs";
+import { extraPhoneIndexRows } from "./customer-phones";
 
 export function ensureAfterCallSchema() {
   crmDb.exec(`
@@ -326,9 +327,15 @@ export function customerMatcher() {
   const aliases = queryRows<Customer>(`SELECT survivor.id,source.phone,survivor.status FROM customers source
     JOIN customers survivor ON survivor.id=source.merged_into_customer_id
     WHERE source.merged_into_customer_id IS NOT NULL AND survivor.merged_into_customer_id IS NULL`);
-  const groups = [exact.filter(c => c.status !== "cancelled"), aliases.filter(c => c.status !== "cancelled"),
-    exact.filter(c => c.status === "cancelled"), aliases.filter(c => c.status === "cancelled")]
-    .map(rows => {
+  const extras = extraPhoneIndexRows();
+  const groups = [
+    exact.filter(c => c.status !== "cancelled"),
+    extras.filter(c => c.status !== "cancelled"),
+    aliases.filter(c => c.status !== "cancelled"),
+    exact.filter(c => c.status === "cancelled"),
+    extras.filter(c => c.status === "cancelled"),
+    aliases.filter(c => c.status === "cancelled"),
+  ].map(rows => {
       const index = new Map<string, Set<number>>();
       for (const row of rows) {
         const phone = normalizePhone(row.phone);

@@ -10,6 +10,7 @@
  * Nothing here sends SMS / Bale / a bell, or touches user 29, contracts, templates, loan_plans, team_sales_config or notification_settings.
  */
 import { queryRow, queryRows } from "./crm-db";
+import { ANY_PHONE_LIKE_SQL, ensureCustomerPhonesSchema } from "./customer-phones";
 import { cpkOn, cpkNextReminderAt } from "./customers-priority-kanban";
 
 const setting = (key: string): string | null => {
@@ -50,13 +51,14 @@ export function sf480Search(u: U, rawQ: unknown): { status: number; body: any } 
   const digits = q.replace(/\D/g, "");
   const byId = /^#?\d{1,7}$/.test(q) ? Number(q.replace("#", "")) : null;
   const like = `%${q.replace(/[%_]/g, "")}%`;
+  if (digits.length >= 4) ensureCustomerPhonesSchema();
   const rows = queryRows<any>(
     `SELECT c.id, c.name, c.phone, c.priority, c.status FROM customers c
      WHERE c.merged_into_customer_id IS NULL AND ${sc.sql}
        AND (replace(replace(replace(c.name,'ي','ی'),'ك','ک'),char(8204),' ') LIKE ?
-            ${digits.length >= 4 ? "OR c.phone LIKE ?" : ""} ${byId ? "OR c.id=?" : ""})
+            ${digits.length >= 4 ? "OR c.phone LIKE ? OR " + ANY_PHONE_LIKE_SQL : ""} ${byId ? "OR c.id=?" : ""})
      ORDER BY CASE WHEN c.name LIKE ? THEN 0 ELSE 1 END, c.id DESC LIMIT 20`,
-    [...sc.args, like, ...(digits.length >= 4 ? [`%${digits}%`] : []), ...(byId ? [byId] : []), `${q}%`]);
+    [...sc.args, like, ...(digits.length >= 4 ? [`%${digits}%`, `%${digits}%`] : []), ...(byId ? [byId] : []), `${q}%`]);
   const ids = rows.map((r) => Number(r.id));
   const cases = ids.length ? queryRows<any>(
     `SELECT la.id, la.customer_id, la.stage, la.status, la.requested_amount, la.created_at, p.name plan_name
@@ -85,8 +87,8 @@ export function sf480MyCustomers(u: U, rawQ: unknown, rawOffset: unknown, rawExt
   const where = [`c.merged_into_customer_id IS NULL`, sc.sql];
   const args: any[] = [...sc.args];
   if (q) {
-    where.push(`(replace(replace(replace(c.name,'ي','ی'),'ك','ک'),char(8204),' ') LIKE ? ${digits.length >= 4 ? "OR c.phone LIKE ?" : ""})`);
-    args.push(`%${q.replace(/[%_]/g, "")}%`); if (digits.length >= 4) args.push(`%${digits}%`);
+    where.push(`(replace(replace(replace(c.name,'ي','ی'),'ك','ک'),char(8204),' ') LIKE ? ${digits.length >= 4 ? "OR c.phone LIKE ? OR " + ANY_PHONE_LIKE_SQL : ""})`);
+    args.push(`%${q.replace(/[%_]/g, "")}%`); if (digits.length >= 4) { ensureCustomerPhonesSchema(); args.push(`%${digits}%`, `%${digits}%`); }
   }
   const kanban = cpkOn();
   const extras = rawExtra ?? {};

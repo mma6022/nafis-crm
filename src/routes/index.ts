@@ -81,6 +81,8 @@ import salesPerformanceRouter from "./sales-performance";
 import baleBotRouter from "./bale-bot";
 import voipTaskHoldRouter from "./voip-task-hold";
 import customerNameEditRouter from "./customer-name-edit";
+import customerPhonesRouter from "./customer-phones";
+import { ensureCustomerPhonesSchema } from "../lib/customer-phones";
 import salesManagerConsoleRouter, { smcEnforceGuard, smcValidityRouter } from "./sales-manager-console";
 
 const router: IRouter = Router();
@@ -97,6 +99,7 @@ try { ensureCallQueueSchema(); const n = backfillFollowUpAt(); if (n) console.lo
 // R2: daily discipline snapshot / 3-workday alerts; does nothing while flag.discipline is OFF.
 startCallQueueJobs();
 ensureDailyPlanSchema();
+ensureCustomerPhonesSchema();
 // REMINDERS-FOLLOW: columns/tables, one-time data step (backed up), then the follow / one-open triggers.
 ensureReminderFollowSchema();
 startDailyPlanJobs();
@@ -140,6 +143,7 @@ router.use(contractsRouter);
 router.use(loanRequestDraftsRouter);
 router.use(multiCaseRouter);
 router.use(customerNameEditRouter); // customer-name-edit (flag.customer_name_edit, default OFF → 404)
+router.use(customerPhonesRouter); // extra customer phones (t853u)
 router.use(dailyCustomerInlineRouter); // daily-customer-inline v1.1 (flag.daily_customer_inline_v1, default OFF → 404)
 router.use(loanApplicationsRouter);
 router.use(walletsRouter);

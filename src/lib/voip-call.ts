@@ -14,6 +14,7 @@ import type { AuthUser } from "./auth";
 import { crmDb, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
 import { s132On, s132Tick, s132CallView, s132LastBar, s132OnStart, s132HistoryInfo, s132TableExists } from "./simotel132";
 import { normalizePhone, resolveEvent, experts, customerMatcher } from "./voip-after-call";
+import { customerOwnsPhone, parseCustomerPhone } from "./customer-phones";
 import { simotelOriginate, SimotelError, invalidateSimotelCallCache, type SimotelCall } from "./simotel";
 import { vnaSent } from "./voip-noanswer-sms";
 import { vcIsScopedRegistrar, vcRegistrarWhy } from "./voip-registrar-scope";
@@ -394,7 +395,13 @@ export async function vcStart(u: U, body: any, now = new Date()) {
   if (!vcCustomerAllowed(u, cid)) return err(403, "not_own_customer", "فقط با مشتری خودت می‌توانی تماس بگیری.");
   if (fid != null && !queryRow("SELECT 1 x FROM loan_applications WHERE id=? AND customer_id=? AND deleted_at IS NULL", [fid, cid])) return err(400, "bad_file", "این پرونده مال همین مشتری نیست.");
   const raw = queryRow<{ phone: string | null }>("SELECT phone FROM customers WHERE id=?", [cid])?.phone ?? "";
-  const phone = normalizePhone(raw);
+  let phone = normalizePhone(raw);
+  if (body?.phone != null && String(body.phone).trim() !== "") {
+    const parsed = parseCustomerPhone(body.phone);
+    if (!parsed.ok) return err(422, "invalid_phone", parsed.message);
+    if (!customerOwnsPhone(cid, parsed.phone)) return err(422, "not_customer_phone", "این شماره مال این مشتری نیست.");
+    phone = parsed.phone;
+  }
   if (!phone) return err(422, "no_phone", "شماره‌ی این مشتری معتبر نیست.");
   let excluded = false; try { excluded = !!queryRow("SELECT 1 x FROM voip_call_display_exclusions WHERE phone=?", [phone]); } catch { /* table absent */ }
   if (excluded) return err(422, "excluded_phone", "تماس با این شماره از سامانه بسته است.");
