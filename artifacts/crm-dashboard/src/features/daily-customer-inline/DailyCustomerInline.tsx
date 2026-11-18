@@ -550,10 +550,11 @@ export default function DailyCustomerInline() {
   // DCI-QUEUE 440000: GET /queue 404 (flag.dci_queue_v21 off) → null → everything below stays v2.0.
   const dqQ = useDqQueue(true);
   const dq = dqQ.data ?? null;
+  // it.tag: «بی‌پاسخ در بله» (flag.bale_workspace_v1 no-reply hand-off only).
   const dqTasks = useMemo<QueueTask[] | null>(() => dq ? dq.items.map((it) => ({
     id: it.id, kind: it.itemId ? "plan" : "inbound", itemId: it.itemId, customerId: it.customer_id ?? 0, name: it.name,
-    typ: KIND_FA[it.kind], ic: "i-phone", tm: it.tm, at: it.due_at, status: it.dpStatus, turn: it.turn, overdue: it.overdue,
-    remText: it.remText ?? undefined, reminderId: it.reminderId ?? undefined, types: it.kinds.map((k) => KIND_FA[k]),
+    typ: it.tag ?? KIND_FA[it.kind], ic: "i-phone", tm: it.tm, at: it.due_at, status: it.dpStatus, turn: it.turn, overdue: it.overdue,
+    remText: it.remText ?? undefined, reminderId: it.reminderId ?? undefined, types: [...it.kinds.map((k) => KIND_FA[k]), ...(it.tag ? [it.tag] : [])],
   })) : null, [dq]);
   // While GET /queue is in flight nothing is picked, so the v2.0 list never rewrites ?customer= before the queue decides (Q: current first).
   const allTasks = dqTasks ?? (dqQ.isLoading ? [] : tasks);

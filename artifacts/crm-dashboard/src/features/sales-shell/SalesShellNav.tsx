@@ -74,6 +74,8 @@ type Props = {
   onLogout: () => void; logoutPending: boolean;
   location: string; mobile: boolean; blocked: boolean;
   userId?: number;
+  /** «فضای کار بله» (flag.bale_workspace_v1 only; absent → live behaviour): the page the user is on when it is reached from «بیشتر» on 390. */
+  activeHint?: { href: string; label: string; icon: ReactNode } | null;
 };
 
 export function SalesShellNav(p: Props) {
@@ -94,7 +96,9 @@ export function SalesShellNav(p: Props) {
   const moreGroups: SsGroup[] = useMemo(() => [...(p.mobile && p.daily.length ? [{ title: 'کار هر روز', items: p.daily }] : []), ...p.groups].filter((g) => g.items.length), [p.mobile, p.daily, p.groups]);
   const moreItems = moreGroups.flatMap((g) => g.items);
   const moreN = sumBadges(moreItems);
-  const moreActive = moreItems.some((i) => i.href && p.isActive(i.href));
+  // hint: when the hinted page is not one of the 390 tabs, the button that opened it («بیشتر») is the active one and wears its name/icon.
+  const hint = p.mobile && p.activeHint && !p.tabs.some((t) => t.href && p.isActive(t.href)) ? p.activeHint : null;
+  const moreActive = Boolean(hint) || moreItems.some((i) => i.href && p.isActive(i.href));
   const moreHas = moreItems.length > 0 || true; // «خروج» and «پشتیبانی تیم» always live there
   const dock = useDockCollapse(p.userId, true);
   const badgeN = sumBadges([...p.before, ...p.after, ...p.tabs, ...moreItems]);
@@ -135,10 +139,10 @@ export function SalesShellNav(p: Props) {
         <span className="ss-pi" aria-hidden="true"><UserPlus size={24} /></span><span aria-hidden="true">{PRIMARY_FULL}</span><span className="ss-tip" aria-hidden="true">{PRIMARY_TIP}</span>
       </button>;
   const moreEl = (i: number) => <button key="more" type="button" ref={(el) => { moreBtn.current = el; rv.bind(i).ref(el); }} tabIndex={rv.bind(i).tabIndex} onFocus={rv.bind(i).onFocus}
-      className={p.mobile ? 'ss-tb-i' : 'ss-i'} aria-label={moreN ? `${MORE_ARIA}، ${faNum(moreN)} مورد تازه` : MORE_ARIA} aria-expanded={open} aria-controls="ss-more" aria-current={moreActive ? 'page' : undefined}
-      onClick={() => setOpen((o) => !o)} data-testid="ss-more-btn">
-      <span className={p.mobile ? 'ss-tb-ic' : 'ss-ic'} aria-hidden="true"><LayoutGrid size={24} />{moreN ? <b className="ss-bdg" aria-hidden="true">{moreN > 99 ? '+۹۹' : faNum(moreN)}</b> : null}</span>
-      <span className="ss-lb">بیشتر</span>{!p.mobile ? <span className="ss-tip" aria-hidden="true">بیشتر</span> : null}
+      className={p.mobile ? 'ss-tb-i' : 'ss-i'} aria-label={`${hint ? `${hint.label} (صفحهٔ فعلی)، ` : ''}${moreN ? `${MORE_ARIA}، ${faNum(moreN)} مورد تازه` : MORE_ARIA}`} aria-expanded={open} aria-controls="ss-more" aria-current={moreActive ? 'page' : undefined}
+      onClick={() => setOpen((o) => !o)} data-testid="ss-more-btn" {...(hint ? { 'data-ss-hint': hint.href } : {})}>
+      <span className={p.mobile ? 'ss-tb-ic' : 'ss-ic'} aria-hidden="true">{hint ? hint.icon : <LayoutGrid size={24} />}{moreN ? <b className="ss-bdg" aria-hidden="true">{moreN > 99 ? '+۹۹' : faNum(moreN)}</b> : null}</span>
+      <span className="ss-lb">{hint ? hint.label : 'بیشتر'}</span>{!p.mobile ? <span className="ss-tip" aria-hidden="true">بیشتر</span> : null}
     </button>;
 
   let n = 0;

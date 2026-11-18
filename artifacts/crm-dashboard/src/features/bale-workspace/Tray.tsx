@@ -11,7 +11,7 @@ import { bwsErr, fd, jDate, type BwsChatCtx } from './api';
 export function ToolsButton({ open, onClick }: { open: boolean; onClick: () => void }) {
   return <button className={`ib bws-tools${open ? ' on' : ''}`} type="button" aria-label="ابزار" aria-expanded={open} aria-controls="bws-tray" onClick={onClick} data-bws-tools="1" data-testid="bws-tools"><I n="grid" /></button>;
 }
-type Sub = null | 'plans' | 'train';
+type Sub = null | 'plans' | 'train' | 'quick';
 export function BwTray({ chatId, ctx, initialSub = null, toast, refresh, onClose }: { chatId: number; ctx: BwsChatCtx | undefined; initialSub?: Sub; toast: (t: string) => void; refresh: () => void; onClose: () => void }) {
   const qc = useQueryClient(); const ref = useRef<HTMLDivElement>(null);
   const [sub, setSub] = useState<Sub>(initialSub); const [busy, setBusy] = useState<string | null>(null);
@@ -30,10 +30,14 @@ export function BwTray({ chatId, ctx, initialSub = null, toast, refresh, onClose
     {sub === 'train' && a ? <div className="bws-sub"><h4><button className="ib" type="button" aria-label="بازگشت" onClick={() => setSub(null)}><I n="back" /></button>فایل آموزشی برای مشتری</h4>
       <ul className="bws-pick">{a.customerTraining.map((t) => <li key={t.id}><button type="button" disabled={!canSend || busy != null} onClick={() => act(`t${t.id}`, () => bbFetch(`/bale-workspace/chats/${chatId}/training/${t.id}`, { body: {} }), `«${t.title}» فرستاده شد`)}>
         <b>{t.title}</b><span>{t.kind === 'link' ? 'پیوند' : t.kind === 'video' ? 'ویدیو' : 'فایل'} · {t.plansLabel}</span></button></li>)}</ul></div> : null}
+    {sub === 'quick' && a ? <div className="bws-sub"><h4><button className="ib" type="button" aria-label="بازگشت" onClick={() => setSub(null)}><I n="back" /></button>پیام‌های آماده ({fd(a.quick.length)})</h4>
+      <ul className="bws-pick" data-testid="bws-quick-all">{a.quick.map((q) => <li key={q.id}><button type="button" disabled={!canSend || busy != null} aria-busy={busy === q.id}
+        onClick={() => act(q.id, () => bbFetch(`/bale-bot/chats/${chatId}/quick/${q.id}`, { body: {} }), `«${q.title}» فرستاده شد`)}><b>{q.title}</b><span>یک ضربه می‌فرستد</span></button></li>)}</ul></div> : null}
     {!sub ? <>
-      {a?.quick.length ? <div className="bws-trow" role="group" aria-label="پیام‌های آماده؛ یک ضربه می‌فرستد"><span className="bws-lbl">پیام آماده</span>
-        {a.quick.map((q) => <button key={q.id} type="button" className="qb" disabled={!canSend || busy != null} aria-busy={busy === q.id}
-          onClick={() => act(q.id, () => bbFetch(`/bale-bot/chats/${chatId}/quick/${q.id}`, { body: {} }), `«${q.title}» فرستاده شد`)}>{q.title}</button>)}</div> : null}
+      {a?.quick.length ? <div className="bws-trow bws-qrow" role="group" aria-label="پیام‌های آماده؛ یک ضربه می‌فرستد"><span className="bws-lbl">پیام آماده</span>
+        <div className="bws-qscroll">{a.quick.map((q) => <button key={q.id} type="button" className="qb" disabled={!canSend || busy != null} aria-busy={busy === q.id}
+          onClick={() => act(q.id, () => bbFetch(`/bale-bot/chats/${chatId}/quick/${q.id}`, { body: {} }), `«${q.title}» فرستاده شد`)}>{q.title}</button>)}</div>
+        {a.quick.length > 2 ? <button type="button" className="bws-qall" onClick={() => setSub('quick')} aria-label={`همهٔ پیام‌های آماده، ${fd(a.quick.length)} پیام`} data-testid="bws-quick-more">همه <small>{fd(a.quick.length)}</small></button> : null}</div> : null}
       <div className="bws-tgrid">
         {c && a?.plans.length ? <button type="button" className="bws-tile" disabled={!canSend} onClick={() => setSub('plans')} data-testid="bws-tile-plans"><I n="doc" /><b>شرایط طرح</b>{c.explained.length ? <small>{fd(c.explained.length)} طرح توضیح داده شده</small> : <small>انتخاب و ارسال</small>}</button> : null}
         {a?.customerTraining.length ? <button type="button" className="bws-tile" disabled={!canSend} onClick={() => setSub('train')} data-testid="bws-tile-train"><I n="book" /><b>فایل آموزشی</b><small>{fd(a.customerTraining.length)} فایل برای مشتری</small></button> : null}

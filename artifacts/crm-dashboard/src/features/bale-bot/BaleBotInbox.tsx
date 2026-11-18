@@ -19,6 +19,7 @@ import { BwContext } from '@/features/bale-workspace/Context';
 import { BwTray, ToolsButton } from '@/features/bale-workspace/Tray';
 import { StarMark } from '@/features/bale-workspace/Stars';
 import '@/features/bale-workspace/bale-workspace.css';
+import { setBwsDockHint } from '@/features/bale-workspace/dock-hint';
 
 function faChatPreview(text: string | null | undefined) {
   if (!text) return text ?? null;
@@ -53,6 +54,7 @@ const linked = (c: BbChat) => !!c.customer;
 const otherFile = (c: BbChat) => !!c.customer?.restricted;
 const noticeText = (k: string, actor: string | null, at: string, c: BbChat) =>
   k === 'mgr_wrote' ? `${actor ?? 'مدیر'} ساعت ${bbTime(at)} در این گفتگو پیام داد.`
+  : k === 'bws_noreply' ? 'مشتری به پیام پیگیری بله جواب نداد؛ گفتگو به شما سپرده شد.' // «فضای کار بله» (flag only)
   : k === 'linked_other' ? `این گفتگو به پرونده‌ی ${c.customer?.name ?? ''} وصل شد؛ مسئول پرونده ${c.customer?.expert ?? 'کارشناس دیگر'} می‌ماند و به ایشان هم خبر داده شد.`
   : `${actor ?? 'کارشناس دیگر'} گفتگوی بله را به پرونده‌ی شما وصل کرد.`;
 
@@ -86,6 +88,7 @@ function Inbox({ me }: { me: BbMe }) {
   const firstSel = useRef(sel);
   useEffect(() => { setBwTab('chat'); if (sel !== firstSel.current) { setBwTray(false); setBwSub(null); } }, [sel]);
   const ctxQ = useChatCtx(sel, ws);
+  useEffect(() => { setBwsDockHint(ws); return () => setBwsDockHint(false); }, [ws]); // «فضای کار بله»: 390 dock marks «ربات بله»
   const qs = new URLSearchParams({ filter, ...(q.trim() ? { q: q.trim() } : {}), ...(expert ? { expert: String(expert) } : {}), ...(ws && star ? { star } : {}) }).toString();
   const listQ = useQuery<BbChats>({ queryKey: ['bb-chats', qs], queryFn: () => bbFetch(`/bale-bot/chats?${qs}`), refetchInterval: 5000 });
   const chatQ = useQuery<{ chat: BbChat; messages: BbMessage[] }>({ queryKey: ['bb-chat', sel], enabled: sel != null, queryFn: () => bbFetch(`/bale-bot/chats/${sel}`), refetchInterval: 4000 });

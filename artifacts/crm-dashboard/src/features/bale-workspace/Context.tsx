@@ -1,10 +1,7 @@
 /* «فضای کار بله» الف — ستون زمینهٔ مشتری (چپ در ۱۲۸۰) یا زبانه‌های پرونده / اعتبار / تماس‌ها (۳۹۰). Compact, no explanation boxes.
    Full phone + national id only for a customer the viewer may see (server decides: restricted = name + expert only). */
 import { Link } from 'wouter';
-import { useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
-import { runInquiry } from '@/features/credit-panel/api';
-import { colourClass } from '@/features/credit-panel/CreditCard';
+import { colourClass, CreditCard } from '@/features/credit-panel/CreditCard';
 import { fd, faNum, jDate, toman, type BwsAssets, type BwsChatCtx, type BwsContext } from './api';
 
 type Full = Extract<BwsContext, { restricted: false }>;
@@ -21,10 +18,11 @@ export function FileBlock({ c }: { c: Full }) {
     </> : <p className="bws-mut">هنوز چیزی در پرونده ثبت نشده است.</p>}
   </section>;
 }
-export function CreditBlock({ c, toast }: { c: Full; toast: (t: string) => void }) {
-  const qc = useQueryClient(); const [busy, setBusy] = useState(false);
+/** «اعتبار»: with the released credit panel (flag.credit_panel_v1) the SAME card as Today — rank/score, cheques, cheque colour, active loans,
+ *  «آخرین استعلام: X روز پیش» and its own «استعلام جدید». Without it: the short summary the customer file already has. */
+export function CreditBlock({ c }: { c: Full; toast?: (t: string) => void }) {
   const k = c.credit;
-  const run = async () => { setBusy(true); try { await runInquiry(c.customer.id); toast('استعلام جدید ثبت شد.'); void qc.invalidateQueries({ queryKey: ['bws-ctx'] }); } catch (e) { toast(e instanceof Error ? e.message : 'استعلام انجام نشد.'); } finally { setBusy(false); } };
+  if (k.panel) return <div className="bws-blk bws-cp" data-testid="bws-credit-panel"><CreditCard key={`bws-cp-${c.customer.id}`} customerId={c.customer.id} /></div>;
   return <section className="bws-blk" aria-label="اعتبارسنجی"><h3>اعتبارسنجی</h3>
     <div className="bws-chips">
       {k.grade ? <span className="bws-chip">رتبه {fd(k.grade)}</span> : <span className="bws-chip mut">رتبه ثبت نشده</span>}
@@ -33,7 +31,6 @@ export function CreditBlock({ c, toast }: { c: Full; toast: (t: string) => void 
       {k.debtRial != null ? <span className="bws-chip">مانده بدهی {toman(k.debtRial)}</span> : null}
     </div>
     {k.lastAt ? <p className="bws-mut">آخرین استعلام: {jDate(k.lastAt)}</p> : <p className="bws-mut">هنوز استعلامی ثبت نشده است.</p>}
-    {k.panel ? <button className="bws-btn" type="button" disabled={busy} onClick={run} data-testid="bws-inquiry">{busy ? 'در حال استعلام…' : 'استعلام جدید'}</button> : null}
   </section>;
 }
 export function CasesBlock({ c }: { c: Full }) {

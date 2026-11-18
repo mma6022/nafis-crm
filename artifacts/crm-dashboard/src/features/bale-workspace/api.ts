@@ -23,7 +23,7 @@ export type Audience = { who: 'messaged' | 'linked' | 'all'; stars: number[] | n
 export type Scenario = { id: number; name: string; kind: 'auto' | 'noreply' | 'bulk'; audience: Audience; cond: { hours?: number } | null; body: string; trainingFileId: number | null;
   status: 'draft' | 'active' | 'paused' | 'done'; recipients: number | null; confirmedAt: string | null; sent: number; createdBy: string | null };
 export type AdminState = { inviteText: string; inviteDefault: string; smsPattern: string; autoOn: boolean; plans: { id: number; name: string; terms: string }[];
-  scenarios: Scenario[]; training: BwsTraining[]; experts: { id: number; name: string }[]; sendHours: string };
+  scenarios: Scenario[]; training: BwsTraining[]; experts: { id: number; name: string }[]; sendHours: null; smsPatternText: string; smsPatternVars: { token: string; ippanel: string; source: string }[] };
 
 export function useBwsMe(enabled = true) {
   return useQuery<BwsMe | null>({

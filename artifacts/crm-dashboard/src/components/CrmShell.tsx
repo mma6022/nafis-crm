@@ -18,6 +18,7 @@ import { usePaOn } from '@/features/plan-advisor/api';
 import { PlanAdvisorHost } from '@/features/plan-advisor/PlanAdvisorHost';
 import { usePlanAdvisorOptional } from '@/features/plan-advisor/PlanAdvisorContext';
 import { pa390DockTabs } from '@/features/plan-advisor/dock-tabs';
+import { useBwsDockHint } from '@/features/bale-workspace/dock-hint';
 import { useFloatingGuard } from './useFloatingGuard';
 import { usePageUsage } from '@/lib/page-usage';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
@@ -822,6 +823,7 @@ function SsNavHost(p: SsHostProps) {
   const rawTabs = toItems(slots.tabs);
   const arranged = pa390DockTabs(Boolean(paItem) && p.mobile, rawTabs, [...toItems(slots.daily), ...toItems(slots.after), ...toItems(slots.before)], paItem);
   const tabItems = arranged.tabs;
+  const bwsHint = useBwsDockHint(); // «فضای کار بله» (flag.bale_workspace_v1 only): the 390 button that opened Bale shows it
   const movedToMore = arranged.movedToMore;
   const moreRest = [
     ...movedToMore.filter((t) => !rest.some((r) => r.href && r.href === t.href)),
@@ -841,7 +843,8 @@ function SsNavHost(p: SsHostProps) {
     before={toItems(slots.before)} after={afterItems} midSep={slots.midSep}
     tabs={tabItems} daily={dailyItems} groups={groups}
     primary={(p.mobile && paItem && tabItems.length >= 4) ? null : primary} isActive={p.isActive} healthOk={p.healthOk} onLogout={p.onLogout} logoutPending={p.logoutPending}
-    location={p.location} mobile={p.mobile} blocked={ov.any} userId={p.userId} />;
+    location={p.location} mobile={p.mobile} blocked={ov.any} userId={p.userId}
+    activeHint={bwsHint && p.mobile && p.isActive('/bale-bot') ? { href: '/bale-bot', label: metaOf('/bale-bot')?.label ?? 'ربات بله', icon: <BaleIcon size={24} /> } : null} />;
 }
 
 function ProfileModal({ user, onClose }: { user: CrmUser; onClose: () => void }) {
