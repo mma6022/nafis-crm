@@ -261,13 +261,21 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
     || (req.method === "POST" && /^\/daily-customer-inline\/customers\/\d+\/notes$/.test(path))
     || (req.method === "POST" && /^\/daily-customer-inline\/inbounds\/\d+\/note$/.test(path))
   );
+  // t853u: «ثبت مشتری جدید» on «مشتریان من» uses the same CustomerForm (duplicate-phone check).
+  // POST /customers creates for this expert; GET of the full list stays closed. Phone match is the same
+  // duplicate check as the incoming-wizard and the customers page (other experts' records stay masked by the handler).
+  const newCustomerWrite = (req.method === "POST" && path === "/customers")
+    || ((req.method === "GET" || req.method === "POST") && path === "/customers/phone-match")
+    || (req.method === "POST" && path === "/customers/parse-text")
+    || (req.method === "GET" && path === "/allocation-programs")
+    || (req.method === "POST" && path === "/customers/repeat-requests");
   const ownLevel = req.method === "GET" || req.method === "HEAD" || reminderWrite || upgradeWrite || ownQualifyWrite || psWrite || ownCallWrite;
   // SALES-SHELL v2 (spec §9): «یادآورها» view-only while locked = GET /reminders without a customer (the handler lists only the
   // caller's own rows: r.user_id = caller, assigned scope). Only for users whose sales_shell_v2 flag is ON; writes are unchanged.
   const ownReminderList = req.method === "GET" && path === "/reminders" && ids.length === 0 && ssOn(Number(u!.id));
   const cpMe = path === "/credit-panel/me" && cpOn(); // credit-panel v1: its flag read only (no customer rows); flag OFF → today's deny
   const paMe = (path === "/plan-advisor/me" || path === "/plan-advisor/customers") && paOn();
-  if (!customerRoute && !customerWrite && !listedCustomerRead && !reminderWrite && !ownReminderList && !cpMe && !paMe && !ALLOW.some((re) => re.test(path))) {
+  if (!customerRoute && !customerWrite && !listedCustomerRead && !reminderWrite && !ownReminderList && !cpMe && !paMe && !newCustomerWrite && !ALLOW.some((re) => re.test(path))) {
     if (process.env.EL_TRACE === "1") console.warn(`[expert-lockdown] deny ${req.method} ${path}`);
     return deny(res, "expert_lockdown", "این بخش فعلاً برای شما بسته است. از «کارهای امروز من» کار کن.");
   }
