@@ -12,6 +12,8 @@ import {
 import { evaluatePlans, plansFromRows, planReasonText, type QualifierAnswers } from "./team-sales-rules";
 import { siteAnswersForCustomer } from "./site-apply";
 import { JOB_LABELS } from "./plan-profile-match";
+import { buildDossier, SITE_JOB_FA, patchDossierRetiredKind } from "./customer-dossier";
+import { isRetiredKind, jobLabel } from "./dossier-retiree-overdue";
 
 export const PA_FLAG = "flag.plan_advisor_v1";
 export const paOn = (): boolean => {
@@ -119,7 +121,7 @@ export function paQuote(planId: number, principal: number, months: number): PaQu
 }
 
 type ChipSource = "site" | "inquiry" | "file";
-export type PaChip = { key: string; label: string; value: string; raw: unknown; source: ChipSource | null; editable: boolean };
+export type PaChip = { key: string; label: string; value: string; raw: unknown; source: ChipSource | null; editable: boolean; retiredKind?: string | null };
 export type PaCredit = {
   rank: string | null; chequeColor: string | null; bouncedCount: number | null;
   loanDebtToman: number | null; inquiryAt: string | null;
@@ -186,9 +188,17 @@ function chipSource(customerId: number, key: string, fromInquiry = false): ChipS
   } catch { return "file"; }
 }
 
-function jobFa(v: unknown): string {
+function jobFa(v: unknown, kind = ""): string {
   if (v == null || v === "unknown") return "نامشخص";
-  return JOB_LABELS[String(v)] ?? String(v);
+  if (String(v) === "retired") return jobLabel("retired", kind, SITE_JOB_FA);
+  return JOB_LABELS[String(v)] ?? SITE_JOB_FA[String(v)] ?? String(v);
+}
+
+function dossierRetiredKind(customerId: number): string {
+  try {
+    const st = buildDossier(customerId, {});
+    return st.job_status === "retired" || String(st.job_status) === "retired" ? (st.retired_kind || "") : "";
+  } catch { return ""; }
 }
 function purposeFa(v: unknown): string {
   if (v === "goods") return "خرید کالا";
@@ -251,7 +261,7 @@ export function paSuggest(customerId: number): {
   if (credit.rank) answers.creditRank = credit.rank;
   const amount = Number(answers.amountMillion) || 0;
   const chips: PaChip[] = [
-    { key: "jobType", label: "شغل", value: `شغل: ${jobFa(answers.jobType)}`, raw: answers.jobType ?? null, source: chipSource(customerId, "jobType"), editable: true },
+    { key: "jobType", label: "شغل", value: `شغل: ${jobFa(answers.jobType, dossierRetiredKind(customerId))}`, raw: answers.jobType ?? null, source: chipSource(customerId, "jobType"), editable: true, retiredKind: dossierRetiredKind(customerId) || null },
     { key: "creditRank", label: "رتبه", value: `رتبه: ${answers.creditRank && answers.creditRank !== "unknown" ? answers.creditRank : "نامشخص"}`, raw: answers.creditRank ?? null, source: credit.rank ? "inquiry" : chipSource(customerId, "creditRank"), editable: true },
     { key: "guarantorAvailable", label: "ضامن", value: answers.guarantorAvailable === "yes" || Number(answers.guarantorCount) > 0 ? "ضامن دارد" : answers.guarantorAvailable === "no" ? "بدون ضامن" : "ضامن نامشخص", raw: answers.guarantorAvailable ?? null, source: "file", editable: true },
     { key: "loanPref", label: "برای", value: `برای: ${purposeFa(answers.loanPref)}`, raw: answers.loanPref ?? null, source: chipSource(customerId, "loanPref"), editable: true },
@@ -292,6 +302,11 @@ function shortReason(code: string, text: string, e: { loanType?: string }): stri
 
 export function paSaveChips(customerId: number, actorUserId: number, patch: Record<string, unknown>): ReturnType<typeof paSuggest> {
   ensurePaSchema();
+  // retiredKind is display-only on the dossier; it is never a plan-matching input.
+  if ("retiredKind" in patch || ("jobType" in patch && patch.jobType !== "retired")) {
+    const kind = "retiredKind" in patch ? patch.retiredKind : (patch.jobType === "retired" ? undefined : null);
+    if (kind !== undefined) patchDossierRetiredKind(customerId, actorUserId, kind == null || kind === "" ? null : String(kind));
+  }
   const allowed = ["jobType", "creditRank", "guarantorAvailable", "loanPref", "amountMillion", "military", "bouncedCheque", "gRank", "salaryDeduct"];
   const prev = overrideOf(customerId);
   const next: Record<string, unknown> = { ...prev };

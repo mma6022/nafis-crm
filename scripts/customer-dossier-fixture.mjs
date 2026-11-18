@@ -171,10 +171,10 @@ await ok("readers fill first-call answers and plan profile from dossier without 
   assert.ok(other, "need a customer without first-call or consult rows");
   const oid = Number(other.id);
   dossier.saveDossier(oid, admin, {
-    city: "اصفهان", amount: "200000000", amount_range: "100m_300m", job_status: "retired",
+    city: "اصفهان", amount: "200000000", amount_range: "100m_300m", job_status: "retired", retired_kind: "tamin",
     documents: ["payslip", "sayadi_cheque", "guarantor"], has_military_card: "yes", can_refer_retiree: "no",
     has_bounced_or_overdue: "no", need_timing: "this_week", credit_rank: "A2",
-    g_job_status: "retired", g_credit_rank: "B1", g_conditions: "ضامن بازنشسته",
+    g_job_status: "retired", g_retired_kind: "civil", g_credit_rank: "B1", g_conditions: "ضامن بازنشسته",
   }, new Date(), { final: true });
   const sales = await import("../src/lib/team-sales.ts");
   const consult = await import("../src/lib/consult-profile.ts");

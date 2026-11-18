@@ -26,6 +26,10 @@ import { CREDIT_SUBGRADES, GRADE_LETTERS } from "./credit-subgrades";
 import { siteAnswersForCustomer } from "./site-apply";
 import { TeamSalesError, firstCallEditAccess, setApplicantProfileFallback, setFirstCallOverlay, type Actor } from "./team-sales";
 import { setConsultProfileOverlay } from "./consult-profile";
+import {
+  asYnFlag, canonicalOverdueRows, isRetiredKind, parseOverdueRows, retireeOverdueError, syncBouncedLegacy,
+  type OverdueRow,
+} from "./dossier-retiree-overdue";
 
 export const DOSSIER_TABLE = "customer_dossier";
 export const SITE_JOB = ["employee", "retired", "self_employed", "no_fixed_income"] as const;
@@ -52,13 +56,18 @@ export type DossierState = {
   amount_range: string;
   loan_purpose: string;
   job_status: string;
+  retired_kind: string;
   documents: string[];
   has_military_card: string;
   can_refer_retiree: string;
   has_bounced_or_overdue: string;
+  has_cheque_bounced: string;
+  has_overdue: string;
+  overdue_rows: OverdueRow[];
   need_timing: string;
   credit_rank: string;
   g_job_status: string;
+  g_retired_kind: string;
   g_credit_rank: string;
   g_conditions: string;
   customer_note: string;
@@ -81,9 +90,10 @@ const digitStr = (v: unknown) => {
 
 export function emptyDossier(): DossierState {
   return {
-    city: "", amount: "", amount_range: "", loan_purpose: "", job_status: "",
+    city: "", amount: "", amount_range: "", loan_purpose: "", job_status: "", retired_kind: "",
     documents: [], has_military_card: "", can_refer_retiree: "", has_bounced_or_overdue: "",
-    need_timing: "", credit_rank: "", g_job_status: "", g_credit_rank: "", g_conditions: "",
+    has_cheque_bounced: "", has_overdue: "", overdue_rows: [],
+    need_timing: "", credit_rank: "", g_job_status: "", g_retired_kind: "", g_credit_rank: "", g_conditions: "",
     customer_note: "", note: "",
     need: "", amountBand: "", contactTime: "", planId: "", planName: "", term: "",
   };
@@ -111,6 +121,7 @@ export function dossierComplete(st: DossierState): boolean {
     && st.has_military_card && st.can_refer_retiree && st.has_bounced_or_overdue && st.need_timing && st.credit_rank);
   if (!need) return false;
   if (hasGuarantor(st) && !(st.g_job_status && st.g_credit_rank && st.g_conditions)) return false;
+  if (retireeOverdueError(st)) return false;
   return true;
 }
 
@@ -119,7 +130,8 @@ export function dossierPartial(st: DossierState): boolean {
   return !!(st.city || st.amount || st.amount_range || st.loan_purpose || st.job_status || (st.documents || []).length
     || st.has_military_card || st.can_refer_retiree || st.has_bounced_or_overdue || st.need_timing || st.credit_rank
     || st.customer_note || st.need || st.amountBand || st.contactTime || st.planName || st.term || st.note
-    || st.g_job_status || st.g_credit_rank || st.g_conditions);
+    || st.g_job_status || st.g_retired_kind || st.g_credit_rank || st.g_conditions
+    || st.retired_kind || st.has_cheque_bounced || st.has_overdue || st.overdue_rows.length);
 }
 
 export function amountTomanFromLegacy(a: Record<string, unknown>): string {
@@ -297,6 +309,17 @@ function applyStored(st: DossierState, row: NonNullable<ReturnType<typeof loadRo
   ov("amount_range", SITE_AMOUNT_RANGE); ov("loan_purpose", SITE_PURPOSE); ov("job_status", SITE_JOB);
   ov("has_military_card", SITE_MILITARY); ov("can_refer_retiree", SITE_YES_NO); ov("has_bounced_or_overdue", SITE_YES_NO);
   ov("need_timing", SITE_TIMING);
+  if (isRetiredKind(extra.retired_kind)) st.retired_kind = String(extra.retired_kind);
+  if (isRetiredKind(extra.g_retired_kind)) st.g_retired_kind = String(extra.g_retired_kind);
+  if (extra.has_cheque_bounced === "yes" || extra.has_cheque_bounced === "no") st.has_cheque_bounced = String(extra.has_cheque_bounced);
+  if (extra.has_overdue === "yes" || extra.has_overdue === "no") st.has_overdue = String(extra.has_overdue);
+  if (Array.isArray(extra.overdue_rows) || Array.isArray(extra.overdueRows)) {
+    st.overdue_rows = parseOverdueRows(extra.overdue_rows ?? extra.overdueRows);
+  }
+  st.has_bounced_or_overdue = syncBouncedLegacy(st.has_cheque_bounced, st.has_overdue, st.has_bounced_or_overdue);
+  // Only clear a type when this payload actually sets a non-retired job; a partial city-only save must keep it.
+  if (st.job_status && st.job_status !== "retired") st.retired_kind = "";
+  if (st.g_job_status && st.g_job_status !== "retired") st.g_retired_kind = "";
   if (Array.isArray(extra.documents) && extra.documents.length) st.documents = canonDocs(extra.documents);
   applyLegacyAnswers(st, extra, null, str(extra.note));
   // Re-apply column values so JSON cannot clobber the typed columns.
@@ -524,13 +547,24 @@ export function parseDossierInput(raw: unknown): DossierState {
   st.amount_range = asEnum(src.amount_range, SITE_AMOUNT_RANGE);
   st.loan_purpose = asEnum(src.loan_purpose, SITE_PURPOSE);
   st.job_status = asEnum(src.job_status, SITE_JOB);
+  if (src.retired_kind != null && src.retired_kind !== "") {
+    if (!isRetiredKind(src.retired_kind)) throw new TeamSalesError(400, "نوع بازنشستگی معتبر نیست.");
+    st.retired_kind = String(src.retired_kind);
+  }
   st.documents = canonDocs(src.documents);
   st.has_military_card = asEnum(src.has_military_card, SITE_MILITARY);
   st.can_refer_retiree = asEnum(src.can_refer_retiree, SITE_YES_NO);
   st.has_bounced_or_overdue = asEnum(src.has_bounced_or_overdue, SITE_YES_NO);
+  if (src.has_cheque_bounced != null && src.has_cheque_bounced !== "") st.has_cheque_bounced = asYnFlag(src.has_cheque_bounced) || asEnum(src.has_cheque_bounced, SITE_YES_NO);
+  if (src.has_overdue != null && src.has_overdue !== "") st.has_overdue = asYnFlag(src.has_overdue) || asEnum(src.has_overdue, SITE_YES_NO);
+  if ("overdue_rows" in src || "overdueRows" in src) st.overdue_rows = parseOverdueRows(src.overdue_rows ?? src.overdueRows);
   st.need_timing = asEnum(src.need_timing, SITE_TIMING);
   st.credit_rank = asEnum(src.credit_rank, CUSTOMER_RANKS);
   st.g_job_status = asEnum(src.g_job_status, SITE_JOB);
+  if (src.g_retired_kind != null && src.g_retired_kind !== "") {
+    if (!isRetiredKind(src.g_retired_kind)) throw new TeamSalesError(400, "نوع بازنشستگی معتبر نیست.");
+    st.g_retired_kind = String(src.g_retired_kind);
+  }
   st.g_credit_rank = asEnum(src.g_credit_rank, RANKS);
   st.g_conditions = asText(src.g_conditions, 500, "شرایط ضامن");
   st.customer_note = asText(src.customer_note, 2000, "یادداشت مشتری");
@@ -564,26 +598,49 @@ export function saveDossier(customerId: number, actor: Actor, raw: unknown, now 
   const final = opts?.final === true;
   // Expert saves must not write customer_note; keep the stored (customer/site) value.
   st.customer_note = prev?.customer_note != null && String(prev.customer_note).trim() ? String(prev.customer_note).trim() : "";
+  const prevSt = prev ? buildDossier(c.id, {}) : emptyDossier();
+  const src = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  // Additive keys: a partial payload must not wipe a previously stored type, flags, or معوق rows.
+  if (!("retired_kind" in src) && !st.retired_kind) st.retired_kind = prevSt.retired_kind;
+  if (!("g_retired_kind" in src) && !st.g_retired_kind) st.g_retired_kind = prevSt.g_retired_kind;
+  if (!("has_cheque_bounced" in src) && !st.has_cheque_bounced) st.has_cheque_bounced = prevSt.has_cheque_bounced;
+  if (!("has_overdue" in src) && !st.has_overdue) st.has_overdue = prevSt.has_overdue;
+  if (!("overdue_rows" in src) && !("overdueRows" in src) && !st.overdue_rows.length) st.overdue_rows = prevSt.overdue_rows;
+  if (st.job_status !== "retired") st.retired_kind = "";
+  if (st.g_job_status !== "retired") st.g_retired_kind = "";
+  st.has_bounced_or_overdue = syncBouncedLegacy(st.has_cheque_bounced, st.has_overdue, st.has_bounced_or_overdue);
+  if (st.has_overdue !== "yes") st.overdue_rows = st.has_overdue === "no" ? [] : st.overdue_rows;
   if (!final) {
     // Toggle-off autosave must not wipe guarantor answers; keep previous until «پایان».
     if (!st.g_job_status && oneOf(SITE_JOB, prev?.g_job_status)) st.g_job_status = String(prev!.g_job_status);
+    if (!st.g_retired_kind && isRetiredKind(prevSt.g_retired_kind) && st.g_job_status === "retired") st.g_retired_kind = prevSt.g_retired_kind;
     if (!st.g_credit_rank && oneOf(RANKS, prev?.g_credit_rank)) st.g_credit_rank = String(prev!.g_credit_rank);
     if (!st.g_conditions && prev?.g_conditions != null && String(prev.g_conditions).trim()) st.g_conditions = String(prev.g_conditions).trim();
   } else if (!hasGuarantor(st)) {
     st.g_job_status = "";
+    st.g_retired_kind = "";
     st.g_credit_rank = "";
     st.g_conditions = "";
+  }
+  if (final) {
+    const err = retireeOverdueError(st);
+    if (err) throw new TeamSalesError(400, err);
   }
   const amount = st.amount ? Number(st.amount) : null;
   const extra = {
     amount_range: st.amount_range || null,
     loan_purpose: st.loan_purpose || null,
     job_status: st.job_status || null,
+    retired_kind: st.job_status === "retired" && st.retired_kind ? st.retired_kind : null,
     documents: st.documents,
     has_military_card: st.has_military_card || null,
     can_refer_retiree: st.can_refer_retiree || null,
     has_bounced_or_overdue: st.has_bounced_or_overdue || null,
+    has_cheque_bounced: st.has_cheque_bounced || null,
+    has_overdue: st.has_overdue || null,
+    overdue_rows: canonicalOverdueRows(st),
     need_timing: st.need_timing || null,
+    g_retired_kind: st.g_job_status === "retired" && st.g_retired_kind ? st.g_retired_kind : null,
     note: st.note || null,
     need: st.need || null,
     amountBand: st.amountBand || null,
@@ -610,6 +667,35 @@ export function saveDossier(customerId: number, actor: Actor, raw: unknown, now 
     ],
   );
   return { ok: true, complete: dossierComplete(st), partial: dossierPartial(st) };
+}
+
+/**
+ * Display-only retiree type from the plan-advisor chip editor.
+ * Writes answers_json.retired_kind only; does not change jobType matching or loan_plans.
+ */
+export function patchDossierRetiredKind(customerId: number, actorUserId: number, kind: string | null): void {
+  ensureDossierSchema();
+  if (kind != null && kind !== "" && !isRetiredKind(kind)) throw new TeamSalesError(400, "نوع بازنشستگی معتبر نیست.");
+  const c = queryRow<{ id: number; merged_into_customer_id: number | null }>(
+    "SELECT id, merged_into_customer_id FROM customers WHERE id=?", [customerId]);
+  if (!c || c.merged_into_customer_id != null) throw new TeamSalesError(404, "Customer not found");
+  const row = loadRow(c.id);
+  let extra: Record<string, unknown> = {};
+  try { extra = row?.answers_json ? JSON.parse(row.answers_json) as Record<string, unknown> : {}; } catch { extra = {}; }
+  extra.retired_kind = kind || null;
+  if (kind) extra.job_status = extra.job_status || "retired";
+  const at = new Date().toISOString();
+  if (!row) {
+    execute(
+      `INSERT INTO ${DOSSIER_TABLE} (customer_id, answers_json, updated_at, actor_user_id) VALUES (?,?,?,?)`,
+      [c.id, JSON.stringify(extra), at, actorUserId],
+    );
+  } else {
+    execute(
+      `UPDATE ${DOSSIER_TABLE} SET answers_json=?, updated_at=?, actor_user_id=? WHERE customer_id=?`,
+      [JSON.stringify(extra), at, actorUserId, c.id],
+    );
+  }
 }
 
 /** When no first-call form exists, expose dossier answers as a virtual summary (`fromDossier`). Otherwise fill empty keys. */

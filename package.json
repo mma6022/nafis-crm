@@ -99,7 +99,8 @@
     "test:bale-sign-reminder": "node scripts/run-bale-sign-reminder-test.mjs",
     "test:customer-patch-name-guard": "NODE_ENV=production node scripts/run-bundled-fixture.mjs scripts/customer-patch-name-guard-fixture.mjs",
     "test:customers-priority-kanban": "node scripts/run-bundled-fixture.mjs scripts/customers-priority-kanban-fixture.mjs",
-    "test:plan-advisor": "node scripts/run-bundled-fixture.mjs scripts/plan-advisor-fixture.mjs"
+    "test:plan-advisor": "node scripts/run-bundled-fixture.mjs scripts/plan-advisor-fixture.mjs",
+    "test:file-details-t854": "NODE_ENV=production node scripts/run-bundled-fixture.mjs scripts/file-details-t854-fixture.mjs"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.3.0",
