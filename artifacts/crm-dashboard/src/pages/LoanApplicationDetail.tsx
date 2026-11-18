@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CERTIFICATE_INACTIVE_MESSAGE } from '@/lib/contract-send-errors.mjs';
 import { useMultiCaseCase, useMultiCaseStatus } from '@/lib/multi-case';
-import { multiCasePlanLabel } from '@/lib/multi-case-plan-label';
+import { multiCasePlanLabel, withPlanPrefix } from '@/lib/multi-case-plan-label';
 import { documentFileAccept } from '@/lib/document-upload-type';
 import { Link, useLocation, useParams } from 'wouter';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -564,7 +564,7 @@ export default function LoanApplicationDetail() {
         </div>
         <div className="eyebrow">پرونده تسهیلات #{app.id}</div>
         <h1 className="ldx-name"><CustomerName id={app.customerId} name={app.customerName || 'مشتری'} /></h1>
-        <p className="ldx-meta" data-testid="mc-case-header-plan">ثبت شده در {formatDate(app.createdAt)} · طرح {planHeading}{app.stage && !closed ? <> · مرحله: {STAGE_LABELS[app.stage] || app.stage}</> : null}</p>
+        <p className="ldx-meta" data-testid="mc-case-header-plan">ثبت شده در {formatDate(app.createdAt)} · {withPlanPrefix(planHeading)}{app.stage && !closed ? <> · مرحله: {STAGE_LABELS[app.stage] || app.stage}</> : null}</p>
         {app.creditRankIgnored && <p role="status" className="ldx-warn">این پرونده با انتخاب مدیر یا کارشناس فروش، بدون تطابق رتبه اعتباری ثبت شده است.</p>}
         {user?.role === 'admin' ? <CaseCreditRankOverrides applicationId={app.id} /> : null}
         <dl className="ldx-stats">

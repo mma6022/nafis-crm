@@ -15,7 +15,7 @@ import { useLocation } from "wouter";
 import { clearLoanDraft, readLoanDraft, writeLoanDraft } from "@/lib/loan-draft";
 import { useMultiCaseCustomer, useMultiCaseStatus } from "@/lib/multi-case";
 import { SamePlanBlock } from "@/components/multi-case/CaseContextPicker";
-import { MULTI_CASE_POPULAR_HEADING, MULTI_CASE_POPULAR_LINE, MULTI_CASE_UNREADY_PLAN, multiCasePlanLabel, multiCaseUnreadyReason } from "@/lib/multi-case-plan-label";
+import { MULTI_CASE_POPULAR_HEADING, MULTI_CASE_POPULAR_LINE, MULTI_CASE_UNREADY_PLAN, multiCasePlanLabel, multiCaseUnreadyReason, withPlanPrefix } from "@/lib/multi-case-plan-label";
 import { CidChip, faCaseStage, faDigits, faLatinRanks } from "@/components/multi-case/CaseContextPicker";
 import { DRAFTS_KEY, DraftHttpError, filingFeeIdempotencyKey, openPreRegistrationFor, type OpenPreRegistration, canUseDrafts, draftsApi, tehranTime, type DraftPayload, type RequestDraft } from "@/lib/request-drafts";
 import { toast } from "@/hooks/use-toast";
@@ -1037,7 +1037,7 @@ function McSecondStart({ customer, openCase, onContinue }: {
       <h3>پرونده‌ی باز فعلی</h3>
       {openCase ? (
         <article className="mc-case" data-testid="mc-second-start-case">
-          <div><b>طرح {multiCasePlanLabel({ planId: openCase.planId, bankName: openCase.bankName, planName: openCase.planName, name: openCase.planName })}</b><span className="chip g">{faCaseStage(openCase.stage)}</span></div>
+          <div><b>{withPlanPrefix(multiCasePlanLabel({ planId: openCase.planId, bankName: openCase.bankName, planName: openCase.planName, name: openCase.planName }))}</b><span className="chip g">{faCaseStage(openCase.stage)}</span></div>
           <p className="meta">{openCase.requestedAmount ? `${Number(openCase.requestedAmount).toLocaleString("fa-IR")} تومان` : "مبلغ ثبت نشده"}{openCase.durationMonths ? `، ${fa(openCase.durationMonths)} ماه` : ""}</p>
         </article>
       ) : null}

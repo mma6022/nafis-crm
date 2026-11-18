@@ -27,6 +27,13 @@ export function multiCaseUnreadyReason(planId?: number | null): string {
 export const MULTI_CASE_POPULAR_HEADING = "پراستفاده‌ترین طرح‌های ۳۰ روز گذشته";
 export const MULTI_CASE_POPULAR_LINE = "پراستفاده در ۳۰ روز گذشته";
 
+/** t855: display «طرح X» without doubling — a plan name that already starts with «طرح» is shown as-is. Display only. */
+export function withPlanPrefix(label: string | null | undefined): string {
+  const s = String(label ?? "").trim();
+  if (!s) return "طرح";
+  return /^طرح(?=[\s\u200c]|$)/.test(s) ? s : `طرح ${s}`;
+}
+
 export function multiCasePlanLabel(plan: {
   id?: number | null;
   planId?: number | null;

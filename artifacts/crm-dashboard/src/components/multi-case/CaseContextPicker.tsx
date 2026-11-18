@@ -4,7 +4,7 @@ import { Copy, Phone } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { toPersianDigits } from "@/lib/customer-id";
 import { loanStageLabel } from "@/lib/loan-labels";
-import { multiCasePlanLabel } from "@/lib/multi-case-plan-label";
+import { multiCasePlanLabel, withPlanPrefix } from "@/lib/multi-case-plan-label";
 import type { MultiCaseRow } from "./types";
 
 /** Never show a raw English stage code on a multi-case surface. */
@@ -123,7 +123,7 @@ export function CaseContextPicker({
             const stage = faCaseStage(row.stage);
             return (
             <button key={row.id} type="button" role="radio" aria-checked={choice === row.id} onClick={() => setChoice(row.id)}>
-              <b><span className="mc-caseid">پرونده <b dir="ltr">#{faId(row.id)}</b></span>، طرح {multiCasePlanLabel(row)}</b>
+              <b><span className="mc-caseid">پرونده <b dir="ltr">#{faId(row.id)}</b></span>، {withPlanPrefix(multiCasePlanLabel(row))}</b>
               <span>{money ? `${stage}؛ ${money}` : stage}</span>
             </button>
             );

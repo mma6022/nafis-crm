@@ -22,6 +22,7 @@ import { useCpOn } from "@/features/credit-panel/api";
 import { usePaOn } from "@/features/plan-advisor/api";
 import { PlanAdvisorBox } from "@/features/plan-advisor/PlanAdvisorBox";
 import { DciIcon, DciSprites } from "./icons";
+import { withPlanPrefix } from "@/lib/multi-case-plan-label";
 import "./dci.css";
 import "./today-layout.css";
 import { getListRemindersQueryKey, useListReminders, useUpdateReminder } from "@workspace/api-client-react";
@@ -202,7 +203,7 @@ function CaseCard({ f, canEdit, locked, busy, onCancel }: { f: DciCase; canEdit:
   return <article className="dci-case" data-case={f.id}>
     <div className="dci-crow"><span className="dci-chip">پرونده #{fd(f.id)}</span><span className="dci-chip">{f.status}</span></div>
     {chips}
-    <h3>طرح {f.plan}</h3>
+    <h3>{withPlanPrefix(f.plan)}</h3>
     <p>{f.amount ? <>{fa(f.amount)} تومان {f.months ? <span style={{ color: "var(--nf-ink-muted)" }}>برای {fd(f.months)} ماه</span> : null}</> : null}</p>
     <Link className="btn pri" href={f.href}>{f.act}</Link>
   </article>;

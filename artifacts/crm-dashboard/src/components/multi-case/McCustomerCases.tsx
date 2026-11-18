@@ -1,4 +1,4 @@
-import { multiCasePlanLabel } from "@/lib/multi-case-plan-label";
+import { multiCasePlanLabel, withPlanPrefix } from "@/lib/multi-case-plan-label";
 import { loanBusinessStatus } from "@/lib/loan-labels";
 import type { LoanApplication } from "@workspace/api-client-react";
 import type { MultiCaseRow } from "./types";
@@ -44,7 +44,7 @@ export function McCustomerCases({
               <span className={`chip ${loan.stage === "draft" ? "g" : "b"}`}>{status}</span>
             </div>
             <span className="mc-customer"><b>{customer.name}</b><CidChip id={customer.id} />{sample ? <span className="smp">نمونه</span> : null}</span>
-            <h3 data-testid={`mc-plan-label-${loan.id}`}>طرح {label}</h3>
+            <h3 data-testid={`mc-plan-label-${loan.id}`}>{withPlanPrefix(label)}</h3>
             <p>{toman(loan.approvedAmount || loan.requestedAmount)} تومان {months ? <span className="mc-muted">برای {Number(months).toLocaleString("fa-IR")} ماه</span> : null}</p>
             {stage ? <p className="mc-muted">مرحله: {stage}</p> : null}
             <p className="mc-muted">ثبت: {weekdayJalali(loan.createdAt)}</p>
