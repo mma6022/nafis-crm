@@ -400,21 +400,21 @@ export async function vcStart(u: U, body: any, now = new Date()) {
   if (excluded) return err(422, "excluded_phone", "تماس با این شماره از سامانه بسته است.");
   const busy = queryRow<VcRow>("SELECT * FROM voip_click_calls WHERE user_id=? AND active=1", [u.id]);
   if (busy) return err(409, "one_call", "یک تماس در جریان است؛ هر بار فقط یک تماس.", { call: vcView(busy, now) });
-  // Design (HANDOFF §برای آدیتیا): answered / no answer / busy keep the task lock until the result is saved. A redial of the same file is
-  // allowed («دوباره زنگ بزن») and supersedes the unsaved call; any other customer waits for that result.
-  // VOIP-TASK-HOLD (flag.voip_task_hold_v1, OFF → this block is the file-task-only rule above): the same lock applies to every entry
-  // (carousel / reminder / lead / search / file) while a call is live, the final status is unknown, or the result is unsaved.
+  // A redial of the same file/customer is allowed («دوباره زنگ بزن») and supersedes the unsaved call.
+  // t853u: an ended call with an unsaved result must not block starting (or saving a note/result) on another of
+  // THIS expert's own customers (today list / own cases / incoming). A still-live call stays 409 one_call.
+  // The previous ended call is left pending (not dismissed) so its result can still be saved later.
   const vthOpen = vthFlagOn(u.id) ? vthOpenCall(u) : null;
-  if (vthOpen && (vthOpen.state !== "ended" || !vthSameTarget(vthOpen, cid, fid))) {
+  if (vthOpen && vthOpen.state !== "ended") {
     const row = queryRow<VcRow>("SELECT * FROM voip_click_calls WHERE id=?", [vthOpen.id])!;
-    return err(409, "needs_result", "اول نتیجه‌ی تماس قبلی را ثبت کن؛ کار بعدی تا ثبت نتیجه قفل است.", { call: vcView(row, now) });
+    return err(409, "one_call", "یک تماس در جریان است؛ هر بار فقط یک تماس.", { call: vcView(row, now) });
   }
   const open = vthOpen && vthOpen.state === "ended" ? queryRow<VcRow>("SELECT * FROM voip_click_calls WHERE id=?", [vthOpen.id])
     : queryRow<VcRow>(`SELECT * FROM voip_click_calls WHERE user_id=? AND state='ended' AND outcome IS NOT NULL AND file_id IS NOT NULL
     AND result_saved_at IS NULL AND dismissed_at IS NULL ORDER BY id DESC LIMIT 1`, [u.id]);
-  if (open && !vthFlagOn(u.id) && open.file_id !== fid) return err(409, "needs_result", "اول نتیجه‌ی تماس قبلی را ثبت کن؛ تسک بعدی تا ثبت نتیجه قفل است.", { call: vcView(open, now) });
-  if (open && vthFlagOn(u.id) && !vthSameTarget(open, cid, fid)) return err(409, "needs_result", "اول نتیجه‌ی تماس قبلی را ثبت کن؛ کار بعدی تا ثبت نتیجه قفل است.", { call: vcView(open, now) });
-  if (open) executeChanges("UPDATE voip_click_calls SET dismissed_at=? WHERE id=?", [iso(now), open.id]);
+  if (open && (vthFlagOn(u.id) ? vthSameTarget(open, cid, fid) : open.file_id === fid || Number(open.customer_id) === cid)) {
+    executeChanges("UPDATE voip_click_calls SET dismissed_at=? WHERE id=?", [iso(now), open.id]);
+  }
   let id: number;
   try {
     const r = crmDb.prepare(`INSERT INTO voip_click_calls(user_id,extension,customer_id,file_id,phone,state,active,created_at,updated_at) VALUES(?,?,?,?,?,'requesting',1,?,?)`)

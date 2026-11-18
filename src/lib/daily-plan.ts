@@ -1040,7 +1040,10 @@ export function dpExpertView(user: CqUser, now = new Date()) {
 const currentItem = (p: Plan, id: number) => { const i = items(p.id, "id=?", [id])[0]; return i && i.status === "current" ? i : null; };
 export function dpStartCall(user: CqUser, itemId: number, now = new Date()) {
   const p = dpActiveFor(user, now); if (!p) return err(409, "no_active_plan", "«کارهای امروز» الان فعال نیست.");
-  const it = currentItem(p, itemId); if (!it) return err(409, "not_current_item", "فقط کار فعلی را می‌شود شروع کرد.");
+  // t853u: a note / call on any of THIS expert's today-list items (current or later/earlier pending) must start;
+  // items that are not on today's own list still 409. Move stays current-only.
+  const it = items(p.id, "id=? AND status IN ('current','pending')", [itemId])[0] ?? null;
+  if (!it) return err(409, "not_current_item", "این کار در «کارهای امروز» شما نیست.");
   const c = queryRow<{ phone: string | null }>("SELECT phone FROM customers WHERE id=? AND salesperson_id=? AND merged_into_customer_id IS NULL", [it.customer_id, user.salespersonId ?? -1]);
   if (!c) return err(404, "customer_not_owned", "این مشتری در پرونده‌های شما نیست.");
   const digits = String(c.phone ?? "").replace(/[^\d+]/g, ""); if (!digits) return err(422, "no_phone", "شماره‌ی این مشتری ثبت نشده است.");

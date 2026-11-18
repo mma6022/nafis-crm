@@ -411,8 +411,8 @@ export function fcExpertFollowup(u: U, body: any, now = new Date(), opts?: { aut
   // own closed files are read-only (PM defaults 1, 2). After the list opened this also holds for tasks appended to today's order (t673 wins).
   // Flag off → this line does nothing.
   if ((!card || (deck.listOpen && card.state !== "done")) && fbOn(Number(u.id))) { const f = fileById(fid);
-    if (f && Number(f.owner) === sp) { const b = !f.open ? { error: "board_closed", message: "پرونده‌ی بسته فقط‌خواندنی است؛ ویرایش یا اقدامی ندارد." } : (fbState(sp, now).turn !== fid && !sf480OpenLists()) ? { error: "board_turn", message: "نوبت این پرونده نیست؛ پرونده‌ها به ترتیب باز می‌شوند." } : null;
-      if (b) return err(423, b.error, b.message, { fileId: fid }); } }
+    // t853u: own closed files stay read-only; follow-up / result / note on any own open file must succeed (no board_turn).
+    if (f && Number(f.owner) === sp && !f.open) return err(423, "board_closed", "پرونده‌ی بسته فقط‌خواندنی است؛ ویرایش یا اقدامی ندارد.", { fileId: fid }); }
   // REL-83 (ب): once the list is open, «پیگیری» works on any OWN file of the list (no lock; one result per file per day).
   // v1.0.1 PM 5: completed / cancelled rows keep today's access — a result + note is fine, «لغو» of an already closed file is not.
   if (!card && deck.catMode && deck.listOpen) { const f = fileById(fid);
@@ -423,9 +423,10 @@ export function fcExpertFollowup(u: U, body: any, now = new Date(), opts?: { aut
   // TODAY-SPLIT act_more: after the list opened, a task appended to today's order stays actionable from the open list (REL-83 (ب)).
   if (card.state === "pending" && deck.catMode && deck.listOpen) card = { f: card.f, state: "current" };
 
-  // HOTFIX-77h (Mohammad 17:11 Tehran «کارشناس فروشم بذار لغو کنه پرونده رو»): «لغو شده» works on any OWN open card of today's deck
-  // (current or pending); the other outcomes still need the current card.
-  if (card.state === "done" || (!cx && card.state !== "current")) return err(409, "not_current", "اول نتیجه‌ی پرونده‌ی جاری را ثبت کن.", { currentFileId: deck.current });
+  // t853u: any OWN open card of today's deck (current or pending / earlier or later) can take a follow-up, note, or result.
+  // A file already followed up today stays already_done (above). Closed own files stay 409/423 as before.
+  if (card.state === "done") return err(409, "not_current", "نتیجه‌ی این پرونده امروز ثبت شده است.", { currentFileId: deck.current });
+  if (card.state !== "current" && card.state !== "pending") return err(409, "not_current", "این پرونده در کارهای امروزت نیست.", { currentFileId: deck.current });
   if (vc.call && vc.call.customer_id !== Number(card.f.cur_customer_id)) return err(409, "voip_call_other_customer", "این تماس مال مشتری دیگری است.");
   const at = now.toISOString();
   const isCur = deck.current === fid;
@@ -557,15 +558,11 @@ export function filesCarouselGuard(req: any, res: any, next: any): void {
   try {
     // FILES-BOARD (stage 3): with the user's own flag.files_board the whole-board turn replaces the stage-1/2 checks (reads stay open).
     // SALES-FIXES 480000 (t810u): «پرونده‌های من» opens at any step — no turn order / files lock on writes; closed files stay read-only.
-    if (sf480OpenLists()) { const b = fbOn(Number(u!.id)) ? fbWriteBlock(u!, Number(m[1])) : null; if (b && b.error === "board_closed") { res.status(423).json(b); return; } next(); return; }
-    if (fbOn(Number(u!.id))) { const b = fbWriteBlock(u!, Number(m[1])); if (b && !(sentLink && b.error === "board_turn")) { res.status(423).json(b); return; } next(); return; }
+    // t853u: do not block notes / follow-ups / results on the expert's own files that are not the "current" turn.
+    // Closed own files stay 423 board_closed. Other experts' customers stay behind expert_lockdown (unchanged).
+    if (sf480OpenLists() || fbOn(Number(u!.id))) { const b = fbOn(Number(u!.id)) ? fbWriteBlock(u!, Number(m[1])) : null; if (b && b.error === "board_closed") { res.status(423).json(b); return; } next(); return; }
     if (sentLink) { next(); return; }
-    if (fcWriteLocked(u!, Number(m[1])) && !fcNewToday(u!, Number(m[1]))) {
-      res.status(423).json({ error: "files_locked", message: "اول نتیجه‌ی پیگیری پرونده‌ی جاری را ثبت کن؛ این پرونده هنوز نوبتش نشده.", details: { fileId: Number(m[1]) } }); return;
-    }
-    if (fcFilesLocked(u!, Number(m[1]))) {
-      res.status(423).json({ error: "files_lock", message: FL_MESSAGE, details: { fileId: Number(m[1]) } }); return;
-    }
+    // t853u: files_locked / files_lock 423s (turn-order) no longer reject writes on the expert's own files.
   } catch { /* never block on a guard error */ }
   next();
 }
