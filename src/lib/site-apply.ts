@@ -43,7 +43,7 @@ export const AMOUNT_RANGES = ["up_to_50m", "50m_100m", "100m_300m", "300m_500m",
 export const LOAN_PURPOSES = ["goods", "wedding", "medical", "home", "business", "other"] as const;
 export const JOB_STATUSES = ["employee", "retired", "self_employed", "no_fixed_income"] as const;
 export const DOCUMENTS = ["payslip", "salary_deduction_cert", "sayadi_cheque", "guarantor", "none"] as const;
-export const MILITARY = ["yes", "no", "not_applicable"] as const;
+export const MILITARY = ["yes", "no", "not_applicable", "female"] as const; // t862: + «خانم»
 export const YES_NO = ["yes", "no"] as const;
 export const NEED_TIMINGS = ["this_week", "this_month", "just_browsing"] as const;
 /** site-credit-noinst v1.0 §4: letters only on the site (+ «نمی‌دونم»); the expert refines to A1–E3 in the file. */
@@ -173,7 +173,7 @@ export const JOB_FA: Record<(typeof JOB_STATUSES)[number], string> = {
 export const DOC_FA: Record<(typeof DOCUMENTS)[number], string> = {
   payslip: "فیش حقوقی", salary_deduction_cert: "گواهی کسر از حقوق", sayadi_cheque: "چک صیادی", guarantor: "ضامن", none: "هیچ‌کدام",
 };
-export const MILITARY_FA: Record<(typeof MILITARY)[number], string> = { yes: "دارد", no: "ندارد", not_applicable: "مشمول نیست" };
+export const MILITARY_FA: Record<(typeof MILITARY)[number], string> = { yes: "دارد", no: "ندارد", not_applicable: "مشمول نیست", female: "خانم" };
 export const TIMING_FA: Record<(typeof NEED_TIMINGS)[number], string> = {
   this_week: "همین هفته", this_month: "این ماه", just_browsing: "فقط دارد بررسی می‌کند",
 };

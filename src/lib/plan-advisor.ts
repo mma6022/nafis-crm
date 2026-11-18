@@ -163,7 +163,7 @@ function latestAnswers(customerId: number): QualifierAnswers {
     const n = Number(String(site.amount_range).replace(/[^\d]/g, ""));
     if (n > 0) a.amountMillion = n >= 1000 ? Math.round(n / 1e6) : n;
   }
-  if (!a.military && site?.has_military_card) a.military = site.has_military_card === "yes" ? "has_card" : site.has_military_card === "no" ? "no_card" : a.military;
+  if (!a.military && site?.has_military_card) a.military = site.has_military_card === "yes" ? "has_card" : site.has_military_card === "no" ? "no_card" : site.has_military_card === "female" ? "female" : a.military;
   if (!a.bouncedCheque && site?.has_bounced_or_overdue) a.bouncedCheque = site.has_bounced_or_overdue === "yes" ? "yes" : site.has_bounced_or_overdue === "no" ? "no" : a.bouncedCheque;
   if (!a.guarantorAvailable) a.guarantorAvailable = (Number(a.guarantorCount) > 0 || a.guarantorAvailable === "yes") ? "yes" : a.guarantorAvailable;
   // official ICS24 rank on the customer row wins as inquiry when present

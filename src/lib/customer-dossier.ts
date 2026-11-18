@@ -36,7 +36,8 @@ export const SITE_JOB = ["employee", "retired", "self_employed", "no_fixed_incom
 export const SITE_PURPOSE = ["goods", "wedding", "medical", "home", "business", "other"] as const;
 export const SITE_AMOUNT_RANGE = ["up_to_50m", "50m_100m", "100m_300m", "300m_500m", "over_500m", "not_sure"] as const;
 export const SITE_DOCS = ["payslip", "salary_deduction_cert", "sayadi_cheque", "guarantor", "none"] as const;
-export const SITE_MILITARY = ["yes", "no", "not_applicable"] as const;
+// t862 (Mohammad t862s2908): «خانم» is its own answer; it exempts like «مشمول نیست» and never removes a plan.
+export const SITE_MILITARY = ["yes", "no", "not_applicable", "female"] as const;
 export const SITE_YES_NO = ["yes", "no"] as const;
 export const SITE_TIMING = ["this_week", "this_month", "just_browsing"] as const;
 export const RANKS: readonly string[] = [...CREDIT_SUBGRADES, "unknown"];
@@ -345,9 +346,10 @@ const CS_DOC_FROM_SITE: Record<string, string> = {
 };
 const TIMING_TO_URGENCY: Record<string, string> = { this_week: "now", this_month: "month", just_browsing: "curious" };
 
-export function militaryFromDossier(v: string): "has_card" | "no_card" | null {
+export function militaryFromDossier(v: string): "has_card" | "no_card" | "female" | null {
   if (v === "yes") return "has_card";
   if (v === "no") return "no_card";
+  if (v === "female") return "female"; // t862: «خانم» → military requirement does not apply (military_ok)
   return null; // not_applicable has no plan-matching code (would be mislabelled as «خانم»)
 }
 
