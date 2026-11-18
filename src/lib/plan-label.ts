@@ -22,6 +22,14 @@ export function planLabelForCustomer(bankName: string | null | undefined): strin
 
 /** Internal CRM label: loan_plans.name first. Fall back to the old bank-based «لندتک / {بانک}» only when the name is empty.
  *  Customer-facing Bale / portal copy still uses planLabelForCustomer. Never writes loan_plans. */
+/** t856: «طرح X» without doubling — a plan name that already starts with «طرح» (then space/ZWNJ/end) is kept as-is.
+ *  Same rule as the UI withPlanPrefix. Display only; never writes loan_plans. */
+export function withPlanPrefix(label: string | null | undefined): string {
+  const s = String(label ?? "").trim();
+  if (!s) return "طرح";
+  return /^طرح(?=[\s\u200c]|$)/.test(s) ? s : `طرح ${s}`;
+}
+
 export function internalPlanLabel(planName: string | null | undefined, bankName: string | null | undefined): string {
   const name = String(planName ?? "").trim();
   if (name) return name;

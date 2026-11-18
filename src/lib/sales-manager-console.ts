@@ -15,6 +15,7 @@ import type { AuthUser } from "./auth";
 import { getAuthUserById } from "./auth";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import { dqBlocks, dqQueue, type DqItem, type DqKind } from "./dci-queue";
+import { withPlanPrefix } from "./plan-label";
 
 export const SMC_FLAG = "flag.sales_manager_console_v1";
 export const SMC_NEVER_USER = 29;
@@ -555,7 +556,7 @@ export function summarize(section: Section, before: any, after: any): string[] {
     const b = before as StepsDoc, a = after as StepsDoc;
     for (const [k, list] of Object.entries(a.plans)) {
       if (JSON.stringify(b.plans[k] ?? null) === JSON.stringify(list ?? null)) continue;
-      const nm = k === "default" ? "پیش‌فرض سیستم" : `طرح ${planName(Number(k.slice(1)))}`;
+      const nm = k === "default" ? "پیش‌فرض سیستم" : withPlanPrefix(planName(Number(k.slice(1))));
       if (list == null) { out.push(`${nm}: بازگشت به پیش‌فرض`); continue; }
       const prev = planStages(b, k);
       const on = list.filter((s) => s.enabled && prev.find((x) => x.key === s.key)?.enabled !== true).map((s) => s.label);

@@ -8,6 +8,7 @@
  */
 import express, { Router, type Request, type Response, type NextFunction } from "express";
 import { EXPERT_INTRO_TRAINEE_SALESPERSON_IDS } from "./expert-intro-sms-core";
+import { withPlanPrefix } from "./plan-label";
 const TRAINEE_SALESPERSON_IDS: readonly number[] = EXPERT_INTRO_TRAINEE_SALESPERSON_IDS; // کارآموزها 5/19/20
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
@@ -316,7 +317,7 @@ export function createSmartFiling(deps: Deps) {
       const v = jobView(j);
       const sender = p.sent_by_user_id ? row<any>("SELECT full_name,username FROM users WHERE id=?", p.sent_by_user_id) : null;
       const who = sender?.full_name || sender?.username || v.salespersonName || "کارشناس";
-      const body = [`کارشناس: ${who}`, v.planName ? `طرح ${v.planName}` : null, p.cost_text ? `هزینه ${p.cost_text}` : null,
+      const body = [`کارشناس: ${who}`, v.planName ? withPlanPrefix(v.planName) : null, p.cost_text ? `هزینه ${p.cost_text}` : null,
         new Date(p.sent_at || iso()).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tehran" })].filter(Boolean).join(" — ");
       run(`INSERT INTO site_notification_events(customer_id,customer_name,owner_id,resource_type,resource_id,kind,title,body,permission,created_at)
         VALUES(?,?,NULL,'smart_filing',?,'credit-permission',?,?,'smart_filing.credit_permission',?)`,
