@@ -54,6 +54,8 @@ export const MILITARY = [
   ['yes', 'بله'],
   ['no', 'خیر'],
   ['not_applicable', 'مشمول نیستم'],
+  // t862 (Mohammad t862s2908): women answer «خانم»; the CRM treats it as exempt, so no plan is removed.
+  ['female', 'خانم'],
 ] as const;
 export const YES_NO = [
   ['yes', 'بله'],

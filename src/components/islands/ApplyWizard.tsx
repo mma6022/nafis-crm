@@ -428,7 +428,7 @@ export default function ApplyWizard({ snapshot }: { snapshot: LoanPlan[] }) {
       return (
         <>
           {q('has_military_card', 'کارت پایان خدمت دارید؟')}
-          {radios('has_military_card', MILITARY, { cols: 'c3s', req: true })}
+          {radios('has_military_card', MILITARY, { cols: 'c2', req: true })}
           {q('can_refer_retiree', 'می‌توانید یک متقاضی بازنشسته معرفی کنید؟')}
           <p className="wz-help" id="can_refer_retiree-h">
             مثلاً پدر، مادر یا یکی از آشنایان که بازنشسته است.

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  APPLY_CONSENT_TEXT, APPLY_MIN_FILL_MS, APPLY_QUICK_MIN_FILL_MS, APPLY_STEPS, CREDIT_RANKS, STEP_FIELDS, amountParam,
+  MILITARY, APPLY_CONSENT_TEXT, APPLY_MIN_FILL_MS, APPLY_QUICK_MIN_FILL_MS, APPLY_STEPS, CREDIT_RANKS, STEP_FIELDS, amountParam,
   buildApplyPayload, emptyAnswers, firstIncompleteStep, hasAnyAnswer, isConsultSrc, maskMobile, minFillFor, readAmountParam,
   shouldPost, stepErrors, submitApply, toggleDoc, type ApplyAnswers,
 } from '../src/lib/apply';
@@ -112,6 +112,7 @@ test('step validation', () => {
   assert.deepEqual(stepErrors(3, e), { credit_rank: true }); // «ادامه» asks for a pick; «رد کردن» skips
   assert.deepEqual(stepErrors(4, e), { documents: true });
   assert.deepEqual(stepErrors(5, { ...e, has_military_card: 'not_applicable' }), { can_refer_retiree: true });
+  assert.deepEqual(stepErrors(5, { ...e, has_military_card: 'female', can_refer_retiree: 'no' }), {}); // t862 «خانم» is a full answer
   assert.equal(firstIncompleteStep(full), -1);
   assert.equal(firstIncompleteStep({ ...full, has_bounced_or_overdue: undefined }), -1, 'later steps are optional (v1.1)');
   assert.equal(firstIncompleteStep({ ...full, mobile: '' }), 0);
@@ -163,4 +164,9 @@ test('wizard UI: no rate/percent/offer, no priority/expert name, no SMS code inp
   assert.doesNotMatch(src, /type="checkbox"/);
   assert.doesNotMatch(src, /نرخ|درصد|٪|%\s*سود|اولویت|کد تأیید|one-time-code/);
   assert.doesNotMatch(src, /سپرده|برآورد|تخمینی/);
+});
+
+test('t862: پایان خدمت offers «خانم» next to «مشمول نیستم»; older values unchanged', () => {
+  assert.deepEqual(MILITARY.map(([v]) => v), ['yes', 'no', 'not_applicable', 'female']);
+  assert.deepEqual(MILITARY.map(([, l]) => l), ['بله', 'خیر', 'مشمول نیستم', 'خانم']);
 });
