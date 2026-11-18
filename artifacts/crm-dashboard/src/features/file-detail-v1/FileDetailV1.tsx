@@ -294,7 +294,7 @@ export function FileDetailV1(p: Props) {
 
   const mcOn = useMultiCaseStatus().data?.enabled === true;
   const mcCase = useMultiCaseCase(appId, mcOn);
-  const planHead = mcOn ? multiCasePlanLabel({ planId: mcCase.data?.case?.planId ?? app.planId, bankName: mcCase.data?.case?.bankName }) : (app.planName ? (/^\s*طرح/.test(app.planName) ? app.planName : `طرح ${app.planName}`) : 'طرح ثبت نشده');
+  const planHead = mcOn ? multiCasePlanLabel({ planId: mcCase.data?.case?.planId ?? app.planId, bankName: mcCase.data?.case?.bankName, planName: mcCase.data?.case?.planName ?? app.planName }) : (app.planName ? (/^\s*طرح/.test(app.planName) ? app.planName : `طرح ${app.planName}`) : 'طرح ثبت نشده');
   const head = <section className={`card fhd${mcOn ? ' mc-host' : ''}`} aria-label="سربرگ پرونده">
     <div className="crow"><nav className="crumb" aria-label="مسیر"><Link href="/loan-applications"><ChevronRight {...I} />پرونده‌های من</Link></nav>
 </div>

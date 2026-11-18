@@ -32,9 +32,15 @@ export function multiCasePlanLabel(plan: {
   planId?: number | null;
   bankName?: string | null;
   bank_name?: string | null;
+  name?: string | null;
+  planName?: string | null;
+  plan_name?: string | null;
 } | null | undefined): string {
   const id = Number(plan?.planId ?? plan?.id);
   if (Number.isSafeInteger(id) && id > 0 && MULTI_CASE_PLAN_LABELS[id]) return MULTI_CASE_PLAN_LABELS[id];
+  // t853u: internal CRM uses loan_plans.name (e.g. «طرح لنتک اسکی‌وام»). Bank-based «لندتک / بانک X» only if the name is empty.
+  const named = String(plan?.planName ?? plan?.plan_name ?? plan?.name ?? "").trim();
+  if (named) return named;
   const raw = String(plan?.bankName ?? plan?.bank_name ?? "").trim();
   if (!raw) return MULTI_CASE_PLAN_UNKNOWN;
   const banks = raw.split(/\s+-\s+/).map((part) => part.trim()).filter(Boolean).join("، ");

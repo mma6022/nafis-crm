@@ -265,7 +265,7 @@ export default function LoanApplicationDetail() {
   });
   // FILE-DETAIL v1: per-user flag (flag.file_detail_v1.user.N, missing = off); old page stays the default.
   const fdV1 = useFileDetailV1Flag(!isNaN(appId));
-  const planHeading = mcOn ? multiCasePlanLabel({ planId: mcCase.data?.case?.planId ?? app?.planId, bankName: mcCase.data?.case?.bankName }) : (app?.planName || 'ناشناس');
+  const planHeading = mcOn ? multiCasePlanLabel({ planId: mcCase.data?.case?.planId ?? app?.planId, bankName: mcCase.data?.case?.bankName, planName: mcCase.data?.case?.planName ?? app?.planName }) : (app?.planName || 'ناشناس');
   const caseOpen = app?.status !== 'rejected';
   const canUpdate = caseOpen && (user?.role === 'admin' || user?.permissions?.includes('loan_applications.update'));
   const canReview = caseOpen && (user?.role === 'admin' || user?.permissions?.includes('loan_applications.review'));

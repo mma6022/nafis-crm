@@ -5,7 +5,7 @@ assert.equal(multiCasePlanLabel({ planId: 7, bankName: "بانک ملت - بان
 assert.equal(multiCasePlanLabel({ bank_name: "  بانک شهر  " }), "لندتک / بانک شهر");
 assert.equal(multiCasePlanLabel({ bankName: "" }), MULTI_CASE_PLAN_UNKNOWN);
 assert.equal(multiCasePlanLabel({ bankName: null }), MULTI_CASE_PLAN_UNKNOWN);
-assert.equal(multiCasePlanLabel({ planId: 1, name: "ترنم" }), MULTI_CASE_PLAN_UNKNOWN);
+assert.equal(multiCasePlanLabel({ planId: 1, name: "ترنم" }), "ترنم");
 assert.equal(multiCasePlanLabel({ planId: 17, bankName: "مسکن" }), "لندتک / مسکن");
 assert.equal(multiCasePlanLabel({ planId: 1, bankName: "ملی" }), "لندتک / ملی");
 assert.equal(multiCaseUnreadyReason(1), "فعلاً قابل انتخاب نیست؛ قالب قرارداد این طرح هنوز آماده نشده است.");
@@ -13,4 +13,10 @@ assert.equal(multiCaseUnreadyReason(17), "فعلاً قابل انتخاب نی�
 assert.equal(multiCaseUnreadyReason(17), MULTI_CASE_UNREADY_REASON);
 assert.equal(multiCaseUnreadyReason(99), MULTI_CASE_UNREADY_REASON);
 assert.equal(multiCaseUnreadyReason(null), MULTI_CASE_UNREADY_REASON);
+// t853u: plan name wins; bank-based label only when the name is empty.
+assert.equal(multiCasePlanLabel({ planId: 17, planName: "طرح لنتک اسکی‌وام", bankName: "مسکن" }), "طرح لنتک اسکی‌وام");
+assert.equal(multiCasePlanLabel({ plan_name: "طرح لنتک اسکی‌وام", bank_name: "ملی" }), "طرح لنتک اسکی‌وام");
+assert.equal(multiCasePlanLabel({ name: "   ", bankName: "ملی" }), "لندتک / ملی");
+assert.equal(multiCasePlanLabel({ planId: 17, bankName: "مسکن" }), "لندتک / مسکن");
 console.log("PASS multi-case plan label");
+

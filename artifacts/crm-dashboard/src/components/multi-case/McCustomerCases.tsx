@@ -32,7 +32,7 @@ export function McCustomerCases({
       <h2 id="mc-cases-h">پرونده‌های تسهیلات</h2>
       {loans.length ? <div className="mc-cases" data-testid="mc-cases">{loans.map((loan) => {
         const meta = bankOf(loan.id);
-        const label = multiCasePlanLabel({ planId: meta?.planId ?? loan.planId, bankName: meta?.bankName });
+        const label = multiCasePlanLabel({ planId: meta?.planId ?? loan.planId, bankName: meta?.bankName, planName: meta?.planName ?? loan.planName, name: meta?.planName ?? loan.planName });
         const bs = loanBusinessStatus(loan);
         const status = bs === "completed" ? "تکمیل" : bs === "canceled" ? "لغو" : faCaseStage(loan.stage);
         const stage = bs !== "canceled" && bs !== "completed" ? faCaseStage(loan.stage) : "";

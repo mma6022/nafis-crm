@@ -1037,7 +1037,7 @@ function McSecondStart({ customer, openCase, onContinue }: {
       <h3>پرونده‌ی باز فعلی</h3>
       {openCase ? (
         <article className="mc-case" data-testid="mc-second-start-case">
-          <div><b>طرح {multiCasePlanLabel({ planId: openCase.planId, bankName: openCase.bankName })}</b><span className="chip g">{faCaseStage(openCase.stage)}</span></div>
+          <div><b>طرح {multiCasePlanLabel({ planId: openCase.planId, bankName: openCase.bankName, planName: openCase.planName, name: openCase.planName })}</b><span className="chip g">{faCaseStage(openCase.stage)}</span></div>
           <p className="meta">{openCase.requestedAmount ? `${Number(openCase.requestedAmount).toLocaleString("fa-IR")} تومان` : "مبلغ ثبت نشده"}{openCase.durationMonths ? `، ${fa(openCase.durationMonths)} ماه` : ""}</p>
         </article>
       ) : null}
@@ -1831,7 +1831,7 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
                  const activeTile = (matches: typeof ready[number], popularTile: boolean) => {
                    const plan = matches[0];
                    const planMaximum = Math.max(...matches.map((match) => Number(match.maximumAmount)));
-                   const label = multiCase ? multiCasePlanLabel({ planId: plan.planId, bankName: (plan as { bankName?: string | null }).bankName }) : plan.name;
+                   const label = multiCase ? multiCasePlanLabel({ planId: plan.planId, bankName: (plan as { bankName?: string | null }).bankName, name: plan.name, planName: plan.name }) : plan.name;
                    const marked = selectedPlanId === plan.planId;
                    const line = popularTile
                      ? MULTI_CASE_POPULAR_LINE
@@ -1869,7 +1869,7 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
                  };
                  const disabledTile = (matches: typeof ready[number]) => {
                    const plan = matches[0];
-                   const label = multiCasePlanLabel({ planId: plan.planId, bankName: (plan as { bankName?: string | null }).bankName });
+                   const label = multiCasePlanLabel({ planId: plan.planId, bankName: (plan as { bankName?: string | null }).bankName, name: plan.name, planName: plan.name });
                    const reason = (plan as { unreadyReason?: string | null }).unreadyReason || multiCaseUnreadyReason(plan.planId);
                    return (
                     <button
@@ -2188,7 +2188,7 @@ function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPendi
           <h2>بازبینی و ثبت</h2>
           <p className="mc-customer"><b>{customer.name}</b> <CidChip id={customer.id} /></p>
           <div className="mc-review"><dl>
-            <div><dt>درخواست تازه</dt><dd data-testid="review-plan-name">{multiCasePlanLabel({ planId: plan.planId, bankName: plan.bankName })}</dd></div>
+            <div><dt>درخواست تازه</dt><dd data-testid="review-plan-name">{multiCasePlanLabel({ planId: plan.planId, bankName: plan.bankName, name: plan.name, planName: plan.name })}</dd></div>
             <div><dt>مبلغ درخواستی</dt><dd data-testid="review-amount">{Number(amount).toLocaleString("fa-IR")} تومان</dd></div>
             <div><dt>مدت درخواستی</dt><dd data-testid="review-duration">{Number(duration).toLocaleString("fa-IR", { useGrouping: false })} ماه</dd></div>
             <div><dt>پرونده‌ی قبلی</dt><dd>{previousOpen ? <>پرونده <bdi dir="ltr">#{Number(previousOpen.id).toLocaleString("fa-IR", { useGrouping: false })}</bdi> همچنان باز است</> : "پرونده‌ی باز دیگری نیست"}</dd></div>
@@ -2208,7 +2208,7 @@ function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPendi
         <section className={`lwz-card lwz-review${multiCase ? " mc-review" : ""}`} aria-label="تسهیلات">
           <div className="lwz-cardh"><strong>تسهیلات</strong>{feePaid ? <span className="lwz-muted">قفل پس از پرداخت هزینه</span> : editLink(5, 'طرح و شرط')}</div>
           <dl className="lwz-kv">
-            <div className="full"><dt>طرح تسهیلاتی</dt><dd data-testid="review-plan-name">{multiCase ? multiCasePlanLabel({ planId: plan.planId, bankName: plan.bankName }) : plan.name}</dd></div>
+            <div className="full"><dt>طرح تسهیلاتی</dt><dd data-testid="review-plan-name">{multiCase ? multiCasePlanLabel({ planId: plan.planId, bankName: plan.bankName, name: plan.name, planName: plan.name }) : plan.name}</dd></div>
             <div><dt>مبلغ درخواستی</dt><dd data-testid="review-amount">{Number(amount).toLocaleString('fa-IR')} تومان</dd>
               {serverErrors.amount && <small role="alert" className="lwz-err" data-testid="error-submit-amount">{serverErrors.amount}</small>}</div>
             <div><dt>مدت اقساط</dt><dd data-testid="review-duration">{Number(duration).toLocaleString('fa-IR')} ماه</dd>
