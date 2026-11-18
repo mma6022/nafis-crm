@@ -16,6 +16,7 @@ import { VoiceNoteButton } from '@/features/voice-notes/VoiceNoteButton';
 import { useIntakeOptions } from '@/features/lead-intake/api';
 import { IntakeFields, emptyIntake, intakeError, intakePayload, type IntakeValue } from '@/features/lead-intake/IntakeFields';
 import { UrgentPick, urgentPickReady, type UrgentPickValue } from '@/features/lead-intake/UrgentPick';
+import { CustomerPhonesBlock } from "@/features/customer-phones/CustomerPhones";
 
 type Props = { open: boolean; customer?: Customer | null; salespersons: Salesperson[]; onClose: () => void; onSaved: () => void;
   /** Team sales: P1 for this customer only via «ارتقا به اولویت ۱» (handoff dialog), not a plain edit. */
@@ -220,6 +221,7 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
             {fieldErrors.phone ? <p className="err" id="customer-phone-err"><AlertCircle size={16} aria-hidden="true" /> {fieldErrors.phone}</p> : null}
             {matched ? <p className="err" id="customer-phone-err"><AlertCircle size={16} aria-hidden="true" /> این شماره برای «{matched.name}» ثبت شده است.</p> : null}
           </div>
+          {isEditing && customer ? <CustomerPhonesBlock customerId={customer.id} primary={customer.phone} testPrefix="adm-cph" /> : null}
           {matched ? <div className="csx-dupe" data-testid="duplicate-mobile">
             <Link href={`/customers/${matched.id}`} className="csx-link" onClick={onClose} data-testid="link-open-existing-customer">باز کردن پرونده موجود</Link>
             <p className="hint">پرونده جدید ساخته نمی‌شود، کارشناس فعلی تغییر نمی‌کند و این مورد «درخواست دوباره» حساب می‌شود (نه «ثبت»). اگر مشتری درخواست تازه‌ای دارد، دلیل تماس دوباره را بنویسید تا برای همان پرونده ثبت شود.</p>

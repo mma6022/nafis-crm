@@ -1,0 +1,32 @@
+/* Extra customer phones (t853u). 40px+ tap targets at 390. */
+.cph-row{display:flex;flex-direction:column;gap:8px;margin:4px 0 8px}
+.cph-item{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cph-lab{font-size:12px;color:var(--nf-ink-muted,#64748b);font-weight:600}
+.cph-add,.cph-del,.cph-dlg-acts button,.cph-pick button{
+  min-height:44px;min-width:44px;padding:0 14px;border-radius:12px;border:1px solid var(--nf-line-strong,#cbd5e1);
+  background:var(--nf-surface,#fff);color:var(--nf-ink,#0f172a);font:inherit;font-size:14px;font-weight:700;cursor:pointer
+}
+.cph-add{color:var(--nf-brand-600,#0f766e);border-color:var(--nf-brand-600,#0f766e);background:transparent}
+.cph-del{color:#b91c1c;border-color:transparent;background:transparent;font-weight:700}
+.cph-add:disabled,.cph-del:disabled,.cph-dlg-acts button:disabled{opacity:.5;cursor:not-allowed}
+.cph-dlgw{position:fixed;inset:0;z-index:80;background:rgba(15,23,42,.45);display:grid;place-items:end center;padding:16px}
+.cph-dlg{width:min(420px,100%);background:var(--nf-surface,#fff);border-radius:20px 20px 0 0;padding:20px 16px 16px;box-shadow:0 -8px 32px rgba(15,23,42,.18)}
+@media (min-width:700px){
+  .cph-dlgw{place-items:center}
+  .cph-dlg{border-radius:20px;padding:22px}
+}
+.cph-dlg h2{margin:0 0 12px;font-size:18px}
+.cph-dlg .cph-field{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.cph-dlg label{font-weight:700;font-size:14px}
+.cph-dlg input{
+  min-height:44px;border:1px solid var(--nf-line-strong,#cbd5e1);border-radius:12px;padding:0 12px;font:inherit;font-size:16px
+}
+.cph-dlg .cph-err{color:#b91c1c;font-size:13px;margin:4px 0 0}
+.cph-dlg-acts{display:flex;gap:8px;justify-content:flex-start;margin-top:16px;flex-wrap:wrap}
+.cph-dlg-acts .pri,.cph-pick .pri{background:var(--nf-brand-600,#0f766e);color:#fff;border-color:transparent}
+.cph-pick{display:flex;flex-direction:column;gap:8px}
+.cph-pick button{width:100%;text-align:right;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.cph-hint{font-size:13px;color:var(--nf-ink-muted,#64748b);margin:0 0 8px}
+@media (max-width:390px){
+  .cph-add,.cph-del,.cph-dlg-acts button,.cph-pick button{min-height:44px}
+}

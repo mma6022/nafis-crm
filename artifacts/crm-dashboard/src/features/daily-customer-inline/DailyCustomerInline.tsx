@@ -21,6 +21,7 @@ import { CreditCard } from "@/features/credit-panel/CreditCard";
 import { useCpOn } from "@/features/credit-panel/api";
 import { usePaOn } from "@/features/plan-advisor/api";
 import { PlanAdvisorBox } from "@/features/plan-advisor/PlanAdvisorBox";
+import { CustomerPhonesBlock, useCallPhonePicker } from "@/features/customer-phones/CustomerPhones";
 import { DciIcon, DciSprites } from "./icons";
 import "./dci.css";
 import "./today-layout.css";
@@ -252,8 +253,8 @@ export function InBoundBlock({ rows, ext, onCall }: { rows: DciInbound[]; ext: b
   </>;
 }
 
-function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting, promo, remBar, userId, wizard, dq, cp }: {
-  m: DciBoard; ext: boolean; narrow: boolean; onCopy: (v: string) => void; onCall: () => void; onResult: () => void;
+function MidCol({ m, ext, narrow, onCopy, onCall, onCallPhone, onResult, onPromote, promoting, promo, remBar, userId, wizard, dq, cp }: {
+  m: DciBoard; ext: boolean; narrow: boolean; onCopy: (v: string) => void; onCall: () => void; onCallPhone: (phone: string) => void; onResult: () => void;
   onPromote: () => void; promoting: boolean;
   promo?: { open: boolean; reason: string; setReason: (v: string) => void; onSave: () => void; onClose: () => void };
   remBar?: { text: string; hint?: string } | null;
@@ -405,6 +406,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     </select>
   </div>;
   const shownName = nameOv ?? m.customer.name;
+  const callPick = useCallPhonePicker(m.customer.id, m.customer.phone ?? "", (phone) => onCallPhone(phone));
   return <section className="dci-col dci-mid" aria-label="اطلاعات تماس و پرونده‌ها">
     {dq?.top ?? null}
     <div className="dci-head">
@@ -418,9 +420,13 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
             <h2>{fd(shownName)}</h2> {cidBtn(m.customer.id, onCopy)}
           </CustomerNameEdit>
         </div>
-        <CallActs ext={ext} place="head" narrow={narrow} onCall={onCall} onResult={onResult} />
+        <CallActs ext={ext} place="head" narrow={narrow} onCall={callPick.requestCall} onResult={onResult} />
       </div>
-      <div className="dci-idrow dci-idrow-phone">{m.customer.phone ? <Phone raw={m.customer.phone} big={!ext} onCopy={onCopy} /> : null}</div>
+      <div className="dci-idrow dci-idrow-phone">
+        <CustomerPhonesBlock customerId={m.customer.id} primary={m.customer.phone ?? ""} onCopy={onCopy} onCall={onCallPhone}
+          testPrefix="dci-cph"
+          renderPrimary={(ph) => ph ? <Phone raw={ph} big={!ext} onCopy={onCopy} /> : null} />
+      </div>
     </div>
     <div className="dci-prio">
       {ps}
@@ -474,6 +480,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
         </div>
       </div>
     </div>, document.body) : null}
+    {callPick.ui}
   </section>;
 }
 
@@ -616,12 +623,12 @@ export default function DailyCustomerInline() {
   // EVENT as customerId; JSON.stringify of the event threw before any request and the .catch hid it (no /voip-call/start since 390000).
   // Only a real numeric id overrides the page customer; a failure is shown instead of swallowed.
   const callBusy = useRef(false);
-  const startCall = (id?: unknown) => {
+  const startCall = (id?: unknown, phone?: string) => {
     const cid = typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? id : customerId;
     if (!cid || !ext || callBusy.current) return;
     callBusy.current = true;
     void dqEnsure(cid);
-    vcApi.start({ customerId: cid })
+    vcApi.start({ customerId: cid, ...(phone ? { phone } : {}) })
       .then((r) => { vcQc.setQueryData<VcMe>(VC_ME_KEY, (o) => ({ ...(o ?? { on: true }), on: true, call: r.call })); })
       .catch((e) => {
         setToast(e instanceof VcError ? e.message : "شروع تماس ناموفق بود.");
@@ -806,7 +813,7 @@ export default function DailyCustomerInline() {
           result={{ val: resultVal, onChange: setResultVal, onSave: () => void saveResult(), busy: resultBusy, err: resultErr, show: resultShow, voipNote: voipPendingNote }} />
         <LeftCol m={board} cp={cpOn ? { userId, wizard: { open: fcOpen, onOpen: openWizard, onClose: () => setFcOpen(false) } } : undefined} />
       </div>
-      <MidCol m={board} ext={ext} narrow={narrow} onCopy={copy} onCall={startCall} onResult={() => void startResult()} onPromote={() => setReasonOpen(true)} promoting={promoting}
+      <MidCol m={board} ext={ext} narrow={narrow} onCopy={copy} onCall={startCall} onCallPhone={(phone) => startCall(undefined, phone)} onResult={() => void startResult()} onPromote={() => setReasonOpen(true)} promoting={promoting}
         promo={{ open: reasonOpen, reason, setReason, onSave: () => void doPromote(), onClose: () => setReasonOpen(false) }}
         remBar={remBar} userId={userId} wizard={{ open: fcOpen, onOpen: openWizard, onClose: () => setFcOpen(false) }} dq={dqMid} cp={cpOn} />
       <div className="dci-tabs" role="tablist" aria-label="بخش‌های دیگر">
