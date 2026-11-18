@@ -181,7 +181,9 @@ export function createBale(deps: BaleDeps) {
   const rows = <T = any>(sql: string, ...p: any[]) => db.prepare(sql).all(...p) as T[];
   const run = (sql: string, ...p: any[]) => db.prepare(sql).run(...p);
   const ip = (req: Request) => String((req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() || req.socket.remoteAddress || "").slice(0, 64);
-  const fail = (res: Response, status: number, error: string) => { if (!res.headersSent) res.status(status).json({ error, message: ERR_FA[error] ?? ERR_FA.unknown }); };
+  /** «فضای کار بله» v1.0 (t381s1476): flag.bale_workspace_v1 = '1' → the no-account text is «این شماره بله ندارد»; OFF → unchanged. */
+  const bwsNoBale = () => { try { return (deps.db.prepare("SELECT value FROM call_queue_settings WHERE key='flag.bale_workspace_v1'").get() as { value?: string } | undefined)?.value === "1"; } catch { return false; } };
+  const fail = (res: Response, status: number, error: string) => { if (!res.headersSent) res.status(status).json({ error, message: error === "sign_up_needed" && bwsNoBale() ? "این شماره بله ندارد" : ERR_FA[error] ?? ERR_FA.unknown }); };
   const setting = (k: string) => row<{ value: string }>("SELECT value FROM bale_settings WHERE key=?", k)?.value ?? BALE_DEFAULT_SETTINGS[k] ?? AR_DEFAULT_SETTINGS[k];
   const masterOn = () => setting("master_enabled") === "1";
   const userRow = (id: number) => row<any>(`SELECT id,${roleSql()} AS role,salesperson_id,active,full_name,username FROM users WHERE id=?`, id);
