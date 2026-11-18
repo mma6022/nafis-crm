@@ -56,7 +56,7 @@ export const useVcMe = (enabled = true) => useQuery<VcMe>({
   refetchIntervalInBackground: false,
 });
 export const vcApi = {
-  start: (b: { customerId: number; fileId?: number | null; entry?: 'file' | 'carousel' | 'reminder' | 'lead' | 'search'; reminderId?: number }) => req<{ ok: true; call: VcCall }>('POST', '/voip-call/start', b),
+  start: (b: { customerId: number; fileId?: number | null; phone?: string; entry?: 'file' | 'carousel' | 'reminder' | 'lead' | 'search'; reminderId?: number }) => req<{ ok: true; call: VcCall }>('POST', '/voip-call/start', b),
   dismiss: (id: number) => req<{ ok: true }>('POST', `/voip-call/${id}/dismiss`, {}),
   // SIMOTEL-132 (404 while the flag is off)
   status: (id: number, status: S132Status) => req<{ ok: true; phase: S132Call['phase']; bar: S132Bar | null; call: VcCall }>('POST', `/voip-call/${id}/status`, { status }),
