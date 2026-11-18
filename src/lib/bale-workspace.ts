@@ -212,7 +212,14 @@ export function inviteView(r: any) {
   const noBale = r.bale_state === "no_bale";
   return { id: r.id, at: r.created_at, bale: r.bale_state as BaleLeg, sms: r.sms_state as SmsLeg, by: nameOf(bbUser(r.user_id)),
     error: noBale ? BWS_NO_BALE_TEXT : null,
-    line: r.bale_state === "sent" && r.sms_state === "sent" ? "دعوت به بله در بله و پیامک فرستاده شد." : null };
+    line: inviteLine(r.bale_state, r.sms_state) };
+}
+/** Armita r3: the line names only the channels the invite really went through. SMS «تنظیم نشده» (no pattern code) → Bale only. */
+export function inviteLine(bale: string, sms: string): string | null {
+  if (bale !== "sent") return null;
+  if (sms === "sent") return "دعوت به بله در بله و پیامک فرستاده شد.";
+  if (sms === "not_configured") return "دعوت به بله فرستاده شد.";
+  return null; // SMS failed / disabled → the two-line state (Bale sent + the SMS problem) stays on screen
 }
 export async function bwsInvite(u: BbUser, customerId: number): Promise<{ ok: true; invite: ReturnType<typeof inviteView> } | { ok: false; error: string }> {
   const c = bwsCustomerAccess(u, customerId); if (!c) return { ok: false, error: "forbidden" };
@@ -225,7 +232,9 @@ export async function bwsInvite(u: BbUser, customerId: number): Promise<{ ok: tr
   if (!owner || BWS_NEVER_USER_IDS.includes(owner) || owner === BWS_GHASEMI_USER_ID) bale = { state: "not_connected" };
   else { try { bale = await transport.bale({ ownerUserId: owner, actorUserId: u.id, customerId, text }); } catch { bale = { state: "failed" }; } }
   let sms: { state: SmsLeg; ref?: string | null };
-  try { sms = await transport.sms({ phone, name: c.name, pattern: setting(K.smsPattern) }); } catch { sms = { state: "failed" }; }
+  const pattern = (setting(K.smsPattern) ?? "").trim();
+  if (!pattern) sms = { state: "not_configured" }; // no pattern code → no SMS attempt at all, so nothing can claim «پیامک»
+  else { try { sms = await transport.sms({ phone, name: c.name, pattern }); } catch { sms = { state: "failed" }; } }
   const t = iso();
   const id = execute("INSERT INTO bws_invites(customer_id,user_id,sender_user_id,bale_state,bale_ref,sms_state,sms_ref,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
     [customerId, u.id, owner, bale.state, bale.ref ?? null, sms.state, sms.ref ?? null, t, t]);

@@ -830,6 +830,18 @@ export function dpSkipItem(a: Asst, dayIn: unknown, idIn: unknown, body: any, no
     return { ok: true, date: dayIn, itemId: id, customerId: it.customer_id, status: "skipped", reason, replacements, plan: dpAssistantView(planRow(sp, dayIn)!) };
   }
 }
+/** «فضای کار بله» (flag.bale_workspace_v1): today's no-reply hand-offs of this expert's OWN customers → the tag the queue shows on
+ *  whatever row the customer already has (Armita r3: an existing row gets «بی‌پاسخ در بله» too; never a second row). */
+export function dpBaleHandoffTags(sp: number | null, day: string): Map<number, { tag: string; at: string; reason: string }> {
+  const m = new Map<number, { tag: string; at: string; reason: string }>();
+  if (sp == null || !hasTable("bws_handoffs") || cqRaw("flag.bale_workspace_v1") !== "1") return m;
+  for (const x of queryRows<{ customer_id: number; created_at: string }>(`SELECT x.customer_id, MAX(x.created_at) created_at FROM bws_handoffs x JOIN customers c ON c.id=x.customer_id
+      WHERE x.owner_salesperson_id=? AND x.day=? AND c.salesperson_id=? AND c.merged_into_customer_id IS NULL GROUP BY x.customer_id`, [sp, day, sp])) {
+    const at = faDigits(hhmm(x.created_at));
+    m.set(Number(x.customer_id), { tag: DP_LABELS.baleNoReply, at, reason: `پیام بله بی‌پاسخ ماند · امروز ${at}` });
+  }
+  return m;
+}
 export function dpRefresh(p0: Plan, now = new Date()): Plan {
   if (!dpOn()) return p0;
   const today = dpToday(now); if (p0.day !== today || !p0.started_at || p0.closed_at) return p0;

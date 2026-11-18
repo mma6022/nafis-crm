@@ -8,7 +8,8 @@ import { ensureBaleBotSchema } from "../src/lib/bale-bot.ts";
 import * as B from "../src/lib/bale-workspace.ts";
 import { createBaleWorkspaceRouter } from "../src/routes/bale-workspace.ts";
 import { createBaleBotRouter } from "../src/routes/bale-bot.ts";
-import { dpRefresh, ensureDailyPlanSchema } from "../src/lib/daily-plan.ts";
+import { dpBaleHandoffTags, dpRefresh, ensureDailyPlanSchema } from "../src/lib/daily-plan.ts";
+import { dqQueue } from "../src/lib/dci-queue.ts";
 
 if (!process.env.CRM_DATABASE_PATH || process.env.CRM_DATABASE_PATH.includes("/var/lib/nafisvam")) throw new Error("scratch DB only");
 const net = [];
@@ -120,6 +121,7 @@ const stub = (baleState, smsState, later) => B.setBwsInviteTransport({
   async sms(o) { inviteCalls.sms++; assert.ok(o.phone && /^09\d{9}$/.test(o.phone)); return { state: smsState }; },
 });
 await check("ه invite: no Bale account → SMS still goes AND «این شماره بله ندارد»", async () => {
+  B.setSetting(B.K.smsPattern, "fx-pattern"); // scratch copy only: a pattern code is set, so the SMS leg is attempted (stub)
   stub("queued", "sent", "no_bale");
   const r = await call(EXPERT, "POST", `/bale-workspace/customers/${own[0].id}/invite`); assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(inviteCalls.sms, 1); assert.equal(inviteCalls.bale, 1);
@@ -133,6 +135,16 @@ await check("ه invite: both legs OK → one history line; 1-minute repeat guard
   assert.equal((await call(EXPERT, "POST", `/bale-workspace/customers/${other.id}/invite`)).status, 403);
   assert.equal((await call(MANAGER, "POST", `/bale-workspace/customers/${own[2].id}/invite`)).status, 200);
   const b = await call(EXPERT, "GET", `/bale-workspace/customers/${own[1].id}/brief`); assert.equal(b.body.chatId, chatB); assert.equal(b.body.invites[0].line, "دعوت به بله در بله و پیامک فرستاده شد.");
+});
+await check("ه invite (Armita r3): pattern not configured → no SMS attempt; the line says only «دعوت به بله فرستاده شد.»", async () => {
+  B.setSetting(B.K.smsPattern, ""); executeChanges("DELETE FROM bws_invites"); stub("sent", "sent"); const smsBefore = inviteCalls.sms;
+  const r = await call(EXPERT, "POST", `/bale-workspace/customers/${own[1].id}/invite`); assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(inviteCalls.sms, smsBefore, "no SMS call without a pattern code");
+  assert.equal(r.body.invite.sms, "not_configured"); assert.equal(r.body.invite.line, "دعوت به بله فرستاده شد."); assert.ok(!/پیامک/.test(r.body.invite.line));
+  const b = await call(EXPERT, "GET", `/bale-workspace/customers/${own[1].id}/brief`); assert.equal(b.body.invites[0].line, "دعوت به بله فرستاده شد.");
+  assert.equal(B.inviteLine("sent", "sent"), "دعوت به بله در بله و پیامک فرستاده شد.");
+  assert.equal(B.inviteLine("sent", "failed"), null, "SMS failed → two-line state, never «و پیامک»");
+  assert.equal(B.inviteLine("no_bale", "not_configured"), null);
 });
 await check("ه invite: default transport (not wired) sends nothing and reports not_connected / not_configured", async () => {
   B.setBwsInviteTransport(null); executeChanges("DELETE FROM bws_invites");
@@ -202,6 +214,23 @@ await check("د hand-off → «کارهای امروز»: own customer lands on 
   setFlag("flag.bale_workspace_v1", "0");
   execute("INSERT INTO bws_handoffs(customer_id,owner_user_id,owner_salesperson_id,chat_row,scenario_id,day,created_at) VALUES(?,?,?,?,?,?,?)", [own[2].id, EXPERT, spx, chatC, 0, "2026-11-19", now.toISOString()]);
   dpRefresh(plan, now); assert.equal(queryRows("SELECT 1 FROM dp_items WHERE plan_id=? AND source='bale_handoff'", [plan.id]).length, 1, "OFF → ignored");
+  setFlag("flag.bale_workspace_v1", "1");
+  // Armita r3 — already on today's list: the EXISTING row takes «بی‌پاسخ در بله» (no second row) and the queue tags it with the time + reason
+  execute("INSERT INTO dp_items(plan_id,customer_id,type,reason,source,bucket,position,label,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+    [plan.id, own[3].id, "followup", null, "auto", "main", 10, "لیست خودکار", "pending", "2026-11-19T04:30:00.000Z"]);
+  assert.equal(B.bwsHandoffToToday(EXPERT, { id: chatA, bot_id: bot8.id, chat_id: "fx-a", customer_id: own[3].id, owner_id: EXPERT }, 0, now), true);
+  dpRefresh(plan, now); dpRefresh(plan, now);
+  const rows3 = queryRows("SELECT * FROM dp_items WHERE plan_id=? AND customer_id=?", [plan.id, own[3].id]);
+  assert.equal(rows3.length, 1, "no duplicate row"); assert.equal(rows3[0].source, "auto"); assert.equal(rows3[0].label, "بی‌پاسخ در بله");
+  const tags = dpBaleHandoffTags(spx, "2026-11-19");
+  assert.equal(tags.get(own[3].id)?.tag, "بی‌پاسخ در بله"); assert.match(tags.get(own[3].id).reason, /^پیام بله بی‌پاسخ ماند · امروز [۰-۹]{2}:[۰-۹]{2}$/);
+  assert.ok(!tags.has(other.id), "lockdown: another expert's customer never tagged");
+  const q = dqQueue({ id: EXPERT, salespersonId: spx, role: "salesperson", permissions: [] }, now);
+  const qi = q.items.filter((i) => i.customer_id === own[3].id);
+  assert.equal(qi.length, 1, "one queue row"); assert.equal(qi[0].tag, "بی‌پاسخ در بله"); assert.equal(qi[0].tagAt, tags.get(own[3].id).at); assert.match(qi[0].tagReason, /پیام بله بی‌پاسخ ماند/);
+  setFlag("flag.bale_workspace_v1", "0");
+  assert.equal(dpBaleHandoffTags(spx, "2026-11-19").size, 0, "flag OFF → no tags");
+  assert.ok(!dqQueue({ id: EXPERT, salespersonId: spx, role: "salesperson", permissions: [] }, now).items.some((i) => i.tag), "flag OFF → queue has no tag");
   setFlag("flag.bale_workspace_v1", "1"); setFlag("flag.daily_plan", dpWas);
 });
 await check("د auto: global switch OFF → nothing; ON → once per chat after a new inbound", async () => {
