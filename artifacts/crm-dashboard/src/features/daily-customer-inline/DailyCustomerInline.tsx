@@ -256,7 +256,7 @@ export function InBoundBlock({ rows, ext, onCall }: { rows: DciInbound[]; ext: b
 }
 
 function MidCol({ m, ext, narrow, onCopy, onCall, onCallPhone, onResult, onPromote, promoting, promo, remBar, userId, wizard, dq, cp }: {
-  m: DciBoard; ext: boolean; narrow: boolean; onCopy: (v: string) => void; onCall: () => void; onCallPhone: (phone: string) => void; onResult: () => void;
+  m: DciBoard; ext: boolean; narrow: boolean; onCopy: (v: string) => void; onCall: () => void; onCallPhone: (phone?: string) => void; onResult: () => void;
   onPromote: () => void; promoting: boolean;
   promo?: { open: boolean; reason: string; setReason: (v: string) => void; onSave: () => void; onClose: () => void };
   remBar?: { text: string; hint?: string } | null;
