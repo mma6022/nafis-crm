@@ -157,9 +157,14 @@ export function getSimotelCalls(from: string, to: string, fresh = false) {
   return value;
 }
 
+/** t861: Asterisk/Simotel writes the literal «failed» into dst when a click-to-call originate fails (the expert's own phone did not
+ *  answer, so the customer was never dialed). It is neither a phone number nor an extension. */
+export function isFailedOriginateMarker(value: unknown): boolean {
+  return typeof value === "string" && value.trim().toLowerCase() === "failed";
+}
 export function callExtensions(row: SimotelCall, knownExtensions: string[] = []): string[] {
-  const endpoints = [row.src, row.dst].filter(x =>
-    /^[A-Za-z0-9*#_.-]{1,6}$/.test(x) || knownExtensions.includes(x));
+  const endpoints = [row.src, row.dst].filter(x => !isFailedOriginateMarker(x) && (
+    /^[A-Za-z0-9*#_.-]{1,6}$/.test(x) || knownExtensions.includes(x)));
   const answered = (row.details ?? []).filter(x => x.status === "ANSWERED")
     .map(x => x.exten ?? "").filter(x => /^[A-Za-z0-9*#_.-]{1,32}$/.test(x));
   return [...new Set([...endpoints, ...answered])];

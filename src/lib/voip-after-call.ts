@@ -1,6 +1,6 @@
 import { callNoteError } from "./call-note-rule";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
-import { callExtensions, callStartedAt, getSimotelCalls, SimotelError, type SimotelCall } from "./simotel";
+import { callExtensions, callStartedAt, getSimotelCalls, isFailedOriginateMarker, SimotelError, type SimotelCall } from "./simotel";
 import type { AuthUser } from "./auth";
 import "./call-display-exclusions";
 import { CALL_LIST_START, callIsInDisplayPeriod } from "./call-list-cutoff";
@@ -32,6 +32,8 @@ export function ensureAfterCallSchema() {
     auto_queued:"INTEGER NOT NULL DEFAULT 0", capture_error:"TEXT",
     mobile_device_id:"INTEGER", mobile_call_id:"TEXT", caller_number:"TEXT", callee_number:"TEXT",
     contact_name:"TEXT", duration_seconds:"INTEGER", mobile_answered_at:"TEXT",
+    // t861: where the stored number came from when the CDR had none («click_call» = the expert's own click-to-call record).
+    peer_source:"TEXT",
   };
   for(const [name,definition] of Object.entries(additions)) if(!existing.has(name)) crmDb.exec(`ALTER TABLE voip_after_call_events ADD COLUMN ${name} ${definition}`);
   crmDb.exec(`CREATE INDEX IF NOT EXISTS idx_after_call_live ON voip_after_call_events(live_cuid,extension);
@@ -374,7 +376,9 @@ export function resolveEvent(id: number, available: Expert[], lookupCustomer: (p
     if (customer) executeChanges("UPDATE voip_after_call_events SET customer_id=? WHERE id=?", [customer.id, id]);
   }
   const resolved = eventFor(id)!;
-  if (resolved.customer_id != null && resolved.call_log_id == null) {
+  // t861: a failed click-to-call originate never dialed the customer → it is shown with the number but never logged as a call to them.
+  const neverDialed = (resolved as AfterCallEvent & { peer_source?: string | null }).peer_source === "click_call";
+  if (resolved.customer_id != null && resolved.call_log_id == null && !neverDialed) {
     const callId = execute(
       `INSERT INTO call_logs(customer_id,salesperson_id,salesperson_name_snapshot,subject,customer_request,expert_notes,created_at)
        VALUES(?,?,?,?,NULL,?,?)`,
@@ -387,6 +391,32 @@ export function resolveEvent(id: number, available: Expert[], lookupCustomer: (p
     executeChanges("UPDATE call_logs SET salesperson_id=?,salesperson_name_snapshot=? WHERE id=?",
       [resolved.salesperson_id, resolved.expert_name, resolved.call_log_id]);
   }
+}
+/** t861: the counterpart number of a CDR row, validated as an Iranian phone; never a status word such as «failed». */
+export function cdrPeerPhone(row: SimotelCall): string | null {
+  return normalizePhone(String((row.type === "incoming" ? row.src : row.dst) ?? ""));
+}
+/** t861: the expert's click-to-call record behind a failed-originate CDR (dst «failed»). Exact by originated_call_id when the PBX sent it;
+ *  otherwise the one click call of the same extension created up to 45 s before the CDR start (or 1 s after) and not already over 2 s before
+ *  it. Ambiguous or none → null (the number then stays empty; never guessed). Never throws. */
+export function failedOriginateClickCall(row: SimotelCall, extension: string | null, startedAt: string): { id: number; phone: string; customer_id: number | null } | null {
+  try {
+    if (!queryRow<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table' AND name='voip_click_calls'")) return null;
+    type K = { id: number; phone: string | null; customer_id: number | null };
+    const pick = (ks: K[]) => {
+      const ok = ks.filter(k => normalizePhone(String(k.phone ?? "")) != null);
+      return ok.length === 1 ? { id: ok[0].id, phone: normalizePhone(String(ok[0].phone))!, customer_id: ok[0].customer_id } : null;
+    };
+    const orig = typeof row.originated_call_id === "string" ? row.originated_call_id.trim() : "";
+    if (orig) {
+      const exact = queryRows<K>("SELECT id,phone,customer_id FROM voip_click_calls WHERE originate_id=?", [orig]);
+      if (exact.length) return pick(exact);
+    }
+    if (!extension) return null;
+    return pick(queryRows<K>(`SELECT id,phone,customer_id FROM voip_click_calls WHERE extension=?
+      AND julianday(created_at) BETWEEN julianday(?)-45.0/86400 AND julianday(?)+1.0/86400
+      AND (ended_at IS NULL OR julianday(ended_at)>=julianday(?)-2.0/86400)`, [extension, startedAt, startedAt, startedAt]));
+  } catch { return null; }
 }
 export function ingestAfterCalls(rows: SimotelCall[], now = new Date()) {
   const state = afterCallState(), available = experts(), known = available.map(x => x.extension), lookupCustomer = customerMatcher();
@@ -408,7 +438,11 @@ export function ingestAfterCalls(rows: SimotelCall[], now = new Date()) {
       const extensions = callExtensions(row, known);
       const endpoint = row.type === "incoming" ? row.dst : row.src;
       const extension = extensions.length === 1 ? extensions[0] : /^[A-Za-z0-9*#_.-]{1,6}$/.test(endpoint) ? endpoint : null;
-      const phone = (row.type === "incoming" ? row.src : row.dst).slice(0,128);
+      // t861: only a valid phone is ever stored. A failed originate («failed» in dst) takes the number from the expert's click-to-call record.
+      const failedOrig = row.type === "outgoing" && isFailedOriginateMarker(row.dst) && !cdrPeerPhone(row);
+      const clickCall = failedOrig ? failedOriginateClickCall(row, extension, startedAt) : null;
+      const phone = cdrPeerPhone(row) ?? clickCall?.phone ?? "";
+      const cdrStatus = failedOrig ? "FAILED" : row.disposition;
       // A PBX conversation identifier alone is not sufficient: it can be shared
       // by transfer legs. Require the actual expert leg, peer and time interval.
       const matches = queryRows<AfterCallEvent>(`${select} WHERE e.live_cuid=? AND e.direction=?
@@ -443,13 +477,15 @@ export function ingestAfterCalls(rows: SimotelCall[], now = new Date()) {
       const change = executeChanges(
         `INSERT OR IGNORE INTO voip_after_call_events(external_id,phone,direction,status,started_at,ended_at,extension,extensions_json,has_recording,recording_file,auto_capture)
          VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-        [row._id, phone, row.type, row.disposition,
+        [row._id, phone, row.type, cdrStatus,
           startedAt, new Date(ended).toISOString(), extension, JSON.stringify(extensions), row.record ? 1 : 0,row.record??null,startedAt>=reportingStart?1:0],
       );
+      if (change && failedOrig) executeChanges("UPDATE voip_after_call_events SET peer_source=?,customer_id=COALESCE(customer_id,?) WHERE external_id=?",
+        [clickCall ? "click_call" : "none", clickCall?.customer_id ?? null, row._id]);
       if (change) { inserted++; s132TagCdr(row.cuid, row.type, phone, row._id); }
       else executeChanges(`UPDATE voip_after_call_events SET has_recording=?,recording_file=COALESCE(?,recording_file),
         status=?,is_live=0,ended_at=? WHERE external_id=? OR recording_provider_id=?`,
-        [row.record?1:0,row.record??null,row.disposition,new Date(ended).toISOString(),row._id,row._id]);
+        [row.record?1:0,row.record??null,cdrStatus,new Date(ended).toISOString(),row._id,row._id]);
       if (!change && fastLive) for (const r of queryRows<{id:number}>("SELECT id FROM voip_after_call_events WHERE external_id=? OR recording_provider_id=?",[row._id,row._id])) finLiveLog(r.id,row.disposition);
     }
     for (const pending of queryRows<{ id: number }>("SELECT id FROM voip_after_call_events WHERE completed_at IS NULL")) {

@@ -17,6 +17,7 @@
     "test:recording-download": "node scripts/recording-download-fixture.mjs",
     "test:customer-extra-phones": "NODE_ENV=production node scripts/run-bundled-fixture.mjs scripts/customer-extra-phones-fixture.mjs",
     "test:voip-after-call": "node scripts/voip-after-call-fixture.mjs",
+    "test:t861-failed-originate": "node scripts/run-bundled-fixture.mjs scripts/t861-failed-originate-fixture.mjs",
     "test:after-call-fix": "node scripts/after-call-fix-fixture.mjs",
     "test:voip-task-hold": "NODE_ENV=production node scripts/run-bundled-fixture.mjs scripts/voip-task-hold-fixture.mjs",
     "test:assistant-thread-poll": "bash scripts/run-assistant-thread-poll-fixture.sh",

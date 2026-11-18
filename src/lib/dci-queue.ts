@@ -261,7 +261,7 @@ export function dqQueue(user: AuthUser, now = new Date()) {
       const later = e.customer_id != null && !!queryRow(
         `SELECT 1 x FROM call_logs l WHERE l.customer_id=? AND l.id<>COALESCE(?,0) AND julianday(l.created_at) > julianday(?) ${sp != null ? "AND (l.salesperson_id=? OR l.created_by_user_id=?)" : ""}${notAttempt} LIMIT 1`,
         sp != null ? [e.customer_id, e.call_log_id, e.started_at, sp, user.id] : [e.customer_id, e.call_log_id, e.started_at]);
-      const eph = normalizePhone(String(e.phone || "")) ?? String(e.phone || "");
+      const eph = normalizePhone(String(e.phone || "")) ?? "";
       const back = inn && !!eph && outs.find((o) => o.ph === eph && o.at > String(e.started_at));
       const done = Boolean(m || (e.completed_at && e.completed_by_user_id != null) || later || back);
       const fresh = now.getTime() - Date.parse(String(e.started_at)) < urgentMs;
@@ -269,9 +269,11 @@ export function dqQueue(user: AuthUser, now = new Date()) {
         arrivedAt: e.started_at, urgent: inn && !done && (fresh || (Number(e.is_live) === 1 && sf480IncomingNow())), order: order++, /* SALES-FIXES 480000: a live incoming call stays in «اکنون» */ eventId: Number(e.id), live: Number(e.is_live) === 1, direction: inn ? "in" : "out" };
       if (e.customer_id != null) add(Number(e.customer_id), p);
       else if (Number(e.expert_user_id) === user.id) {
-        const ph = normalizePhone(String(e.phone || "")) ?? String(e.phone || "");
-        const g = byUnknown.get(ph) ?? { eventId: Number(e.id), phone: ph, parts: [] };
-        g.parts.push(p); byUnknown.set(ph, g);
+        // t861: never show a non-phone string (e.g. a CDR «failed») as the number; such calls stay separate, with no number.
+        const ph = normalizePhone(String(e.phone || "")) ?? "";
+        const gk = ph || `ev-${e.id}`;
+        const g = byUnknown.get(gk) ?? { eventId: Number(e.id), phone: ph, parts: [] };
+        g.parts.push(p); byUnknown.set(gk, g);
       }
     }
   }
