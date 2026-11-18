@@ -118,6 +118,7 @@ function chatView(c: ChatRow & { owner_id: number }, u: BbUser) {
     typedMatch: typedMatch && typedMatch.state === "known" ? typedMatch.customer : null,
     waitingNumber: feature && !c.customer_id && !c.pending_typed_phone,
     customerBot: attachCustomerBotToChat(c.id, c.owner_id, u),
+    ...(bwsOn() ? { stars: starsOf(c.customer_id) } : {}),
   };
 }
 function botView(b: ReturnType<typeof botOfUser>) {
@@ -129,6 +130,7 @@ import { attachCustomerBotToChat, customerBotFlagsPayload, registerCustomerBaleR
 import { registerSignReminderRoutes } from "./bale-sign-reminder";
 import { srChatView, srFlagOn } from "../lib/bale-sign-reminder";
 import { ensureCustomerBaleSchema, cbAnyFlagOn } from "../lib/customer-bale";
+import { bwsOn, ensureBwsSchema, starsOf } from "../lib/bale-workspace";
 export function createBaleBotRouter(): IRouter {
   const r: IRouter = Router();
   r.use("/bale-bot", (_req: Request, res: Response, next: NextFunction) => {
@@ -136,6 +138,7 @@ export function createBaleBotRouter(): IRouter {
     ensureBaleBotSchema();
     if (bcFlagOn()) ensureBaleContactSchema();
     if (cbAnyFlagOn()) ensureCustomerBaleSchema();
+    if (bwsOn()) ensureBwsSchema(); // «فضای کار بله» v1.0: stars on the list (OFF → nothing read, nothing created)
     const u = me(res); if (!u || !bbView(u)) return fail(res, 403, "not_enabled");
     res.locals.bbUser = u; next();
   });
@@ -148,7 +151,7 @@ export function createBaleBotRouter(): IRouter {
       const v = bbView(u)!;
       const unread = v === "all" ? queryRow<{ n: number }>("SELECT COUNT(*) n FROM bale_bot_chats WHERE unread>0")!.n
         : queryRow<{ n: number }>("SELECT COUNT(*) n FROM bale_bot_chats c JOIN bale_bots b ON b.id=c.bot_id WHERE b.user_id=? AND c.unread>0", [u.id])!.n;
-      return { enabled: true, view: v, canManage: bbCanManage(u), name: nameOf(u), bot: botView(botOfUser(u.id)), unread, limits: BB_LIMITS, contactFeature: bcFlagOn(), customerBot: customerBotFlagsPayload(), signReminder: srFlagOn() };
+      return { enabled: true, view: v, canManage: bbCanManage(u), name: nameOf(u), bot: botView(botOfUser(u.id)), unread, limits: BB_LIMITS, contactFeature: bcFlagOn(), customerBot: customerBotFlagsPayload(), signReminder: srFlagOn(), ...(bwsOn() ? { workspace: true } : {}) };
     }));
   });
 
@@ -177,6 +180,15 @@ export function createBaleBotRouter(): IRouter {
       });
     }
     const experts = v === "all" ? queryRows<any>("SELECT b.user_id id, u.full_name, u.username FROM bale_bots b JOIN users u ON u.id=b.user_id ORDER BY b.user_id").map(e => ({ id: e.id, name: nameOf(e) })) : [];
+    if (bwsOn()) {
+      // «فضای کار بله» ج: three stars above two above one above none, newest inside a level; filter all / 3 / 2 / 1 / 0 (= no star).
+      const st = String(req.query.star ?? "all"); const sv = /^[0-3]$/.test(st) ? Number(st) : null;
+      const withStars = list.map(c => ({ c, s: starsOf(c.customer_id) }));
+      const starCounts = { 3: 0, 2: 0, 1: 0, 0: 0 } as Record<number, number>; for (const x of withStars) starCounts[x.s]++;
+      const kept = (sv == null ? withStars : withStars.filter(x => x.s === sv))
+        .sort((a, b) => (b.s - a.s) || String(b.c.last_at ?? b.c.created_at).localeCompare(String(a.c.last_at ?? a.c.created_at)));
+      return res.json({ counts: { ...counts, stars: starCounts }, chats: kept.map(x => chatView(x.c, u)), experts });
+    }
     res.json({ counts, chats: list.map(c => chatView(c, u)), experts });
   });
 
