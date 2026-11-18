@@ -8,6 +8,7 @@ import { ensureBaleBotSchema } from "../src/lib/bale-bot.ts";
 import * as B from "../src/lib/bale-workspace.ts";
 import { createBaleWorkspaceRouter } from "../src/routes/bale-workspace.ts";
 import { createBaleBotRouter } from "../src/routes/bale-bot.ts";
+import { dpRefresh, ensureDailyPlanSchema } from "../src/lib/daily-plan.ts";
 
 if (!process.env.CRM_DATABASE_PATH || process.env.CRM_DATABASE_PATH.includes("/var/lib/nafisvam")) throw new Error("scratch DB only");
 const net = [];
@@ -152,8 +153,8 @@ await check("د bulk: preview count = confirmed count; stale count refused; Ghas
   assert.equal(B.bwsTick(new Date(T0)).bulk, 0, "draft sends nothing");
   const bad = await call(MANAGER, "POST", `/bale-workspace/admin/scenarios/${id}/confirm`, { count: pv.body.count + 1 }); assert.equal(bad.status, 409); assert.equal(bad.body.count, pv.body.count);
   const ok = await call(MANAGER, "POST", `/bale-workspace/admin/scenarios/${id}/confirm`, { count: pv.body.count }); assert.equal(ok.body.scenario.status, "active");
-  assert.equal(B.bwsTick(new Date("2026-11-18T19:00:00.000Z")).bulk, 0, "22:30 Tehran: outside send hours");
-  let total = 0; for (let i = 0; i < 50; i++) { const n = B.bwsTick(new Date(T0)).bulk; total += n; if (!n) break; assert.ok(n <= B.BWS_BULK_PER_TICK); }
+  // t383s1491: no time window — 22:30 and 03:30 Tehran send too
+  let total = 0; for (let i = 0; i < 50; i++) { const n = B.bwsTick(new Date(i === 0 ? "2026-11-18T19:00:00.000Z" : i === 1 ? "2026-11-18T00:00:00.000Z" : T0)).bulk; if (i < 2) assert.ok(n > 0 || total === pv.body.count, "sends at night too"); total += n; if (!n) break; assert.ok(n <= B.BWS_BULK_PER_TICK); }
   assert.equal(total, pv.body.count, "everyone, no cap"); assert.equal(B.scenarioById(id).status, "done");
   assert.equal(B.bwsTick(new Date(T0)).bulk, 0, "nothing twice");
   const m = queryRow("SELECT text FROM bale_bot_messages WHERE id=(SELECT message_id FROM bws_scenario_sends WHERE scenario_id=? AND chat_row=?)", [id, chatA]);
@@ -174,8 +175,34 @@ await check("د no-reply: Y after X hours, then hand-off to the expert if still 
   assert.equal(B.bwsTick(new Date("2026-11-18T10:00:00.000Z")).handoff, 0, "not yet X hours after Y");
   const r3 = B.bwsTick(new Date("2026-11-19T07:00:00.000Z")); assert.ok(r3.handoff >= 1);
   assert.ok(queryRow("SELECT 1 FROM bale_bot_notices WHERE user_id=? AND kind='bws_noreply' AND chat_row=?", [EXPERT, chatB]), "expert notified");
+  // t383s1491: … AND the customer goes onto the expert's «کارهای امروز» (Tehran day of the hand-off)
+  const ho = queryRow("SELECT * FROM bws_handoffs WHERE customer_id=? AND owner_user_id=?", [own[1].id, EXPERT]);
+  assert.ok(ho, "hand-off row"); assert.equal(ho.day, "2026-11-19"); assert.equal(Number(ho.owner_salesperson_id), Number(sp(EXPERT)));
   assert.equal(B.bwsTick(new Date("2026-11-19T08:00:00.000Z")).handoff, 0, "hand-off once");
   await call(MANAGER, "POST", `/bale-workspace/admin/scenarios/${id}/pause`);
+});
+await check("د hand-off → «کارهای امروز»: own customer lands on today's plan once (rank 1, «بی‌پاسخ در بله»); expert_lockdown: another expert's customer / user 29 never", async () => {
+  // lockdown: a chat on expert 8's bot but linked to ANOTHER expert's customer → notice only, no today entry
+  const fake = { id: chatC, bot_id: bot8.id, chat_id: "fx-c", customer_id: other.id, owner_id: EXPERT };
+  assert.equal(B.bwsHandoffToToday(EXPERT, fake, 0, new Date("2026-11-19T07:00:00.000Z")), false);
+  assert.ok(!queryRow("SELECT 1 FROM bws_handoffs WHERE customer_id=?", [other.id]), "other expert's customer not added");
+  assert.equal(B.bwsHandoffToToday(29, { ...fake, customer_id: own[2].id }, 0, new Date("2026-11-19T07:00:00.000Z")), false, "user 29 never");
+  // daily plan (scratch DB only): a started plan for expert 8 on 2026-11-19 picks the hand-off up exactly once
+  const dpWas = queryRow("SELECT value FROM call_queue_settings WHERE key='flag.daily_plan'")?.value ?? null;
+  setFlag("flag.daily_plan", "1"); ensureDailyPlanSchema();
+  const now = new Date("2026-11-19T07:30:00.000Z"); const spx = Number(sp(EXPERT));
+  executeChanges("DELETE FROM dp_items WHERE plan_id IN (SELECT id FROM dp_plans WHERE salesperson_id=? AND day='2026-11-19')", [spx]);
+  executeChanges("DELETE FROM dp_plans WHERE salesperson_id=? AND day='2026-11-19'", [spx]);
+  execute("INSERT INTO dp_plans(salesperson_id,user_id,day,mode,capacity,started_at,created_at) VALUES(?,?,?,?,?,?,?)", [spx, EXPERT, "2026-11-19", "auto", 20, "2026-11-19T04:30:00.000Z", "2026-11-19T04:30:00.000Z"]);
+  const plan = queryRow("SELECT * FROM dp_plans WHERE salesperson_id=? AND day='2026-11-19'", [spx]);
+  dpRefresh(plan, now); dpRefresh(plan, now);
+  const its = queryRows("SELECT * FROM dp_items WHERE plan_id=? AND customer_id=? AND source='bale_handoff'", [plan.id, own[1].id]);
+  assert.equal(its.length, 1, "once"); assert.equal(its[0].label, "بی‌پاسخ در بله"); assert.equal(Number(its[0].boost_rank), 1); assert.match(its[0].reason, /پیام بله بی‌پاسخ ماند/);
+  // flag.bale_workspace_v1 OFF → the plan ignores bws_handoffs (a new row is not picked up)
+  setFlag("flag.bale_workspace_v1", "0");
+  execute("INSERT INTO bws_handoffs(customer_id,owner_user_id,owner_salesperson_id,chat_row,scenario_id,day,created_at) VALUES(?,?,?,?,?,?,?)", [own[2].id, EXPERT, spx, chatC, 0, "2026-11-19", now.toISOString()]);
+  dpRefresh(plan, now); assert.equal(queryRows("SELECT 1 FROM dp_items WHERE plan_id=? AND source='bale_handoff'", [plan.id]).length, 1, "OFF → ignored");
+  setFlag("flag.bale_workspace_v1", "1"); setFlag("flag.daily_plan", dpWas);
 });
 await check("د auto: global switch OFF → nothing; ON → once per chat after a new inbound", async () => {
   const sv = await call(ADMIN, "POST", "/bale-workspace/admin/scenarios", { name: "خودکار", kind: "auto", body: "خوش آمدید", audience: { who: "messaged" } });
@@ -209,6 +236,17 @@ await check("lockdown allowlist covers only the expert routes (admin stays close
   const re = new RegExp(line.trim().replace(/^\//, "").replace(/\/,$/, ""));
   for (const p of ["/bale-workspace/me", "/bale-workspace/chats/5/context", "/bale-workspace/customers/9/invite", "/bale-workspace/invites/3", "/bale-workspace/training/4/file"]) assert.ok(re.test(p), p);
   for (const p of ["/bale-workspace/admin/state", "/bale-workspace/admin/scenarios", "/bale-workspace/chats/5/context/x"]) assert.ok(!re.test(p), p);
+});
+await check("only the invite error says «این شماره بله ندارد»: login sign_up_needed and outbox texts are the live ones", async () => {
+  const { readFileSync } = await import("node:fs");
+  for (const f of ["src/lib/bale.ts", "src/lib/bale-outbox.ts", "src/routes/bale.ts"]) assert.ok(!readFileSync(`${process.cwd()}/${f}`, "utf8").includes("این شماره بله ندارد"), f);
+});
+await check("ه invite SMS pattern (t383s1491): documented text + {نام}→name mapping; «تنظیم نشده» until a code is saved; nothing registered or sent", async () => {
+  const st = (await call(MANAGER, "GET", "/bale-workspace/admin/state")).body;
+  assert.equal(st.smsPatternText, "سلام {نام}، برای ادامه‌ی گفتگو با کارشناس نفیس وام، ربات @nafisvambot را در بله باز کنید.");
+  assert.deepEqual(st.smsPatternVars.map((v) => [v.token, v.ippanel]), [["{نام}", "name"]]);
+  assert.equal(st.sendHours, null, "no time window");
+  assert.ok(!net.some((u) => /ippanel|sms/i.test(u)), "no IPPanel call");
 });
 await check("no network, team_sales_config untouched", async () => {
   assert.deepEqual(net, []); assert.equal(queryRow("SELECT value FROM notification_settings WHERE key='team_sales_config'")?.value ?? null, tsc);

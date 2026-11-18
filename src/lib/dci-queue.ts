@@ -126,6 +126,8 @@ type Part = {
   key: string; kind: DqKind; done: boolean; doneAt: string | null; dueAt: string | null; timed: boolean; arrivedAt: string | null;
   urgent: boolean; order: number; dpItemId?: number; dpStatus?: string; reminderId?: number; remText?: string; eventId?: number; live?: boolean;
   direction?: "in" | "out"; paymentOrderId?: number; pay?: any; loanFileId?: number; fileAct?: any; fileTask?: { fileId: number; stage: string; stageLabel: string };
+  /** «فضای کار بله» (flag.bale_workspace_v1): why a plan item is there, e.g. «بی‌پاسخ در بله». Absent for every other item. */
+  tag?: string;
 };
 export type DqItem = {
   id: string; kind: DqKind; kinds: DqKind[]; block: "actual" | "potential"; blockIdx: number; urgent: boolean; done: boolean; due: boolean;
@@ -138,6 +140,8 @@ export type DqItem = {
   phone_masked: string | null; phone_full: boolean;
   /** 450000 Q20: early attempts recorded today (task stayed open). */
   attempts: number;
+  /** «فضای کار بله»: «بی‌پاسخ در بله» on a no-reply hand-off item only (flag.bale_workspace_v1). */
+  tag?: string;
 };
 
 function custRow(id: number): { id: number; name: string; salesperson_id: number | null; phone: string | null } | null {
@@ -181,7 +185,7 @@ export function dqQueue(user: AuthUser, now = new Date()) {
     const plan = queryRow<{ id: number }>("SELECT id FROM dp_plans WHERE salesperson_id=? AND day=?", [sp, day]);
     if (plan) {
       const rows = queryRows<any>(
-        `SELECT i.id, i.customer_id, i.type, i.source, i.status, i.done_at, i.created_at, i.moved_to
+        `SELECT i.id, i.customer_id, i.type, i.source, i.status, i.done_at, i.created_at, i.moved_to, i.label
          FROM dp_items i JOIN customers c ON c.id=i.customer_id AND c.merged_into_customer_id IS NULL
          WHERE i.plan_id=? AND i.status NOT IN ('skipped','transferred','reserve')
            AND (i.status <> 'covered' OR i.label = 'پرونده‌ی وام باز دارد')
@@ -191,7 +195,7 @@ export function dqQueue(user: AuthUser, now = new Date()) {
         const kind: DqKind = t === "first" || t.includes("lead") || s.includes("lead") ? "new_lead" : (t.includes("remind") || s.includes("remind")) ? "reminder" : "follow_up";
         const done = r.status === "done" || r.status === "covered";
         add(Number(r.customer_id), { key: `p-${r.id}`, kind, done, doneAt: done ? (r.done_at ?? null) : null, dueAt: r.moved_to ?? null, timed: Boolean(r.moved_to),
-          arrivedAt: r.created_at ?? null, urgent: false, order: order++, dpItemId: Number(r.id), dpStatus: String(r.status) });
+          arrivedAt: r.created_at ?? null, urgent: false, order: order++, dpItemId: Number(r.id), dpStatus: String(r.status), ...(s === "bale_handoff" && r.label ? { tag: String(r.label) } : {}) });
       }
     }
   }
@@ -371,6 +375,7 @@ export function dqQueue(user: AuthUser, now = new Date()) {
       pay: pay?.pay ?? null, fileAct: fa?.fileAct ?? null, fileTask: ft?.fileTask ?? null,
       phone: cid == null && phone ? (seePhone ? phone : null) : null, phone_masked: cid == null ? dqMaskPhone(phone) : null, phone_full: cid == null && !!phone && seePhone,
       attempts: cid != null ? (attemptsByCust.get(cid) ?? 0) : 0,
+      ...(dp?.tag ? { tag: dp.tag } : {}),
     };
   };
   for (const [cid, parts] of byCust) {
