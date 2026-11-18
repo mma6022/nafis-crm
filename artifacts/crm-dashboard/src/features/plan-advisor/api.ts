@@ -31,7 +31,7 @@ export function usePaMe() {
 }
 export const usePaOn = () => usePaMe().data?.enabled === true;
 
-export type PaChip = { key: string; label: string; value: string; raw: unknown; source: "site" | "inquiry" | "file" | null; editable: boolean };
+export type PaChip = { key: string; label: string; value: string; raw: unknown; source: "site" | "inquiry" | "file" | null; editable: boolean; retiredKind?: string | null };
 export type PaCredit = { rank: string | null; chequeColor: string | null; bouncedCount: number | null; loanDebtToman: number | null; inquiryAt: string | null };
 export type PaPlanCard = {
   planId: number; name: string; bankName: string; loanType: string; status: "fit" | "depends" | "no";

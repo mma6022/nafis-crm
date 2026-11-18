@@ -121,9 +121,18 @@ export function CreditCard({ customerId, detailOpen }: { customerId: number; det
       {colour.error ? <PartFail busy={Boolean(busy)} detail={colour.errorDetail} onRetry={() => void run({ only: ["chequeColor"] })} /> : null}
 
       {loans.error ? <PartFail busy={Boolean(busy)} detail={loans.errorDetail} onRetry={() => void run({ only: ["activeLoans"] })} /> : null}
-      {loans.data ? <dl className="cpc-loans" data-testid="cp-loans">
-        {LOAN_ROWS.map((r) => <div key={r.k} className={`cpc-loan ${r.tone}`}><dt>{r.label}</dt><dd>{toman(loans.data?.info?.[r.k] ?? 0)}</dd></div>)}
-      </dl> : null}
+      {loans.data ? <div className="cpc-loans-sec" data-testid="cp-loans-sec">
+        <div className="cpc-loans-hd">
+          <h4>تسهیلات فعال</h4>
+          <div className="cpc-loans-chips">
+            <span className={`cpc-stat${nLoans ? "" : " ok"}`} data-testid="cp-loans-sec-n">{nLoans ? `${fa(nLoans)} وام فعال` : "وام فعال نیست"}</span>
+            <span className="cpc-stat" data-testid="cp-loans-debt">مانده بدهی {toman(loans.data.info?.debtTotalAmount ?? 0)}</span>
+          </div>
+        </div>
+        <dl className="cpc-loans" data-testid="cp-loans">
+          {LOAN_ROWS.map((r) => <div key={r.k} className={`cpc-loan ${r.tone}`}><dt>{r.label}</dt><dd>{toman(loans.data?.info?.[r.k] ?? 0)}</dd></div>)}
+        </dl>
+      </div> : null}
 
       {unpaid.error ? <PartFail busy={Boolean(busy)} detail={unpaid.errorDetail} onRetry={() => void run({ only: ["unpaidChequePro"] })} /> : null}
       {cheques.length ? <ul className="cpc-chqs" data-testid="cp-cheques">

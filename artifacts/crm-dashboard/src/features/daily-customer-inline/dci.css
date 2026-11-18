@@ -526,3 +526,20 @@ body:has([data-testid="dci-page"]) .dci-right > .dci-empty + h2 {
 #dci-filebox .ask-v{color:var(--nf-gold-700);font-weight:800}
 #dci-filebox .fsite{display:inline-block;margin-inline-start:6px;padding:1px 8px;border-radius:999px;background:var(--nf-brand-50);color:var(--nf-brand-700);font-style:normal;font-size:13px;font-weight:700;vertical-align:middle}
 .dci-grade-site{margin:8px 0 0;font-size:13px;line-height:1.7;color:var(--nf-brand-800);font-weight:600}
+
+/* t854 Armita file-details: retiree type + معوق rows. Live dock unchanged. */
+.dci-rkinds{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.dci-rkinds .dci-rkind{min-height:44px;width:100%;justify-content:center;text-align:center}
+.dci-rkind-err{margin:8px 0 0;color:var(--nf-danger, #b42318);font-size:13px;font-weight:700;line-height:1.7}
+.dci-unk-job{display:inline-flex;align-items:center;margin:0;padding:2px 10px;border:1px solid var(--nf-danger, #fda29b);border-radius:999px;background:var(--nf-danger-50, #fff1f0);color:var(--nf-danger, #b42318);font:inherit;font-size:13px;font-weight:800;cursor:pointer}
+.dci-odue{margin-top:12px;padding:12px;border-radius:14px;background:var(--nf-s2, #f5f3ef);display:flex;flex-direction:column;gap:12px}
+.dci-odue-h{margin:0;font-size:14px;font-weight:800}
+.dci-odue-row{display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:12px;background:var(--nf-card, #fff);border:1px solid var(--nf-line, #ece8e1)}
+.dci-odue-f{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:700}
+.dci-odue-f .dci-inp{font-weight:600}
+.dci-odue-del{align-self:flex-start}
+.dci-odue-cards{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px;grid-column:1/-1}
+.dci-odue-card{padding:10px 12px;border-radius:12px;background:var(--nf-s2, #f5f3ef);display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline}
+.dci-odue-card b{font-size:14px}
+.dci-odue-card span{font-size:13px;font-weight:700;color:var(--nf-muted, #6b645a)}
+.dci-odue-card p{margin:0;flex-basis:100%;font-size:13px;font-weight:600;color:var(--nf-ink, #2b261f)}

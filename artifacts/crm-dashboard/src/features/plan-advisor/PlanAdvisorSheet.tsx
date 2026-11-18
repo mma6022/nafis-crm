@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { paQuote, paSaveChips, paSearchCustomers, paSuggest } from "./api";
 import { usePlanAdvisor } from "./PlanAdvisorContext";
 import { faMonths, faNum, faToman, formatPrincipalInput, parsePrincipalInput, paStepLabel, PA_STATUS } from "./helpers";
+import { RETIRED_KIND_ERR, RETIRED_KIND_OPTS, isRetiredKind } from "@/features/daily-customer-inline/file-dossier";
 import "./plan-advisor.css";
 
 const JOBS: Array<{ v: string; l: string }> = [
@@ -121,11 +122,29 @@ export function PlanAdvisorSheet() {
             <div className="pa-edit">
               <label className="pa-field"><span>شغل</span>
                 <select className="pa-search" value={String(suggest.data?.chips.find((c) => c.key === "jobType")?.raw ?? "")} data-testid="pa-edit-job"
-                  onChange={(e) => save.mutate({ jobType: e.target.value || null })}>
+                  onChange={(e) => {
+                    const v = e.target.value || null;
+                    save.mutate({ jobType: v, ...(v === "retired" ? {} : { retiredKind: null }) });
+                  }}>
                   <option value="">نامشخص</option>
                   {JOBS.map((j) => <option key={j.v} value={j.v}>{j.l}</option>)}
                 </select>
               </label>
+              {String(suggest.data?.chips.find((c) => c.key === "jobType")?.raw ?? "") === "retired" ? (
+                <div className="pa-field" data-testid="pa-edit-retired-kind">
+                  <span>نوع بازنشستگی</span>
+                  <div className="pa-rkinds" role="radiogroup" aria-label="نوع بازنشستگی">
+                    {RETIRED_KIND_OPTS.map(([v, lab]) => {
+                      const on = suggest.data?.chips.find((c) => c.key === "jobType")?.retiredKind === v;
+                      return <button key={v} type="button" className="pa-rkind" data-v={v} aria-checked={on} role="radio"
+                        onClick={() => save.mutate({ jobType: "retired", retiredKind: v })}>{lab}</button>;
+                    })}
+                  </div>
+                  {!isRetiredKind(suggest.data?.chips.find((c) => c.key === "jobType")?.retiredKind) ? (
+                    <p className="pa-rkind-err" role="alert">{RETIRED_KIND_ERR}</p>
+                  ) : null}
+                </div>
+              ) : null}
               <label className="pa-field"><span>ضامن</span>
                 <select className="pa-search" value={String(suggest.data?.chips.find((c) => c.key === "guarantorAvailable")?.raw ?? "")} data-testid="pa-edit-guarantor"
                   onChange={(e) => save.mutate({ guarantorAvailable: e.target.value || null })}>

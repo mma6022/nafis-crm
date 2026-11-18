@@ -74,3 +74,9 @@
 @media (max-width: 1023.98px) {
   .dci-mid:has(.pa-adv) { padding-bottom: calc(var(--ss-dock-h, 80px) + var(--ss-gap, 16px) + 48px); }
 }
+
+/* t854: retiree type under the job chip editor. Dock layout unchanged. */
+.pa-rkinds{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.pa-rkind{min-height:44px;border:1px solid var(--nf-line,#ece8e1);border-radius:12px;background:#fff;font:inherit;font-weight:700;cursor:pointer}
+.pa-rkind[aria-checked="true"]{border-color:var(--nf-brand,#7a4e2d);background:var(--nf-brand-50,#f6eee6)}
+.pa-rkind-err{margin:8px 0 0;color:#b42318;font-size:13px;font-weight:700}

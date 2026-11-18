@@ -17,6 +17,7 @@ import { DciError, dciApi, useDciBoard, useDciToday, type DciBoard, type DciCase
 import { HistFeed } from "./today-feed";
 import { useSf480 } from "@/features/sales-fixes/api";
 import { FileBox, FileWizard } from "./file-wizard";
+import { type WizStep } from "./file-dossier";
 import { CreditCard } from "@/features/credit-panel/CreditCard";
 import { useCpOn } from "@/features/credit-panel/api";
 import { usePaOn } from "@/features/plan-advisor/api";
@@ -260,7 +261,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
   userId: number | undefined;
   /** DCI-QUEUE 440000 (flag.dci_queue_v21): early bar, interrupt banner, payment / file-action card. Absent → v2.0 markup. */
   dq?: { top?: ReactNode; cur?: ReactNode; card?: ReactNode } | null;
-  wizard: { open: boolean; onOpen: (mode: "new" | "edit") => void; onClose: () => void };
+  wizard: { open: boolean; onOpen: (mode: "new" | "edit", startStep?: WizStep) => void; onClose: () => void };
   /** credit-panel v1 (flag.credit_panel_v1): credit card here, the full «پرونده‌ی مشتری» moves to the left column. Absent/false → today's markup. */
   cp?: boolean;
 }) {
@@ -489,14 +490,16 @@ function RightCol({ m, ext, onCall, result, sumOpen }: {
   </section>;
 }
 
-function FileCard({ m, userId, wizard }: { m: DciBoard; userId: number | undefined; wizard: { open: boolean; onOpen: (mode: "new" | "edit") => void; onClose: () => void } }) {
+function FileCard({ m, userId, wizard }: { m: DciBoard; userId: number | undefined; wizard: { open: boolean; onOpen: (mode: "new" | "edit", startStep?: WizStep) => void; onClose: () => void } }) {
+  const [startStep, setStartStep] = useState<WizStep | undefined>(undefined);
   return <section className="dci-filecard" id="dci-filecard" aria-label="پرونده‌ی مشتری" data-testid="dci-filecard">
-    <FileBox customerId={m.customer.id} onOpen={wizard.onOpen}
-      wizard={wizard.open ? <FileWizard key={`${m.customer.id}-wiz`} customerId={m.customer.id} userId={userId} onDone={wizard.onClose} /> : null} />
+    <FileBox customerId={m.customer.id} onOpen={(mode, step) => { setStartStep(step); wizard.onOpen(mode, step); }}
+      startStep={startStep}
+      wizard={wizard.open ? <FileWizard key={`${m.customer.id}-wiz-${startStep ?? "def"}`} customerId={m.customer.id} userId={userId} startStep={startStep} onDone={() => { setStartStep(undefined); wizard.onClose(); }} /> : null} />
   </section>;
 }
 
-function LeftCol({ m, cp }: { m: DciBoard; cp?: { userId: number | undefined; wizard: { open: boolean; onOpen: (mode: "new" | "edit") => void; onClose: () => void } } }) {
+function LeftCol({ m, cp }: { m: DciBoard; cp?: { userId: number | undefined; wizard: { open: boolean; onOpen: (mode: "new" | "edit", startStep?: WizStep) => void; onClose: () => void } } }) {
   // credit-panel v1: the left column holds the full case (first-call + site fields); credit moved to the middle column.
   if (cp) return <section className="dci-col dci-left dci-left-file" aria-label="پرونده‌ی مشتری" data-testid="dci-left">
     <FileCard m={m} userId={cp.userId} wizard={cp.wizard} />
@@ -728,7 +731,7 @@ export default function DailyCustomerInline() {
   // SALES-FIXES 480000 (bug 4): a new number that was just named is treated like a first call — the «تماس اول» form opens once its page loads.
   const firstAfterName = useRef<number | null>(null);
   useEffect(() => { if (board && firstAfterName.current === board.customer.id) { firstAfterName.current = null; setFcOpen(true); } }, [board?.customer.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const openWizard = (_mode: "new" | "edit") => {
+  const openWizard = (_mode: "new" | "edit", _startStep?: WizStep) => {
     setFcOpen(true);
   };
   const doPromote = async () => {

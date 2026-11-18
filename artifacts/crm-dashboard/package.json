@@ -32,7 +32,8 @@
     "test:lockdown-redirect": "node --experimental-strip-types scripts/lockdown-redirect-fixture.mjs",
     "test:page-scroll": "node --experimental-strip-types scripts/page-scroll-fixture.mjs",
     "test:customers-priority-kanban": "node --experimental-strip-types scripts/customers-priority-kanban-fixture.mjs",
-    "test:plan-advisor": "node --experimental-strip-types scripts/plan-advisor-fixture.mjs"
+    "test:plan-advisor": "node --experimental-strip-types scripts/plan-advisor-fixture.mjs",
+    "test:file-details-t854": "node --experimental-strip-types scripts/file-details-t854-ui-fixture.mjs"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
