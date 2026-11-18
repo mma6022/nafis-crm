@@ -306,11 +306,16 @@ function ChatPane({ me, chat, messages, toast, err, refresh, onAsk, onSearch, on
   const lastId = messages[messages.length - 1]?.id;
   useEffect(() => { const el = thRef.current; const th = el?.parentElement; if (th && th.scrollHeight > th.clientHeight + 1) th.scrollTop = th.scrollHeight; else if (el && window.innerWidth < 1024) el.scrollIntoView({ block: 'end' }); }, [lastId, chat.id]);
   useEffect(() => { setMenu(null); setReply(null); setEdit(null); }, [chat.id]);
+  useEffect(() => { if (!bwc) return; const th = thRef.current?.parentElement; if (th && th.scrollHeight > th.clientHeight + 1) th.scrollTop = th.scrollHeight; }, [!!bwc, chat.id]); // «فضای کار بله»: system chips arrive with the context
   // the action menu opens under the tapped bubble; on a phone the last bubble can sit at the very bottom, so bring the menu into view.
   useEffect(() => { if (menu == null) return; const h = requestAnimationFrame(() => document.querySelector('.bbt .mmenu')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })); return () => cancelAnimationFrame(h); }, [menu]);
   const seen = async (id: number) => { try { await bbFetch(`/bale-bot/notices/${id}/seen`, { body: {} }); refresh(); } catch (e) { err(e); } };
   const items: React.ReactNode[] = []; let day = '';
+  // «فضای کار بله»: the last successful invite as a system line, at its time in the thread
+  let bwInv = (bwc?.invites ?? []).find((x) => x.line) ?? null;
+  const bwInvChip = (iv: NonNullable<typeof bwInv>) => <div key={`bwi${iv.id}`} className="sys ok bws-sys" role="status"><I n="bale" /><span>{iv.line}</span></div>;
   for (const m of messages) {
+    if (bwInv && m.at > bwInv.at) { items.push(bwInvChip(bwInv)); bwInv = null; }
     const dk = bbDayKey(m.at); if (dk !== day) { day = dk; items.push(<div key={`d${m.id}`} className="day">{bbDay(m.at)}</div>); }
     if (m.dir === 'in' && m.kind === 'text' && m.text?.trim() === '/start') { items.push(<div key={m.id} className="sys" role="status"><I n="bale" /><span>{chat.name} گفتگو را شروع کرد</span></div>); continue; }
     items.push(<Bubble key={m.id} m={m} chat={chat} me={me} reply={m.replyTo ? byId.get(m.replyTo) : undefined} sel={menu === m.id} toast={toast} onClick={() => setMenu(menu === m.id ? null : m.id)}
@@ -326,7 +331,7 @@ function ChatPane({ me, chat, messages, toast, err, refresh, onAsk, onSearch, on
         : m.dir === 'out' && m.deleteExpired ? <><button type="button" role="menuitem" aria-disabled="true"><I n="trash" />حذف</button><span className="why">حذف فقط تا ۴۸ ساعت بعد از ارسال ممکن است.</span></> : null}
     </div>);
   }
-  for (const iv of (bwc?.invites ?? []).filter((x) => x.line).slice(0, 1)) items.push(<div key={`bwi${iv.id}`} className="sys ok bws-sys" role="status"><I n="bale" /><span>{iv.line}</span></div>);
+  if (bwInv) items.push(bwInvChip(bwInv));
   if (chat.contactFeature && chat.customer && (chat.linkSource === 'typed' || chat.linkSource === 'manual')) {
     const actor = chat.linkActor ?? chat.customer.expert ?? chat.expert.name;
     const fresh = !!chat.leadFromBale;
@@ -343,6 +348,7 @@ function ChatPane({ me, chat, messages, toast, err, refresh, onAsk, onSearch, on
     {(() => { const cb = chat.customerBot; const hasCb = !!(cb && !cb.restricted && (cb.handoff || cb.filing || (cb.tasks && cb.tasks.length)));
       const hasSr = !!(chat.signReminder?.enabled && chat.signReminder.state !== 'no_contract' && chat.signReminder.state !== 'hidden');
       if (hasCb || hasSr) return <CustomerBotBits chat={chat} toast={toast} refresh={refresh} err={err} where="meta" />;
+      if (bw.on && chat.customer && !chat.customer.restricted && !chat.pendingTypedPhone) return null; // «فضای کار بله»: the context column / tabs carry this
       return chat.contactFeature
         ? <ContactMeta chat={chat} toast={toast} err={err} refresh={refresh} onAsk={onAsk} onManual={() => setWiz(true)} wiz={wiz} />
         : <CStrip chat={chat} toast={toast} onAsk={onAsk} onSearch={onSearch} onLead={onLead} />;

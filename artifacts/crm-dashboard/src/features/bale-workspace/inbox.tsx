@@ -23,8 +23,8 @@ export function BwHead({ chatId, toast }: { chatId: number; toast: (t: string) =
 /** Star filter (همه / ۳ / ۲ / ۱ / بدون ستاره). */
 export function BwStarFilter({ counts }: { counts?: Record<string, number> }) {
   const bw = useBw(); if (!bw.on) return null;
-  const opts: [string, string][] = [['', 'همه'], ['3', '۳ ستاره'], ['2', '۲'], ['1', '۱'], ['0', 'بدون ستاره']];
-  return <div className="flt bws-sf" role="radiogroup" aria-label="صافی ستاره" data-testid="bws-starfilter">{opts.map(([v, t]) => <button key={v} className="fb" type="button" role="radio" aria-checked={bw.star === v} onClick={() => bw.setStar(v)}>
+  const opts: [string, string][] = [['', 'همه'], ['3', '۳'], ['2', '۲'], ['1', '۱'], ['0', 'بدون ستاره']];
+  return <div className="flt bws-sf" role="radiogroup" aria-label="صافی ستاره" data-testid="bws-starfilter">{opts.map(([v, t]) => <button key={v} className="fb" type="button" role="radio" aria-checked={bw.star === v} aria-label={v === '' ? 'همه' : v === '0' ? 'بدون ستاره' : `${t} ستاره`} onClick={() => bw.setStar(v)}>
     {v && v !== '0' ? <svg className="bws-star on" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l2.6 5.5 6 .8-4.4 4.1 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.5l6-.8z" /></svg> : null}{t}{v && counts?.[v] ? <span className="n">{fd(counts[v])}</span> : null}</button>)}</div>;
 }
 /** Mobile tabs, fixed just above the live dock. */

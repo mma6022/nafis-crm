@@ -21,6 +21,7 @@ export function BwTray({ chatId, ctx, initialSub = null, toast, refresh, onClose
     document.addEventListener('mousedown', h); document.addEventListener('touchstart', h); document.addEventListener('keydown', k);
     return () => { document.removeEventListener('mousedown', h); document.removeEventListener('touchstart', h); document.removeEventListener('keydown', k); };
   }, [onClose]);
+  useEffect(() => { const th = document.querySelector<HTMLElement>('.bbt .pane.ch > .th'); if (th) th.scrollTop = th.scrollHeight; }, []);
   const reload = () => { void qc.invalidateQueries({ queryKey: ['bws-ctx', chatId] }); refresh(); };
   const a = ctx?.assets; const c = ctx?.context && !ctx.context.restricted ? ctx.context : null; const canSend = !!ctx?.canSend;
   const act = async (key: string, fn: () => Promise<unknown>, ok: string) => { setBusy(key); try { await fn(); toast(ok); reload(); } catch (e) { toast(bwsErr(e)); } finally { setBusy(null); } };
@@ -30,7 +31,7 @@ export function BwTray({ chatId, ctx, initialSub = null, toast, refresh, onClose
       <ul className="bws-pick">{a.customerTraining.map((t) => <li key={t.id}><button type="button" disabled={!canSend || busy != null} onClick={() => act(`t${t.id}`, () => bbFetch(`/bale-workspace/chats/${chatId}/training/${t.id}`, { body: {} }), `«${t.title}» فرستاده شد`)}>
         <b>{t.title}</b><span>{t.kind === 'link' ? 'پیوند' : t.kind === 'video' ? 'ویدیو' : 'فایل'} · {t.plansLabel}</span></button></li>)}</ul></div> : null}
     {!sub ? <>
-      {a?.quick.length ? <div className="bws-trow" role="group" aria-label="پیام‌های آماده؛ یک ضربه می‌فرستد"><span className="lbl">پیام آماده</span>
+      {a?.quick.length ? <div className="bws-trow" role="group" aria-label="پیام‌های آماده؛ یک ضربه می‌فرستد"><span className="bws-lbl">پیام آماده</span>
         {a.quick.map((q) => <button key={q.id} type="button" className="qb" disabled={!canSend || busy != null} aria-busy={busy === q.id}
           onClick={() => act(q.id, () => bbFetch(`/bale-bot/chats/${chatId}/quick/${q.id}`, { body: {} }), `«${q.title}» فرستاده شد`)}>{q.title}</button>)}</div> : null}
       <div className="bws-tgrid">
@@ -39,7 +40,7 @@ export function BwTray({ chatId, ctx, initialSub = null, toast, refresh, onClose
         <button type="button" className="bws-tile" disabled={!canSend || busy != null} onClick={() => act('rc', () => bbFetch(`/bale-bot/chats/${chatId}/request-contact`, { body: {} }), 'درخواست شماره فرستاده شد')}><I n="contact" /><b>درخواست شماره</b><small>دکمهٔ اشتراک</small></button>
       </div>
       {c ? <div className="bws-trow2">
-        <span className="lbl">ستاره</span><StarPicker chatId={chatId} value={c.stars} toast={toast} onChange={() => reload()} />
+        <span className="bws-lbl">ستاره</span><StarPicker chatId={chatId} value={c.stars} toast={toast} onChange={() => reload()} />
         <span className="sp" />
         <InviteButton path={`/bale-workspace/chats/${chatId}/invite`} last={c.invites[0] ?? null} toast={toast} onDone={() => reload()} cls="bws-btn sec" />
       </div> : <p className="bws-mut">برای ستاره، شرایط طرح و دعوت، اول گفتگو را به پرونده وصل کنید.</p>}

@@ -110,6 +110,7 @@ function Wizard({ s }: { s: AdminState }) {
   return <div className={c('bcard')} data-testid="bws-wizard">
     <div className="bws-prog" role="progressbar" aria-valuemin={1} aria-valuemax={5} aria-valuenow={step + 1} aria-label={`گام ${fd(step + 1)} از ۵`}><i style={{ width: `${((step + 1) / 5) * 100}%` }} /></div>
     <div className={`${c('wbar')} bws-w5`}>{STEPS.map((t, i) => <button key={t} type="button" className={c(i === step && 'on', i < step && 'done')} disabled={i > step && !ok.slice(0, i).every(Boolean)} onClick={() => setStep(i)} aria-current={i === step ? 'step' : undefined}><span className={c('wn')}>{fd(i + 1)}</span>{t}</button>)}</div>
+    <p className="bws-steplbl">گام {fd(step + 1)} از ۵ · {STEPS[step]}</p>
     {step === 0 ? <div className="bws-wf">
       <label className={c('lbl')}>نام سناریو<input className={c('inp')} value={d.name} onChange={(e) => set({ name: e.target.value })} placeholder="مثلاً پیگیری بی‌پاسخ ۲۴ ساعته" /></label>
       <div className={c('picks')} role="radiogroup" aria-label="نوع">{(['bulk', 'noreply', 'auto'] as const).map((k) => <button key={k} type="button" role="radio" aria-checked={d.kind === k} className={c('pick', d.kind === k && 'on')} onClick={() => set({ kind: k })}>{KIND_FA[k]}</button>)}</div>
