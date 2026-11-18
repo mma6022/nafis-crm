@@ -21,6 +21,7 @@ import { CreditCard } from "@/features/credit-panel/CreditCard";
 import { useCpOn } from "@/features/credit-panel/api";
 import { usePaOn } from "@/features/plan-advisor/api";
 import { PlanAdvisorBox } from "@/features/plan-advisor/PlanAdvisorBox";
+import { BwsTodayBox } from "@/features/bale-workspace/Today"; // «فضای کار بله» ه‍ (flag.bale_workspace_v1; renders nothing while OFF)
 import { DciIcon, DciSprites } from "./icons";
 import "./dci.css";
 import "./today-layout.css";
@@ -445,6 +446,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     {tags.length ? <div className="dci-tags" data-testid="dci-tags">{tags}</div> : null}
     {cp ? <CreditCard key={`cp-${m.customer.id}`} customerId={m.customer.id} /> : <FileCard m={m} userId={userId} wizard={wizard} />}
     {paOn ? <PlanAdvisorBox customerId={m.customer.id} /> : null}
+    <BwsTodayBox customerId={m.customer.id} />
     <CasesBlock rows={m.cases} href={m.newCaseHref} canEdit={canEditPs} locked={!!m.priorityStatusLocked} busy={cancelCase.isPending} onCancel={openCancel} />
     {pendingPriority !== undefined ? createPortal(<div className="dci-dlgw" data-testid="dci-xfer-wrap" data-nodnd="true">
       <div className="dci-dlg" role="alertdialog" aria-modal="true" aria-labelledby="dci-xfer-t" data-testid="dci-xfer-dialog">

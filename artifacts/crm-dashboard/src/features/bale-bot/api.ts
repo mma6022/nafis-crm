@@ -21,10 +21,11 @@ export type SrView = {
   lastSentAt: string | null; lastSentFa: string | null; lockUntil: string | null; lockUntilFa: string | null;
   lockHours: number; reason: string | null; otherExpert: boolean; canOpenKeyCard?: boolean;
 };
-export type BbMe = { enabled: boolean; view: 'own' | 'all'; canManage: boolean; name: string; bot: BbBot; unread: number; limits: BbLimits; contactFeature?: boolean; customerBot?: BbCustomerBotFlags; signReminder?: boolean };
+export type BbMe = { enabled: boolean; view: 'own' | 'all'; canManage: boolean; name: string; bot: BbBot; unread: number; limits: BbLimits; contactFeature?: boolean; customerBot?: BbCustomerBotFlags; signReminder?: boolean; workspace?: boolean };
 export type BbCustomer = { id: number; name: string; phone: string | null; status: string | null; salespersonId: number | null; expert: string | null; restricted: boolean; canOpen: boolean } | null;
 export type BbNotice = { id: number; kind: string; at: string; actor: string | null };
 export type BbChat = {
+  stars?: number; // «فضای کار بله» (flag.bale_workspace_v1)
   id: number; name: string; firstName: string | null; lastName: string | null; username: string | null; bio: string | null; unread: number; lastAt: string | null; lastPreview: string | null; lastOut: boolean;
   customer: BbCustomer; linkMethod: string | null; otherExpert: boolean; notices: BbNotice[]; lastByManager: boolean; verifiedPhone: string | null; phoneVerified: boolean | null;
   contactAskedAt: string | null; matchNote: string | null; expert: { id: number; name: string | null }; bot: { username: string | null; status: string; shared?: boolean; displayName?: string | null }; canWrite: boolean; sendBlocked: 'no_send' | 'bot_off' | null; mine: boolean;
@@ -44,7 +45,7 @@ export type BbMessage = {
   status: 'sending' | 'sent' | 'failed' | 'wait' | null; errorCode: string | null; author: string | null; canEdit: boolean; canDelete: boolean; deleteExpired: boolean;
   inlineButtons?: { text: string; url?: string }[];
 };
-export type BbChats = { counts: { all: number; unread: number; unlinked: number; pending?: number; typedPending?: number }; chats: BbChat[]; experts: { id: number; name: string }[] };
+export type BbChats = { counts: { all: number; unread: number; unlinked: number; pending?: number; typedPending?: number; stars?: Record<string, number> }; chats: BbChat[]; experts: { id: number; name: string }[] };
 export type BbAdminExpert = { id: number; name: string; salespersonId: number | null; flagOn: boolean; bot: BbBot; noSend: boolean };
 
 const base = () => (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
