@@ -153,6 +153,10 @@ function latestAnswers(customerId: number): QualifierAnswers {
     self_employed: "business", business: "business", retired: "retired", unemployed: "unemployed",
   };
   if (!a.jobType && site?.job_status) a.jobType = jobMap[String(site.job_status)] ?? (site.job_status as any);
+  try {
+    const st = buildDossier(customerId, {});
+    if (!a.jobType && st.job_status) a.jobType = jobMap[st.job_status] ?? (st.job_status as any);
+  } catch { /* dossier may be absent on older copies */ }
   if (!a.creditRank && site?.credit_rank) a.creditRank = site.credit_rank as any;
   if (!a.loanPref && site?.loan_purpose) a.loanPref = site.loan_purpose === "goods" || String(site.loan_purpose).includes("کالا") ? "goods" : a.loanPref;
   if (a.amountMillion == null && site?.amount_range) {
