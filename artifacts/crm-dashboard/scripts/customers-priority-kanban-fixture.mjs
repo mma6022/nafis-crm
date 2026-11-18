@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import {
   CPK_COLUMNS, CPK_PAGE, cpkColumnsForFilter, cpkMoreLabel, cpkUndoMessage,
-  cpkViewKey, faNum, formatFollowUp, formatLastCall, formatPhoneLast4, readCpkView, writeCpkView,
+  cpkViewKey, faNum, formatFollowUp, formatLastCall, formatPhoneLast4, clearStaleCpkView, CUSTOMERS_DEFAULT_VIEW,
 } from "../src/features/customers-priority-kanban/helpers.ts";
 
 const store = new Map();
@@ -35,19 +35,17 @@ ok("a single priority filter keeps only that column", () => {
   assert.deepEqual(cpkColumnsForFilter("null").map((c) => c.key), ["0"]);
 });
 
-ok("view storage is keyed only by expert id and defaults to فهرست", () => {
+ok("t863u: default view is the board; the stale per-expert key is only removed, never read", () => {
   assert.equal(cpkViewKey(8), "nafis.customers.priorityKanban.view.8");
-  assert.equal(readCpkView(8), "table");
-  writeCpkView(8, "board");
-  assert.equal(readCpkView(8), "board");
-  writeCpkView(8, "table");
-  assert.equal(readCpkView(8), "table");
-  store.set(cpkViewKey(8), "nope");
-  assert.equal(readCpkView(8), "table");
-  assert.equal(readCpkView(undefined), "table");
-  const dumped = JSON.stringify([...store.entries()]);
-  assert.equal(/09|09\d|نام|حسنی|قاسمی/.test(dumped) && false, false);
-  assert.ok(!dumped.includes("phone") && !dumped.includes("0912"));
+  assert.equal(CUSTOMERS_DEFAULT_VIEW, "board");
+  store.set(cpkViewKey(8), "table");
+  store.set(cpkViewKey(2), "table");
+  clearStaleCpkView(8);
+  assert.equal(store.has(cpkViewKey(8)), false);
+  assert.equal(store.get(cpkViewKey(2)), "table"); // other experts' keys untouched until they open the page
+  clearStaleCpkView(undefined);
+  assert.equal(store.size, 1);
+  store.clear();
 });
 
 ok("«بیشتر» uses Persian digits and the remaining count", () => {

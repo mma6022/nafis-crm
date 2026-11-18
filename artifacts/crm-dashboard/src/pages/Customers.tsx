@@ -31,9 +31,9 @@ import { KAZEMI_SOURCE_FILTERS, KazemiSourceChip, kazemiSourceOf } from '@/featu
 import { SalesAssistBox } from '@/features/sales-assist/SalesAssistBox';
 import { notifySalesAssistCallSaved } from '@/features/sales-assist/api';
 import { useRegistrarMe } from '@/features/registrar-view/api';
-import { useCpkOn } from '@/features/customers-priority-kanban/api';
+import { useCpkMe } from '@/features/customers-priority-kanban/api';
 import { CustomersKanban, type CpkCustomer } from '@/features/customers-priority-kanban/CustomersKanban';
-import { readCpkView, writeCpkView, type CpkView } from '@/features/customers-priority-kanban/helpers';
+import { CUSTOMERS_DEFAULT_VIEW, clearStaleCpkView, type CpkView } from '@/features/customers-priority-kanban/helpers';
 import { DeadlineCountdown, PreferredTimeNote, SiteLeadChips, hideTagForSiteLead, topOfListOf } from '@/features/site-leads/SiteLead';
 import { VoipCallAnywhere, useVoipAnywhereRegistrarOwn } from '@/features/voip-call/VoipAnywhere'; // VOIP-ANYWHERE (design v1.0 search_list: .vi on own rows)
 
@@ -82,7 +82,10 @@ export default function Customers() {
   const canSummary = can('dashboard.view');
   const readOnly = sessionReady && !canCreate && !canUpdate;
   // customers-priority-kanban v1 (flag.customers_priority_kanban_v1, OFF → today's board / list exactly).
-  const cpkOn = useCpkOn();
+  const cpkMe = useCpkMe();
+  const cpkOn = cpkMe.data?.enabled === true;
+  // t863u: while the flag probe is pending, hold the board slot (no list fetch, no old-board flash) — the board is the default.
+  const cpkPending = cpkMe.isPending;
   const cpkUserId = session.data?.user.id;
   const priorityColors = {
     none: session.data?.user.priorityColors?.none ?? '#fff7d6',
@@ -90,16 +93,10 @@ export default function Customers() {
     '2': session.data?.user.priorityColors?.['2'] ?? '#ffedd5',
     '3': session.data?.user.priorityColors?.['3'] ?? '#dcfce7',
   };
-  const [view, setViewState] = useTableState<'table' | 'board'>('customers.view', 'table');
-  useEffect(() => {
-    if (!cpkOn || !cpkUserId) return;
-    const saved = readCpkView(cpkUserId);
-    setViewState((current) => (current === saved ? current : saved));
-  }, [cpkOn, cpkUserId, setViewState]);
-  const setView = (next: CpkView) => {
-    setViewState(next);
-    if (cpkOn) writeCpkView(cpkUserId, next);
-  };
+  // t863u: board is the default on every fresh open (desktop and phone). «فهرست» applies to this visit only (component state);
+  // no saved preference, no in-memory table-state restore. The old per-user localStorage pick is removed once.
+  const [view, setView] = useState<CpkView>(CUSTOMERS_DEFAULT_VIEW);
+  useEffect(() => { clearStaleCpkView(cpkUserId); }, [cpkUserId]);
   const [search, setSearch] = useTableState('customers.search', '');
   const [customerId, setCustomerId] = useTableState('customers.customerId', '');
   const [status, setStatus] = useTableState('customers.status', 'in_progress');
@@ -139,7 +136,7 @@ export default function Customers() {
   const isDesktop = useMinWidth(1024);
   const [mobileCount, setMobileCount] = useState(MOBILE_STEP);
   // Today's board is desktop-only and hidden in «ثبت‌های من». The flagged column view works on mobile too and is read-only in that scope.
-  const isBoard = view === 'board' && (cpkOn ? true : (isDesktop && !reg));
+  const isBoard = view === 'board' && (cpkOn || cpkPending ? true : (isDesktop && !reg));
   const resetPaging = () => { setOffset(0); setMobileCount(MOBILE_STEP); };
 
   const pHasPriority = priority === 'null' ? false : undefined;
@@ -501,7 +498,8 @@ export default function Customers() {
 
     {inlineError ? <div className="csx-note bad" role="alert" data-testid="error-update-customer"><AlertTriangle size={20} aria-hidden="true" /><p>{inlineError}</p></div> : null}
 
-    {isBoard && cpkOn ? <CustomersKanban
+    {isBoard && cpkPending ? <div className="csx-skcards" aria-busy="true" aria-label="در حال دریافت مشتریان" data-testid="customers-view-pending"><span className="csx-sk" style={{ height: 52 }} /></div>
+    : isBoard && cpkOn ? <CustomersKanban
       filters={{ ...sharedParams, status: (status || undefined) as ListCustomersParams['status'] }}
       priorityFilter={priority}
       isDesktop={isDesktop}

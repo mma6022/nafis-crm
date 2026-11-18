@@ -8,7 +8,7 @@ import { Kanban, LayoutList, Phone, FolderOpen, Plus } from 'lucide-react';
 import { useMinWidth } from '@/pages/customers-ui';
 import { useUpdateCustomer } from '@workspace/api-client-react';
 import { toPersianDigits } from '@/lib/customer-id';
-import { useCpkOn, listMyCustomersKanban } from '@/features/customers-priority-kanban/api';
+import { useCpkMe, listMyCustomersKanban } from '@/features/customers-priority-kanban/api';
 import { CustomersKanban, type CpkCustomer } from '@/features/customers-priority-kanban/CustomersKanban';
 import { CPK_PAGE, faNum, type CpkView } from '@/features/customers-priority-kanban/helpers';
 import { sfApi, fa, faDay, PRIO_FA } from './api';
@@ -28,7 +28,10 @@ const STATUS_TABS: Array<{ value: string; label: string }> = [
 export const MY_CUSTOMERS_DEFAULT_VIEW: CpkView = "board";
 
 export function MyCustomersPage() {
-  const cpkOn = useCpkOn();
+  const cpkMe = useCpkMe();
+  const cpkOn = cpkMe.data?.enabled === true;
+  // t863u: until the column-view flag probe answers, render neither the list nor its fetch (no list flash before the board).
+  const cpkPending = cpkMe.isPending;
   const isDesktop = useMinWidth(1024);
   // t853u: board is the default for everyone. List only when the user picks it.
   // Remember at most for this visit (component state); leaving the page falls back to the board. No localStorage.
@@ -39,7 +42,7 @@ export function MyCustomersPage() {
   const [q, setQ] = useState(''); const [dq, setDq] = useState(''); const [off, setOff] = useState(0);
   const [status, setStatus] = useState('in_progress');
   useEffect(() => { const t = window.setTimeout(() => { setDq(q.trim()); setOff(0); }, 300); return () => window.clearTimeout(t); }, [q]);
-  const r = useQuery({ queryKey: ['sf480-my-customers', dq, off], queryFn: () => sfApi.myCustomers(dq, off), placeholderData: keepPreviousData, retry: 1, enabled: !cpkOn || view === 'table' });
+  const r = useQuery({ queryKey: ['sf480-my-customers', dq, off], queryFn: () => sfApi.myCustomers(dq, off), placeholderData: keepPreviousData, retry: 1, enabled: !cpkPending && (!cpkOn || view === 'table') });
   const total = r.data?.total ?? 0;
 
   const countsQ = useQuery({
@@ -73,6 +76,13 @@ export function MyCustomersPage() {
       offset: args.offset,
       limit: args.limit || CPK_PAGE,
     }) as Promise<{ items: CpkCustomer[]; total: number }>;
+
+  if (cpkPending) {
+    return <div className="sf-mc-page cpk-on-board" data-testid="sf-my-customers" dir="rtl">
+      <div className="sf-kb-h"><h1>مشتریان من</h1></div>
+      <div className="dp-skel" role="status" data-testid="sf-mc-pending">در حال بارگذاری…</div>
+    </div>;
+  }
 
   if (cpkOn && view === 'board') {
     return <div className="sf-mc-page cpk-on-board" data-testid="sf-my-customers" dir="rtl">

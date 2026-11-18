@@ -16,19 +16,15 @@ export type CpkView = "table" | "board";
 
 export const cpkViewKey = (userId: number) => `nafis.customers.priorityKanban.view.${userId}`;
 
-export function readCpkView(userId: number | undefined | null): CpkView {
-  if (!userId) return "table";
-  try {
-    const v = localStorage.getItem(cpkViewKey(userId));
-    return v === "board" || v === "table" ? v : "table";
-  } catch {
-    return "table";
-  }
-}
+/** t863u (Mohammad: «پیش فرض نمایش مشتریان من رو باید بورد بکنی»): every fresh open of «مشتریان من» starts on the board.
+ *  A «فهرست» pick lives only in the page's component state for that visit; nothing is saved across visits. */
+export const CUSTOMERS_DEFAULT_VIEW: CpkView = "board";
 
-export function writeCpkView(userId: number | undefined | null, view: CpkView): void {
+/** One-time migration: the old lasting pick (localStorage, default "table") made the list win on every open.
+ *  Remove any stored value for this user so it can never come back. Never throws. */
+export function clearStaleCpkView(userId: number | undefined | null): void {
   if (!userId) return;
-  try { localStorage.setItem(cpkViewKey(userId), view); } catch { /* private mode / quota */ }
+  try { localStorage.removeItem(cpkViewKey(userId)); } catch { /* private mode */ }
 }
 
 export const faNum = (n: number) => n.toLocaleString("fa-IR");
