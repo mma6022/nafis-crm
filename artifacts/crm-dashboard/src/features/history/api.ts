@@ -36,9 +36,11 @@ export const promoteToP1 = (customerId: number, reason: string) =>
 /* HISTORY-A v1.2: Today card 3 columns. */
 export type CallHistory = { items: HxCall[]; nextBefore: number | null };
 export type FileDossier = {
-  city: string; amount: string; amount_range: string; loan_purpose: string; job_status: string; documents: string[];
-  has_military_card: string; can_refer_retiree: string; has_bounced_or_overdue: string; need_timing: string;
-  credit_rank: string; g_job_status: string; g_credit_rank: string; g_conditions: string;
+  city: string; amount: string; amount_range: string; loan_purpose: string; job_status: string; retired_kind?: string; documents: string[];
+  has_military_card: string; can_refer_retiree: string; has_bounced_or_overdue: string;
+  has_cheque_bounced?: string; has_overdue?: string; overdue_rows?: { amount_toman: string; bank: string; bank_other?: string; note: string }[];
+  need_timing: string;
+  credit_rank: string; g_job_status: string; g_retired_kind?: string; g_credit_rank: string; g_conditions: string;
   customer_note: string; note: string; need: string; amountBand: string; contactTime: string;
   planId: string; planName: string; term: string;
 };

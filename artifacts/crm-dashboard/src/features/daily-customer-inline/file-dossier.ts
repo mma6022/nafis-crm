@@ -5,13 +5,18 @@ export type FileState = {
   amount_range: string;
   loan_purpose: string;
   job_status: string;
+  retired_kind: string;
   documents: string[];
   has_military_card: string;
   can_refer_retiree: string;
   has_bounced_or_overdue: string;
+  has_cheque_bounced: string;
+  has_overdue: string;
+  overdue_rows: OverdueRow[];
   need_timing: string;
   credit_rank: string;
   g_job_status: string;
+  g_retired_kind: string;
   g_credit_rank: string;
   g_conditions: string;
   customer_note: string;
@@ -41,6 +46,107 @@ export const JOB_FA: Record<string, string> = {
   employee: "کارمند", retired: "بازنشسته", self_employed: "آزاد", no_fixed_income: "بدون درآمد ثابت",
 };
 export const JOB_OPTS = Object.entries(JOB_FA);
+export const RETIRED_KINDS = ["civil", "tamin", "military"] as const;
+export type RetiredKind = (typeof RETIRED_KINDS)[number];
+export const RETIRED_KIND_FA: Record<string, string> = {
+  civil: "بازنشسته‌ی کشوری",
+  tamin: "بازنشسته‌ی تأمین اجتماعی",
+  military: "بازنشسته‌ی نیروهای مسلح",
+};
+export const RETIRED_KIND_OPTS: [string, string][] = Object.entries(RETIRED_KIND_FA);
+export const RETIRED_KIND_UNKNOWN = "بازنشسته، نوع نامشخص";
+export const RETIRED_KIND_ERR = "نوع بازنشستگی را انتخاب کنید.";
+export const OVERDUE_ROWS_ERR = "مبلغ و بانک معوق را برای دست‌کم یک بانک وارد کنید.";
+export const BOUNCED_SPLIT_OPTS: [string, string][] = [
+  ["no", "خیر"],
+  ["cheque", "چک برگشتی"],
+  ["overdue", "معوق"],
+];
+export const IR_BANKS: { id: string; label: string }[] = [
+  { id: "melli", label: "ملی" }, { id: "mellat", label: "ملت" }, { id: "tejarat", label: "تجارت" },
+  { id: "saderat", label: "صادرات" }, { id: "sepah", label: "سپه" }, { id: "keshavarzi", label: "کشاورزی" },
+  { id: "maskan", label: "مسکن" }, { id: "refah", label: "رفاه" }, { id: "pasargad", label: "پاسارگاد" },
+  { id: "saman", label: "سامان" }, { id: "eghtesad_novin", label: "اقتصاد نوین" }, { id: "parsian", label: "پارسیان" },
+  { id: "sina", label: "سینا" }, { id: "shahr", label: "شهر" }, { id: "ayandeh", label: "آینده" },
+  { id: "mehr_iran", label: "مهر ایران" }, { id: "resalat", label: "رسالت" }, { id: "iran_zamin", label: "ایران زمین" },
+  { id: "khavarmianeh", label: "خاورمیانه" }, { id: "gardeshgari", label: "گردشگری" }, { id: "dey", label: "دی" },
+  { id: "sarmayeh", label: "سرمایه" }, { id: "karafarin", label: "کارآفرین" }, { id: "postbank", label: "پست بانک" },
+  { id: "sanat_madan", label: "صنعت و معدن" }, { id: "tosee_saderat", label: "توسعه صادرات" },
+  { id: "tosee_taavon", label: "توسعه تعاون" }, { id: "other", label: "سایر" },
+];
+const BANK_IDS = new Set(IR_BANKS.map((b) => b.id));
+const BANK_LABEL: Record<string, string> = Object.fromEntries(IR_BANKS.map((b) => [b.id, b.label]));
+export type OverdueRow = { amount_toman: string; bank: string; bank_other: string; note: string };
+export function emptyOverdueRow(): OverdueRow { return { amount_toman: "", bank: "", bank_other: "", note: "" }; }
+export function isRetiredKind(v: unknown): v is RetiredKind {
+  return typeof v === "string" && (RETIRED_KINDS as readonly string[]).includes(v);
+}
+export function jobLabel(job: string, kind = ""): string {
+  if (job !== "retired") return JOB_FA[job] || job || "";
+  if (isRetiredKind(kind)) return RETIRED_KIND_FA[kind];
+  return job ? RETIRED_KIND_UNKNOWN : "";
+}
+export function retiredKindComplete(job: string, kind: string): boolean {
+  return job !== "retired" || isRetiredKind(kind);
+}
+export function jobKindUnknown(job: string, kind: string): boolean {
+  return job === "retired" && !isRetiredKind(kind);
+}
+export function bankLabel(row: Pick<OverdueRow, "bank" | "bank_other">): string {
+  if (row.bank === "other") return (row.bank_other || "").trim() || "سایر";
+  return BANK_LABEL[row.bank] || row.bank || "";
+}
+export function parseOverdueRows(raw: unknown): OverdueRow[] {
+  if (!Array.isArray(raw)) return [];
+  const out: OverdueRow[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const r = item as Record<string, unknown>;
+    const amount = toLatinDigits(String(r.amount_toman ?? r.amountToman ?? r.amount ?? "")).replace(/\D/g, "").replace(/^0+(?=\d)/, "") || "";
+    const bankRaw = typeof r.bank === "string" ? r.bank.trim() : "";
+    const bank = BANK_IDS.has(bankRaw) ? bankRaw : "";
+    const bank_other = String(r.bank_other ?? r.bankOther ?? "").trim().slice(0, 80);
+    const note = String(r.note ?? "").trim().slice(0, 240);
+    if (!amount && !bank && !bank_other && !note) continue;
+    out.push({ amount_toman: amount, bank, bank_other, note });
+  }
+  return out;
+}
+export function overdueRowComplete(row: OverdueRow): boolean {
+  if (!row.amount_toman || !row.bank) return false;
+  if (row.bank === "other" && !row.bank_other.trim()) return false;
+  return true;
+}
+export function overdueRowsComplete(rows: OverdueRow[]): boolean {
+  return (rows || []).some(overdueRowComplete);
+}
+export function applyBouncedPick(st: FileState, pick: "no" | "cheque" | "overdue"): Pick<FileState, "has_cheque_bounced" | "has_overdue" | "has_bounced_or_overdue" | "overdue_rows"> {
+  if (pick === "no") {
+    return { has_cheque_bounced: "no", has_overdue: "no", has_bounced_or_overdue: "no", overdue_rows: [] };
+  }
+  const cheque = pick === "cheque" ? (st.has_cheque_bounced === "yes" ? "no" : "yes") : (st.has_cheque_bounced === "yes" ? "yes" : "no");
+  const overdue = pick === "overdue" ? (st.has_overdue === "yes" ? "no" : "yes") : (st.has_overdue === "yes" ? "yes" : "no");
+  const rows = overdue === "yes" ? ((st.overdue_rows || []).length ? st.overdue_rows : [emptyOverdueRow()]) : (st.overdue_rows || []);
+  if (cheque === "yes" || overdue === "yes") {
+    return { has_cheque_bounced: cheque === "yes" ? "yes" : "no", has_overdue: overdue === "yes" ? "yes" : "no", has_bounced_or_overdue: "yes", overdue_rows: rows };
+  }
+  return { has_cheque_bounced: "", has_overdue: "", has_bounced_or_overdue: "", overdue_rows: st.overdue_rows || [] };
+}
+export function bouncedLabel(st: Pick<FileState, "has_cheque_bounced" | "has_overdue" | "has_bounced_or_overdue">): string {
+  const parts: string[] = [];
+  if (st.has_cheque_bounced === "yes") parts.push("چک برگشتی");
+  if (st.has_overdue === "yes") parts.push("معوق");
+  if (parts.length) return parts.join("، ");
+  if (st.has_bounced_or_overdue === "yes") return "بله، دارد";
+  if (st.has_bounced_or_overdue === "no" || (st.has_cheque_bounced === "no" && st.has_overdue === "no")) return "خیر";
+  return "";
+}
+export function stepLeaveError(id: string, st: FileState): string {
+  if (id === "job" && !retiredKindComplete(st.job_status, st.retired_kind)) return RETIRED_KIND_ERR;
+  if (id === "gjr" && !retiredKindComplete(st.g_job_status, st.g_retired_kind)) return RETIRED_KIND_ERR;
+  if (id === "mil" && st.has_overdue === "yes" && !overdueRowsComplete(st.overdue_rows)) return OVERDUE_ROWS_ERR;
+  return "";
+}
 export const DOC_FA: Record<string, string> = {
   payslip: "فیش حقوقی", salary_deduction_cert: "گواهی کسر از حقوق", sayadi_cheque: "چک صیادی", guarantor: "ضامن", none: "هیچ‌کدام",
 };
@@ -81,9 +187,10 @@ export function formatTomanFa(raw: string): string {
 
 export function emptyFile(): FileState {
   return {
-    city: "", amount: "", amount_range: "", loan_purpose: "", job_status: "",
+    city: "", amount: "", amount_range: "", loan_purpose: "", job_status: "", retired_kind: "",
     documents: [], has_military_card: "", can_refer_retiree: "", has_bounced_or_overdue: "",
-    need_timing: "", credit_rank: "", g_job_status: "", g_credit_rank: "", g_conditions: "",
+    has_cheque_bounced: "", has_overdue: "", overdue_rows: [],
+    need_timing: "", credit_rank: "", g_job_status: "", g_retired_kind: "", g_credit_rank: "", g_conditions: "",
     customer_note: "", note: "",
     need: "", amountBand: "", contactTime: "", planId: "", planName: "", term: "",
   };
@@ -107,6 +214,9 @@ export function fileComplete(st: FileState): boolean {
     && st.has_military_card && st.can_refer_retiree && st.has_bounced_or_overdue && st.need_timing && st.credit_rank);
   if (!need) return false;
   if (hasGuarantor(st) && !(st.g_job_status && st.g_credit_rank && st.g_conditions)) return false;
+  if (!retiredKindComplete(st.job_status, st.retired_kind)) return false;
+  if (hasGuarantor(st) && !retiredKindComplete(st.g_job_status, st.g_retired_kind)) return false;
+  if (st.has_overdue === "yes" && !overdueRowsComplete(st.overdue_rows)) return false;
   return true;
 }
 export function filePartial(st: FileState): boolean {
@@ -114,7 +224,8 @@ export function filePartial(st: FileState): boolean {
   return !!(st.city || st.amount || st.amount_range || st.loan_purpose || st.job_status || (st.documents || []).length
     || st.has_military_card || st.can_refer_retiree || st.has_bounced_or_overdue || st.need_timing || st.credit_rank
     || st.customer_note || st.need || st.amountBand || st.contactTime || st.planName || st.term || st.note
-    || st.g_job_status || st.g_credit_rank || st.g_conditions);
+    || st.g_job_status || st.g_retired_kind || st.g_credit_rank || st.g_conditions
+    || st.retired_kind || st.has_cheque_bounced || st.has_overdue || (st.overdue_rows || []).length);
 }
 
 export const WIZ_STEPS_BASE = ["city", "amt", "purpose", "job", "mil", "rank", "docs", "g"] as const;
@@ -157,16 +268,16 @@ export const KV_ALL: { key: KvKey; label: string; value: (st: FileState) => stri
   { key: "city", label: "شهر", value: (st) => st.city },
   { key: "loan_purpose", label: "برای", value: (st) => PURPOSE_FA[st.loan_purpose] || "" },
   { key: "need", label: "نوع نیاز", value: (st) => NEED_FA[st.need] || "" },
-  { key: "job_status", label: "شغل", value: (st) => JOB_FA[st.job_status] || "" },
+  { key: "job_status", label: "شغل", value: (st) => jobLabel(st.job_status, st.retired_kind) },
   { key: "guarantor", label: "ضامن", value: (st) => (st.documents || []).length ? (hasGuarantor(st) ? "ضامن دارد" : "ضامن ندارد") : "" },
   { key: "credit_rank", label: "رتبه‌ی اعتبارسنجی", value: (st) => gradeFa(st.credit_rank) },
   { key: "has_military_card", label: "پایان خدمت", value: (st) => MILITARY_FA[st.has_military_card] || "" },
   { key: "need_timing", label: "زمان نیاز", value: (st) => TIMING_FA[st.need_timing] || "" },
   { key: "salary_deduction", label: "گواهی کسر از حقوق", value: (st) => (st.documents || []).length ? (hasDoc(st, "salary_deduction_cert") ? "بله" : "خیر") : "" },
-  { key: "has_bounced_or_overdue", label: "چک برگشتی / معوق", value: (st) => BOUNCED_FA[st.has_bounced_or_overdue] || "" },
+  { key: "has_bounced_or_overdue", label: "چک برگشتی / معوق", value: (st) => bouncedLabel(st) },
   { key: "documents", label: "مدارک", value: (st) => docsLine(st) },
   { key: "can_refer_retiree", label: "معرفی بازنشسته", value: (st) => REFER_FA[st.can_refer_retiree] || "" },
-  { key: "g_job_status", label: "شغل ضامن", value: (st) => hasGuarantor(st) ? (JOB_FA[st.g_job_status] || "") : "" },
+  { key: "g_job_status", label: "شغل ضامن", value: (st) => hasGuarantor(st) ? jobLabel(st.g_job_status, st.g_retired_kind) : "" },
   { key: "g_credit_rank", label: "رتبه‌ی اعتبارسنجی ضامن", value: (st) => hasGuarantor(st) ? gradeFa(st.g_credit_rank) : "" },
   { key: "g_conditions", label: "شرایط ضامن", value: (st) => hasGuarantor(st) ? (st.g_conditions || "") : "" },
 ];
@@ -174,9 +285,10 @@ export const KV_COMPACT: KvKey[] = ["city", "loan_purpose", "job_status", "guara
 
 export function fileKvRows(st: FileState, all: boolean): { key: KvKey; label: string; value: string }[] {
   const keys = all ? null : new Set(KV_COMPACT);
+  const showBounced = st.has_overdue === "yes" || st.has_cheque_bounced === "yes" || (st.overdue_rows || []).length > 0 || (st.has_bounced_or_overdue === "yes" && st.has_cheque_bounced !== "no");
   const rows: { key: KvKey; label: string; value: string }[] = [];
   for (const row of KV_ALL) {
-    if (keys && !keys.has(row.key)) continue;
+    if (keys && !keys.has(row.key) && !(showBounced && row.key === "has_bounced_or_overdue")) continue;
     const v = row.value(st);
     if (v) rows.push({ key: row.key, label: row.label, value: v });
   }
@@ -216,9 +328,12 @@ export function stateFromDossier(raw: unknown): FileState {
   const take = (k: keyof FileState) => (typeof d[k] === "string" || typeof d[k] === "number" ? String(d[k]) : st[k]);
   (Object.keys(st) as (keyof FileState)[]).forEach((k) => {
     if (k === "documents") st.documents = canonDocs(d.documents);
+    else if (k === "overdue_rows") st.overdue_rows = parseOverdueRows(d.overdue_rows ?? d.overdueRows);
     else (st[k] as string) = take(k) as string;
   });
   if (!st.amount && (d.amount_toman != null || d.amountToman != null)) st.amount = String(d.amount_toman ?? d.amountToman ?? "");
+  if (st.job_status !== "retired") st.retired_kind = "";
+  if (st.g_job_status !== "retired") st.g_retired_kind = "";
   return st;
 }
 

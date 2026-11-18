@@ -3,10 +3,12 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { fileCardKey, saveDossier, useFileCard, type FileCard } from "@/features/history/api";
 import {
-  AMOUNT_RANGE_OPTS, BOUNCED_OPTS, DOC_OTHER, JOB_OPTS, MILITARY_OPTS, NEED_FA, PURPOSE_OPTS,
-  REFER_OPTS, TIMING_OPTS, YN, amountChip, contactChip, fd, fileAskRows, fileComplete, fileKvRows, filePartial,
-  formatTomanFa, hasDoc, hasGuarantor, planChip, readDraft, setDocFlag, stateFromDossier, visSteps,
-  writeDraft, type FileState, type WizStep,
+  AMOUNT_RANGE_OPTS, BOUNCED_SPLIT_OPTS, DOC_OTHER, IR_BANKS, JOB_OPTS, MILITARY_OPTS, NEED_FA,
+  PURPOSE_OPTS, REFER_OPTS, RETIRED_KIND_ERR, RETIRED_KIND_OPTS, RETIRED_KIND_UNKNOWN, TIMING_OPTS, YN,
+  amountChip, applyBouncedPick, bankLabel, contactChip, emptyOverdueRow, fd, fileAskRows, fileComplete, fileKvRows,
+  filePartial, formatTomanFa, hasDoc, hasGuarantor, isRetiredKind, jobKindUnknown, planChip, readDraft, setDocFlag,
+  stateFromDossier, stepLeaveError, toLatinDigits, visSteps, writeDraft,
+  type FileState, type OverdueRow, type WizStep,
 } from "./file-dossier";
 
 function dossierOf(card: FileCard | undefined, draft: FileState | null): FileState {
@@ -14,10 +16,13 @@ function dossierOf(card: FileCard | undefined, draft: FileState | null): FileSta
   if (!draft) return base;
   // Draft wins for keys the expert already touched; empty draft keys keep the server/site values.
   const out = { ...base };
+  const keepEmpty: (keyof FileState)[] = ["retired_kind", "g_retired_kind", "has_cheque_bounced", "has_overdue", "has_bounced_or_overdue"];
   (Object.keys(draft) as (keyof FileState)[]).forEach((k) => {
     if (k === "documents") {
       if ((draft.documents || []).length) out.documents = draft.documents;
-    } else if (draft[k]) out[k] = draft[k] as never;
+    } else if (k === "overdue_rows") {
+      if (Array.isArray(draft.overdue_rows)) out.overdue_rows = draft.overdue_rows;
+    } else if (draft[k] || keepEmpty.includes(k)) out[k] = draft[k] as never;
   });
   return out;
 }
@@ -57,6 +62,70 @@ function GradeGroup({ name, label, value, onPick }: { name: string; label: strin
     </div>
     {/^[A-E]$/.test(value) ? <p className="dci-grade-site" data-testid={`${name}-site-letter`}>
       مشتری در سایت «{value}» زده است؛ زیررتبه را بپرسید و یکی از {value}۱ تا {value}۳ را بزنید.</p> : null}
+  </div>;
+}
+
+function RetiredKindPick({ name, value, onPick }: { name: string; value: string; onPick: (v: string) => void }) {
+  return <>
+    <div className="dci-rkinds" role="radiogroup" aria-label="نوع بازنشستگی" data-testid={name}>
+      {RETIRED_KIND_OPTS.map(([v, lab]) => (
+        <button key={v} type="button" className="dci-wchip dci-rkind" data-k={name} data-v={v}
+          role="radio" aria-checked={value === v} onClick={() => onPick(v)}>{lab}</button>
+      ))}
+    </div>
+    {!isRetiredKind(value) ? <p className="dci-rkind-err" role="alert" data-testid={`${name}-err`}>{RETIRED_KIND_ERR}</p> : null}
+  </>;
+}
+
+function BouncedSplit({ st, onPick }: { st: FileState; onPick: (v: "no" | "cheque" | "overdue") => void }) {
+  const no = st.has_cheque_bounced === "no" && st.has_overdue === "no" || (st.has_bounced_or_overdue === "no" && st.has_cheque_bounced !== "yes" && st.has_overdue !== "yes");
+  const cheque = st.has_cheque_bounced === "yes";
+  const overdue = st.has_overdue === "yes";
+  const on = { no, cheque, overdue };
+  return <div className="dci-wchips" role="group" aria-label="چک برگشتی / معوق" data-testid="dci-bounced-split">
+    {BOUNCED_SPLIT_OPTS.map(([v, lab]) => (
+      <button key={v} type="button" className="dci-wchip" data-k="bounced_split" data-v={v}
+        aria-pressed={on[v as keyof typeof on]} onClick={() => onPick(v as "no" | "cheque" | "overdue")}>{lab}</button>
+    ))}
+  </div>;
+}
+
+function patchOverdue(st: FileState, i: number, patch: Partial<OverdueRow>): FileState {
+  const rows = (st.overdue_rows || []).map((r, j) => j === i ? { ...r, ...patch } : r);
+  return { ...st, overdue_rows: rows };
+}
+
+function OverdueEditor({ st, set }: { st: FileState; set: (p: Partial<FileState> | FileState) => void }) {
+  const rows = st.overdue_rows?.length ? st.overdue_rows : [emptyOverdueRow()];
+  const setRows = (next: OverdueRow[]) => set({ overdue_rows: next });
+  return <div className="dci-odue" data-testid="dci-odue">
+    <p className="dci-odue-h">جزئیات معوق</p>
+    {rows.map((row, i) => (
+      <div key={i} className="dci-odue-row" data-testid={`dci-odue-row-${i}`}>
+        <label className="dci-odue-f">
+          <span>مبلغ (تومان)</span>
+          <input className="dci-inp" inputMode="numeric" autoComplete="off" value={formatTomanFa(row.amount_toman)}
+            onChange={(e) => set(patchOverdue({ ...st, overdue_rows: rows }, i, { amount_toman: toLatinDigits(e.target.value).replace(/\D/g, "") }))} />
+        </label>
+        <label className="dci-odue-f">
+          <span>بانک</span>
+          <select className="dci-inp" value={row.bank} onChange={(e) => set(patchOverdue({ ...st, overdue_rows: rows }, i, { bank: e.target.value, bank_other: e.target.value === "other" ? row.bank_other : "" }))}>
+            <option value="">انتخاب بانک</option>
+            {IR_BANKS.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
+          </select>
+        </label>
+        {row.bank === "other" ? <label className="dci-odue-f">
+          <span>نام بانک</span>
+          <input className="dci-inp" autoComplete="off" value={row.bank_other} onChange={(e) => set(patchOverdue({ ...st, overdue_rows: rows }, i, { bank_other: e.target.value }))} />
+        </label> : null}
+        <label className="dci-odue-f">
+          <span>یادداشت (اختیاری)</span>
+          <input className="dci-inp" autoComplete="off" value={row.note} onChange={(e) => set(patchOverdue({ ...st, overdue_rows: rows }, i, { note: e.target.value }))} />
+        </label>
+        {rows.length > 1 ? <button type="button" className="btn gh dci-odue-del" onClick={() => setRows(rows.filter((_, j) => j !== i))}>حذف</button> : null}
+      </div>
+    ))}
+    <button type="button" className="btn gh" data-testid="dci-odue-add" onClick={() => setRows([...rows, emptyOverdueRow()])}>افزودن بانک دیگر</button>
   </div>;
 }
 
@@ -106,7 +175,9 @@ function stepBody(id: WizStep, st: FileState, set: (patch: Partial<FileState> | 
     </>;
   }
   if (id === "job") return <Field title="شغل">
-    <ChipGroup name="job_status" opts={JOB_OPTS} value={st.job_status} label="شغل" onPick={(v) => set({ job_status: v })} />
+    <ChipGroup name="job_status" opts={JOB_OPTS} value={st.job_status} label="شغل"
+      onPick={(v) => set({ job_status: v, retired_kind: v === "retired" ? st.retired_kind : "" })} />
+    {st.job_status === "retired" ? <RetiredKindPick name="retired_kind" value={st.retired_kind} onPick={(v) => set({ retired_kind: v })} /> : null}
   </Field>;
   if (id === "mil") return <>
     <Field title="پایان خدمت">
@@ -114,8 +185,8 @@ function stepBody(id: WizStep, st: FileState, set: (patch: Partial<FileState> | 
         onPick={(v) => set({ has_military_card: v })} />
     </Field>
     <Field title="چک برگشتی / معوق">
-      <ChipGroup name="has_bounced_or_overdue" opts={BOUNCED_OPTS} value={st.has_bounced_or_overdue} label="چک برگشتی / معوق"
-        onPick={(v) => set({ has_bounced_or_overdue: v })} />
+      <BouncedSplit st={st} onPick={(v) => set(applyBouncedPick(st, v))} />
+      {st.has_overdue === "yes" ? <OverdueEditor st={st} set={set} /> : null}
     </Field>
   </>;
   if (id === "rank") return <>
@@ -148,7 +219,8 @@ function stepBody(id: WizStep, st: FileState, set: (patch: Partial<FileState> | 
   if (id === "gjr") return <>
     <Field title="شغل ضامن">
       <ChipGroup name="g_job_status" opts={JOB_OPTS} value={st.g_job_status} label="شغل ضامن"
-        onPick={(v) => set({ g_job_status: v })} />
+        onPick={(v) => set({ g_job_status: v, g_retired_kind: v === "retired" ? st.g_retired_kind : "" })} />
+      {st.g_job_status === "retired" ? <RetiredKindPick name="g_retired_kind" value={st.g_retired_kind} onPick={(v) => set({ g_retired_kind: v })} /> : null}
     </Field>
     <GradeGroup name="g_credit_rank" label="رتبه‌ی اعتبارسنجی ضامن" value={st.g_credit_rank}
       onPick={(v) => set({ g_credit_rank: v })} />
@@ -216,13 +288,16 @@ export function FileWizard({ customerId, userId, startStep, onDone }: {
       if (prev) setStepId(prev);
       return;
     }
+    const leaveErr = stepLeaveError(id, st);
+    if (leaveErr) { setErr(leaveErr); return; }
+    setErr("");
     if (idx < n - 1) {
       setStepId(steps[idx + 1]);
       return;
     }
     setBusy(true); setErr("");
     try {
-      const payload = hasGuarantor(st) ? st : { ...st, g_job_status: "", g_credit_rank: "", g_conditions: "" };
+      const payload = hasGuarantor(st) ? st : { ...st, g_job_status: "", g_retired_kind: "", g_credit_rank: "", g_conditions: "" };
       const card = await saveDossier(customerId, payload, { final: true });
       qc.setQueryData(fileCardKey(customerId), card);
       void qc.invalidateQueries({ queryKey: fileCardKey(customerId) });
@@ -254,9 +329,34 @@ export function FileWizard({ customerId, userId, startStep, onDone }: {
   </div>;
 }
 
+function OverdueCards({ st }: { st: FileState }) {
+  const rows = (st.overdue_rows || []).filter((r) => r.amount_toman || r.bank || r.note);
+  if (st.has_overdue !== "yes" || !rows.length) return null;
+  return <ul className="dci-odue-cards" data-testid="dci-odue-cards">
+    {rows.map((r, i) => (
+      <li key={i} className="dci-odue-card">
+        <b>{formatTomanFa(r.amount_toman)} تومان</b>
+        <span>{bankLabel(r)}</span>
+        {r.note ? <p>{r.note}</p> : null}
+      </li>
+    ))}
+  </ul>;
+}
+
+function KvDd({ value, fromSite, unknown, onUnknown }: { value: string; fromSite?: boolean; unknown?: boolean; onUnknown?: () => void }) {
+  const site = fromSite ? <i className="fsite">از سایت</i> : null;
+  if (unknown) {
+    return <>
+      <button type="button" className="dci-unk-job" data-testid="dci-unk-job" onClick={onUnknown}>{RETIRED_KIND_UNKNOWN}</button>
+      {site}
+    </>;
+  }
+  return <>{value}{site}</>;
+}
+
 export function FileBox({ customerId, onOpen, wizard, startStep }: {
   customerId: number;
-  onOpen: (mode: "new" | "edit") => void;
+  onOpen: (mode: "new" | "edit", startStep?: WizStep) => void;
   wizard?: ReactNode;
   startStep?: WizStep;
 }) {
@@ -296,7 +396,10 @@ export function FileBox({ customerId, onOpen, wizard, startStep }: {
           <dl className="dci-kv dci-kv-2" data-testid="dci-ask-kv">{askRows.map((r) => <div key={r.key} className={r.from === "ask" ? "ask" : r.from === "site" ? "from" : undefined}
             data-testid={`dci-kv-${r.key}`} data-from={r.from}>
             <dt>{r.label}</dt>
-            <dd>{r.from === "ask" ? <span className="ask-v">بپرسید</span> : <>{r.value}{r.from === "site" ? <i className="fsite">از سایت</i> : null}</>}</dd>
+            <dd>{r.from === "ask" ? <span className="ask-v">بپرسید</span> : <KvDd value={r.value} fromSite={r.from === "site"}
+              unknown={r.key === "job_status" && jobKindUnknown(st.job_status, st.retired_kind) || r.key === "g_job_status" && jobKindUnknown(st.g_job_status, st.g_retired_kind)}
+              onUnknown={() => onOpen("new", r.key === "g_job_status" ? "gjr" : "job")} />}</dd>
+            {r.key === "has_bounced_or_overdue" ? <OverdueCards st={st} /> : null}
           </div>)}</dl>
           {(st.customer_note || st.note) ? <div className="dci-filenotes">
             {st.customer_note ? <div className="dci-fnote"><span className="dci-fnote-k">یادداشت مشتری</span><p>{st.customer_note}</p></div> : null}
@@ -308,14 +411,14 @@ export function FileBox({ customerId, onOpen, wizard, startStep }: {
           <button className="btn pri" type="button" id="dci-file-open" data-testid="dci-file-open" onClick={() => onOpen("new")}>تکمیل پرونده</button>
         </> : !complete ? <>
           {siteHint ? <p className="dci-site-hint">بخشی از اطلاعات را مشتری در سایت پر کرده است.</p> : null}
-          {rows.length ? <dl className="dci-kv dci-kv-2">{rows.map((r) => <div key={r.key}><dt>{r.label}</dt><dd>{r.value}</dd></div>)}</dl> : null}
+          {rows.length ? <dl className="dci-kv dci-kv-2">{rows.map((r) => <div key={r.key}><dt>{r.label}</dt><dd><KvDd value={r.value} unknown={r.key === "job_status" && jobKindUnknown(st.job_status, st.retired_kind) || r.key === "g_job_status" && jobKindUnknown(st.g_job_status, st.g_retired_kind)} onUnknown={() => onOpen("new", r.key === "g_job_status" ? "gjr" : "job")} /></dd>{r.key === "has_bounced_or_overdue" ? <OverdueCards st={st} /> : null}</div>)}</dl> : null}
           {(st.customer_note || st.note) ? <div className="dci-filenotes">
             {st.customer_note ? <div className="dci-fnote"><span className="dci-fnote-k">یادداشت مشتری</span><p>{st.customer_note}</p></div> : null}
             {st.note ? <div className="dci-fnote"><span className="dci-fnote-k">یادداشت کارشناس</span><p>{st.note}</p></div> : null}
           </div> : null}
           <button className="btn pri" type="button" id="dci-file-open" data-testid="dci-file-open" onClick={() => onOpen("new")}>تکمیل پرونده</button>
         </> : <>
-          {rows.length ? <dl className="dci-kv dci-kv-2">{rows.map((r) => <div key={r.key}><dt>{r.label}</dt><dd>{r.value}{fromSite(r.key) ? <i className="fsite">از سایت</i> : null}</dd></div>)}</dl> : null}
+          {rows.length ? <dl className="dci-kv dci-kv-2">{rows.map((r) => <div key={r.key}><dt>{r.label}</dt><dd><KvDd value={r.value} fromSite={fromSite(r.key)} unknown={r.key === "job_status" && jobKindUnknown(st.job_status, st.retired_kind) || r.key === "g_job_status" && jobKindUnknown(st.g_job_status, st.g_retired_kind)} onUnknown={() => onOpen("edit", r.key === "g_job_status" ? "gjr" : "job")} /></dd>{r.key === "has_bounced_or_overdue" ? <OverdueCards st={st} /> : null}</div>)}</dl> : null}
           {long ? <button type="button" className="btn gh" id="dci-file-more" data-testid="dci-file-more" onClick={() => setShowAll((v) => !v)}>
             {showAll ? "نمایش کمتر" : "نمایش همه"}
           </button> : null}
