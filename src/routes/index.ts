@@ -79,6 +79,7 @@ import linkPageRouter from "./link-page";
 import salesTeamsRouter from "./sales-teams";
 import salesPerformanceRouter from "./sales-performance";
 import baleBotRouter from "./bale-bot";
+import baleWorkspaceRouter from "./bale-workspace";
 import voipTaskHoldRouter from "./voip-task-hold";
 import customerNameEditRouter from "./customer-name-edit";
 import customerPhonesRouter from "./customer-phones";
@@ -179,5 +180,6 @@ router.use(smcValidityRouter);
 router.use(salesTeamsRouter); // multi-team v1 (flag.multi_team_v1, OFF → falls through)
 router.use(salesPerformanceRouter); // sales-performance v1 (flag.sales_performance_v1, OFF → 404)
 router.use(baleBotRouter); // Bale bot inbox v1.0 (flag.bale_bot, OFF → falls through, no network)
+router.use(baleWorkspaceRouter); // «فضای کار بله» v1.0 (flag.bale_workspace_v1, OFF → falls through, no schema, no sends)
 
 export default router;

@@ -35,3 +35,38 @@ export function mountBaleAutoreplyRunner(runner: import("express").Router, h: Sc
   runner.get("/bale/ar-chats/:id/messages", (req, res) => bale.runnerArChats(req, res));
   runner.get("/customers/:id/documents", (req, res) => bale.runnerDocuments(req, res, h));
 }
+
+/* «فضای کار بله» v1.0 (flag.bale_workspace_v1): the invite's two legs. Nothing here runs unless an expert / manager presses «دعوت به بله»
+ * while the flag is ON. Bale = the customer's expert's own connected account through the normal outbox (scope, caps, quiet hours, banned
+ * words — expert_command + sendNow, exactly like «بفرست»); never a session (re)connect. SMS = IPPanel PATTERN through the existing local relay
+ * (bws.invite_sms_pattern; empty → «not_configured», nothing is sent). No paid / commercial Bale API. */
+import { setBwsInviteTransport } from "../lib/bale-workspace";
+import { getNotificationSettings } from "../lib/customer-notifications";
+import { sendPatternViaRelay } from "../lib/expert-intro-sms-core";
+setBwsInviteTransport({
+  async bale(o) {
+    const a = crmDb.prepare("SELECT id, status FROM bale_accounts WHERE user_id=? AND kind<>'system_test'").get(o.ownerUserId) as { id: number; status: string } | undefined;
+    if (!a || a.status !== "connected") return { state: "not_connected" };
+    const r = bale._internal.outbox.enqueue({ accountId: a.id, customerId: o.customerId, text: o.text, source: "expert_command", explicit: true, createdBy: o.actorUserId, sendNow: true });
+    if (r.status === "blocked") return { state: "blocked", reason: r.reason };
+    return { state: "queued", ref: String(r.outboxId) };
+  },
+  baleState(ref) {
+    const o = crmDb.prepare("SELECT status, error FROM bale_outbox WHERE id=?").get(Number(ref)) as { status: string; error: string | null } | undefined;
+    if (!o) return { state: "failed" };
+    if (o.status === "sent") return { state: "sent" };
+    if (o.status === "failed") return { state: o.error === "no_bale_account" ? "no_bale" : "failed" };
+    if (o.status === "blocked" || o.status === "cancelled") return { state: "failed" };
+    return { state: "queued" };
+  },
+  async sms(o) {
+    if (!o.pattern) return { state: "not_configured" };
+    if (process.env.SMS_DISABLED === "1") return { state: "disabled" };
+    const s = getNotificationSettings(); if (!s.ippanelEnabled) return { state: "disabled" };
+    try {
+      const id = await sendPatternViaRelay({ recipient: o.phone, patternCode: o.pattern, params: { name: o.name.trim().slice(0, 80) } },
+        { relayUrl: s.ippanelRelayUrl, fromNumber: s.ippanelFromNumber, secret: process.env.IR_RELAY_SHARED_SECRET });
+      return { state: "sent", ref: id };
+    } catch { return { state: "failed" }; }
+  },
+});
