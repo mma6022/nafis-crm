@@ -206,8 +206,6 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     fetchImpl: ctx.fetchImpl, sleep: ctx.sleep, log: ctx.log,
   });
   const hasTable = (n: string) => Boolean(row("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", n));
-  /** «فضای کار بله» v1.0 (Mohammad t381s1476): while flag.bale_workspace_v1 = '1' the no-account text is «این شماره بله ندارد». OFF → today's text. */
-  const noBaleText = () => { try { return (row<{ value: string }>("SELECT value FROM call_queue_settings WHERE key='flag.bale_workspace_v1'")?.value === "1") ? "این شماره بله ندارد" : BLOCK_FA.no_bale_account; } catch { return BLOCK_FA.no_bale_account; } };
 
   /** Bell row (site_notification_events) addressed to one user; actor_key set so the request-local trigger leaves it alone. */
   const bellReady = () => {
@@ -692,7 +690,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
         autoStop(a, code, o.customer_id);
       } else if (code === "peer_not_found") {
         run("UPDATE bale_outbox SET status='failed', error='no_bale_account', updated_at=? WHERE id=?", t, o.id);
-        bell(a.user_id, o.customer_id, "bale-failed", "پیام بله فرستاده نشد", noBaleText());
+        bell(a.user_id, o.customer_id, "bale-failed", "پیام بله فرستاده نشد", BLOCK_FA.no_bale_account);
       } else if (["sidecar_unavailable", "sidecar_not_configured", "not_attached"].includes(code) && o.attempts + 1 < BALE_MAX_ATTEMPTS) {
         run("UPDATE bale_outbox SET status='queued', scheduled_at=?, error=?, updated_at=? WHERE id=?", new Date(now().getTime() + 60_000 * (o.attempts + 1)).toISOString(), code, t, o.id);
       } else {
@@ -875,7 +873,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
   function itemView(o: any, viewerIsOwner: boolean) {
     return { id: o.id, customerId: o.customer_id, status: o.status, source: o.source, sourceLabel: o.source === "auto_reply" ? autoLabel(o) : SOURCE_FA[o.source] ?? o.source, text: o.text, arKind: o.ar_kind ?? null,
       reason: o.reason ?? null, blockReason: o.block_reason ?? null, blockMessage: o.block_reason ? BLOCK_FA[o.block_reason as BaleBlockReason] ?? null : null,
-      error: o.error ?? null, errorMessage: o.error ? (o.error === "no_bale_account" ? noBaleText() : BLOCK_FA[o.error as keyof typeof BLOCK_FA] ?? BLOCK_FA.send_failed) : null,
+      error: o.error ?? null, errorMessage: o.error ? BLOCK_FA[o.error as keyof typeof BLOCK_FA] ?? BLOCK_FA.send_failed : null,
       scheduledAt: o.scheduled_at ?? null, sendNow: Boolean(o.send_now), sentAt: o.sent_at ?? null, createdAt: o.created_at, newChat: Boolean(o.is_new_chat),
       canAct: viewerIsOwner && ["pending_approval", "queued"].includes(o.status), attachment: attachmentView(o) };
   }

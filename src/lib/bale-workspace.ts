@@ -2,7 +2,7 @@
  * «فضای کار بله» v1.0 — Armita's design nafis-design/mockups/bale-workspace (spec.md, sections الف–ز), built behind ONE flag that stays OFF.
  * Mohammad approved building it (only building it) on t382s1481; his answers on t381s1476:
  *   - all parts (الف … ز) together;
- *   - no Bale account → the invite SMS still goes AND the expert sees «این شماره بله ندارد» (that text replaces the old no-account text);
+ *   - no Bale account → the invite SMS still goes AND the expert sees «این شماره بله ندارد» (Armita 2026-11-18: ONLY the invite error says this; the login «sign_up_needed» text and the outbox no-account text stay as live);
  *   - bulk + scenarios: sales manager + admin only; an expert sends single messages, ready-made messages and invites only;
  *   - bulk: no daily cap;
  *   - a customer writing «لغو» / «توقف» changes nothing (no opt-out list, nobody is removed from any list);
@@ -28,10 +28,15 @@ export const BWS_FLAG = "flag.bale_workspace_v1";
 export const BWS_GHASEMI_USER_ID = 3;
 export const BWS_NEVER_USER_IDS = [...BB_EXCLUDED_USER_IDS]; // 29
 export const BWS_NO_BALE_TEXT = "این شماره بله ندارد";
+/** Mohammad t383s1491 — the invite SMS pattern as it must be registered in IPPanel BY HAND (this code never registers it and never calls IPPanel
+ *  for it). Until a pattern code is saved in «مدیریت فروش» the SMS leg is «تنظیم نشده» (not_configured) and nothing is sent.
+ *  Variable mapping: {نام} in the text = IPPanel variable «name» (sent as params.name) ← the customer's name. */
+export const BWS_INVITE_SMS_PATTERN_TEXT = "سلام {نام}، برای ادامه‌ی گفتگو با کارشناس نفیس وام، ربات @nafisvambot را در بله باز کنید.";
+export const BWS_INVITE_SMS_PATTERN_VARS = [{ token: "{نام}", ippanel: "name", source: "customer.name" }] as const;
 export const BWS_DEFAULT_INVITE = "سلام {name}، برای ادامه از ربات بلهٔ نفیس وام پیام بدهید.";
 export const BWS_TRAINING_MAX_BYTES = 50 * 1024 * 1024;
 /** Automatic / bulk / no-reply sends only between these Tehran hours (the expert's own single sends are not held). */
-export const BWS_SEND_HOURS = { from: 8 * 60, to: 21 * 60 } as const;
+/** Mohammad t383s1491: scenario messages have NO time window (the earlier 8:00–21:00 limit is removed). */
 export const BWS_BULK_PER_TICK = 20;
 
 const setting = (k: string): string | null => { try { return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [k])?.value ?? null; } catch { return null; } };
@@ -63,6 +68,8 @@ export function ensureBwsSchema(): void {
       recipients INTEGER, created_by INTEGER, confirmed_by INTEGER, confirmed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS bws_scenario_sends(id INTEGER PRIMARY KEY AUTOINCREMENT, scenario_id INTEGER NOT NULL, chat_row INTEGER NOT NULL, stage TEXT NOT NULL,
       ref_msg INTEGER NOT NULL DEFAULT 0, message_id INTEGER, at TEXT NOT NULL, UNIQUE(scenario_id, chat_row, stage, ref_msg));
+    CREATE TABLE IF NOT EXISTS bws_handoffs(id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, owner_user_id INTEGER NOT NULL, owner_salesperson_id INTEGER NOT NULL,
+      chat_row INTEGER, scenario_id INTEGER, day TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(customer_id, owner_salesperson_id, day));
     CREATE TABLE IF NOT EXISTS bws_log(id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, user_id INTEGER, action TEXT NOT NULL, outcome TEXT NOT NULL, detail TEXT);
   `);
   schemaReady = true;
@@ -356,8 +363,9 @@ export function scenarioSetStatus(u: BbUser, id: number, to: "paused" | "active"
   if (n) bwsLog(u.id, `scenario.${to}`, "ok", { id });
   return n > 0;
 }
-const tehranMin = (d = new Date()) => { const [h, m] = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tehran", hour: "2-digit", minute: "2-digit", hour12: false }).format(d).split(":").map(Number); return (h % 24) * 60 + m; };
-export const inSendHours = (d = new Date()) => { const m = tehranMin(d); return m >= BWS_SEND_HOURS.from && m < BWS_SEND_HOURS.to; };
+/** Kept for the preview payload: always true (no time window, t383s1491). */
+export const inSendHours = (_d = new Date()) => true;
+const tehranDay = (d = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 function scenarioMessage(s: Scenario, chat: BwsChat): { text: string; file?: { name: string; mime: string; size: number; rel: string; sendAs: string } } {
   const cust = chat.customer_id ? queryRow<{ name: string }>("SELECT name FROM customers WHERE id=?", [chat.customer_id])?.name : null;
   let text = fill(s.body, cust || chatName(chat));
@@ -370,12 +378,11 @@ function scenarioMessage(s: Scenario, chat: BwsChat): { text: string; file?: { n
 }
 const lastMsg = (chatRow: number) => queryRow<{ id: number; dir: string; status: string | null; at: string }>(
   "SELECT id, dir, status, COALESCE(sent_at, created_at) at FROM bale_bot_messages WHERE chat_row=? AND deleted_at IS NULL ORDER BY id DESC LIMIT 1", [chatRow]);
-/** One pass: bulk (≤ BWS_BULK_PER_TICK), no-reply Y then hand-off, auto (first inbound after confirm). Never sends while OFF or outside send hours. */
+/** One pass: bulk (≤ BWS_BULK_PER_TICK), no-reply Y then hand-off, auto (first inbound after confirm). Never sends while OFF. No time window (t383s1491). */
 export function bwsTick(now = new Date()): { bulk: number; noreply: number; handoff: number; auto: number } {
   const out = { bulk: 0, noreply: 0, handoff: 0, auto: 0 };
   if (!bwsOn()) return out;
   ensureBwsSchema();
-  if (!inSendHours(now)) return out;
   const t = now.toISOString();
   for (const s of scenarioList().filter(x => x.status === "active")) {
     if (s.kind === "bulk") {
@@ -399,7 +406,10 @@ export function bwsTick(now = new Date()): { bulk: number; noreply: number; hand
           // still no reply after Y → hand the chat to its expert (in-app notice), once per Y
           if (!queryRow("SELECT 1 FROM bws_scenario_sends WHERE scenario_id=? AND chat_row=? AND stage='handoff' AND ref_msg=?", [s.id, c.id, last.id])) {
             const owner = Number(c.owner_id) || null;
-            if (owner && !BWS_NEVER_USER_IDS.includes(owner)) execute("INSERT INTO bale_bot_notices(user_id,kind,chat_row,customer_id,actor_user_id,at) VALUES(?,?,?,?,?,?)", [owner, "bws_noreply", c.id, c.customer_id, null, t]);
+            if (owner && !BWS_NEVER_USER_IDS.includes(owner)) {
+              execute("INSERT INTO bale_bot_notices(user_id,kind,chat_row,customer_id,actor_user_id,at) VALUES(?,?,?,?,?,?)", [owner, "bws_noreply", c.id, c.customer_id, null, t]);
+              bwsHandoffToToday(owner, c, s.id, now);
+            }
             execute("INSERT OR IGNORE INTO bws_scenario_sends(scenario_id,chat_row,stage,ref_msg,at) VALUES(?,?,'handoff',?,?)", [s.id, c.id, last.id, t]); out.handoff++;
           }
           continue;
@@ -420,12 +430,25 @@ export function bwsTick(now = new Date()): { bulk: number; noreply: number; hand
   return out;
 }
 
+/** t383s1491: the hand-off also puts the customer on that expert's «کارهای امروز» (daily plan picks bws_handoffs up like a referral, rank 1).
+ *  expert_lockdown: only the expert's OWN customer (customers.salesperson_id = the expert's salesperson id, not merged); otherwise the in-app notice only. */
+export function bwsHandoffToToday(ownerUserId: number, c: BwsChat, scenarioId: number, now = new Date()): boolean {
+  if (!c.customer_id || BWS_NEVER_USER_IDS.includes(ownerUserId)) return false;
+  const sp = queryRow<{ salesperson_id: number | null; active: number | null }>("SELECT salesperson_id, active FROM users WHERE id=?", [ownerUserId]);
+  if (!sp?.salesperson_id || sp.active === 0) return false;
+  if (!queryRow("SELECT 1 FROM customers WHERE id=? AND salesperson_id=? AND merged_into_customer_id IS NULL", [c.customer_id, sp.salesperson_id])) { bwsLog(null, "handoff.today", "not_own", { chat: c.id }); return false; }
+  const n = executeChanges("INSERT OR IGNORE INTO bws_handoffs(customer_id,owner_user_id,owner_salesperson_id,chat_row,scenario_id,day,created_at) VALUES(?,?,?,?,?,?,?)",
+    [c.customer_id, ownerUserId, sp.salesperson_id, c.id, scenarioId, tehranDay(now), now.toISOString()]);
+  if (n) bwsLog(null, "handoff.today", "ok", { chat: c.id, customer: c.customer_id });
+  return n > 0;
+}
+
 /* ---------------- admin state ---------------- */
 export function adminState() {
   return { inviteText: inviteText(), inviteDefault: BWS_DEFAULT_INVITE, smsPattern: setting(K.smsPattern) ?? "", autoOn: setting(K.autoOn) === "1",
     plans: plans().filter(p => p.active).map(p => ({ id: p.id, name: p.name, terms: termsOf(p.id) ?? "" })),
     scenarios: scenarioList(), training: trainingList({ includeInactive: false }),
     experts: queryRows<any>(`SELECT b.user_id id, u.full_name, u.username FROM bale_bots b JOIN users u ON u.id=b.user_id WHERE b.user_id NOT IN (${[BWS_GHASEMI_USER_ID, ...BWS_NEVER_USER_IDS].join(",")}) ORDER BY b.user_id`).map(e => ({ id: e.id, name: nameOf(e) })),
-    sendHours: "۸ تا ۲۱" };
+    sendHours: null, smsPatternText: BWS_INVITE_SMS_PATTERN_TEXT, smsPatternVars: BWS_INVITE_SMS_PATTERN_VARS };
 }
 export { setSetting };
