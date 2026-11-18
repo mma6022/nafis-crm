@@ -4,15 +4,16 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { Link } from 'wouter';
-import { Kanban, LayoutList, Phone, FolderOpen } from 'lucide-react';
+import { Kanban, LayoutList, Phone, FolderOpen, Plus } from 'lucide-react';
 import { useMinWidth } from '@/pages/customers-ui';
-import { useGetAuthSession, useUpdateCustomer, getGetAuthSessionQueryKey } from '@workspace/api-client-react';
+import { useUpdateCustomer } from '@workspace/api-client-react';
 import { toPersianDigits } from '@/lib/customer-id';
 import { useCpkOn, listMyCustomersKanban } from '@/features/customers-priority-kanban/api';
 import { CustomersKanban, type CpkCustomer } from '@/features/customers-priority-kanban/CustomersKanban';
-import { CPK_PAGE, faNum, readCpkView, writeCpkView, type CpkView } from '@/features/customers-priority-kanban/helpers';
+import { CPK_PAGE, faNum, type CpkView } from '@/features/customers-priority-kanban/helpers';
 import { sfApi, fa, faDay, PRIO_FA } from './api';
 import { SfSearchButton } from './SearchOverlay';
+import { IncomingWizard } from '@/features/expert-lockdown/IncomingWizard';
 import '@/pages/customers.css';
 import './sf480.css';
 
@@ -24,14 +25,16 @@ const STATUS_TABS: Array<{ value: string; label: string }> = [
   { value: '', label: 'همه' },
 ];
 
+export const MY_CUSTOMERS_DEFAULT_VIEW: CpkView = "board";
+
 export function MyCustomersPage() {
   const cpkOn = useCpkOn();
   const isDesktop = useMinWidth(1024);
-  const session = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
-  const userId = session.data?.user?.id;
-  const [view, setView] = useState<CpkView>('table');
-  useEffect(() => { if (cpkOn) setView(readCpkView(userId)); }, [cpkOn, userId]);
-  const setAndRemember = (v: CpkView) => { setView(v); writeCpkView(userId, v); };
+  // t853u: board is the default for everyone. List only when the user picks it.
+  // Remember at most for this visit (component state); leaving the page falls back to the board. No localStorage.
+  const [view, setView] = useState<CpkView>(MY_CUSTOMERS_DEFAULT_VIEW);
+  const [formOpen, setFormOpen] = useState(false);
+  const setAndRemember = (v: CpkView) => { setView(v); };
 
   const [q, setQ] = useState(''); const [dq, setDq] = useState(''); const [off, setOff] = useState(0);
   const [status, setStatus] = useState('in_progress');
@@ -75,6 +78,7 @@ export function MyCustomersPage() {
     return <div className="sf-mc-page cpk-on-board" data-testid="sf-my-customers" dir="rtl">
       <div className="sf-kb-h">
         <h1>مشتریان من</h1>
+        <button type="button" className="csx-primary" onClick={() => setFormOpen(true)} data-testid="sf-mc-new"><Plus size={16} aria-hidden="true" /> ثبت مشتری جدید</button>
         <span className="sf-sp" />
         <div className="csx-viewseg cpk-show" role="group" aria-label="نوع نمایش">
           <button type="button" className={view === 'table' ? 'active' : ''} aria-pressed={view === 'table'} onClick={() => setAndRemember('table')} data-testid="btn-view-table"><LayoutList size={17} aria-hidden="true" /> فهرست</button>
@@ -104,12 +108,14 @@ export function MyCustomersPage() {
         fetchPage={fetchPage}
         cardHref={(c) => `/today?customer=${c.id}`}
       />
+      {formOpen ? <IncomingWizard startNew currentNo={null} onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); void qc.invalidateQueries({ queryKey: ['sf480-my-customers'] }); }} /> : null}
     </div>;
   }
 
   return <div className="sf-mc-page" data-testid="sf-my-customers">
     <div className="sf-kb-h">
       <h1>مشتریان من</h1>
+        <button type="button" className="csx-primary" onClick={() => setFormOpen(true)} data-testid="sf-mc-new"><Plus size={16} aria-hidden="true" /> ثبت مشتری جدید</button>
       {r.data ? <span className="sf-mut" data-testid="sf-mc-total">{fa(total)} مشتری</span> : null}
       <span className="sf-sp" />
       {cpkOn ? <div className="csx-viewseg cpk-show" role="group" aria-label="نوع نمایش">
@@ -135,5 +141,6 @@ export function MyCustomersPage() {
           <span className="sf-mut">{fa(off + 1)} تا {fa(Math.min(total, off + 30))} از {fa(total)}</span>
           <button type="button" className="btn btn-ghost" disabled={off + 30 >= total} onClick={() => setOff(off + 30)} data-testid="sf-mc-next">بعدی</button></div> : null}
       </>}
+      {formOpen ? <IncomingWizard startNew currentNo={null} onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); void qc.invalidateQueries({ queryKey: ['sf480-my-customers'] }); }} /> : null}
   </div>;
 }

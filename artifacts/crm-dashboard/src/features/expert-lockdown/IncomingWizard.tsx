@@ -109,14 +109,16 @@ export function IncomingTopButton({ onClick, testId }: { onClick: () => void; te
 
 const PATHS = { old: ['نوع تماس', 'شماره', 'ثبت تماس'], new: ['نوع تماس', 'شماره و نام', 'ثبت تماس'] } as const;
 
-export function IncomingWizard({ currentNo, onClose, onSaved, onEvent, presetPhone }: {
+export function IncomingWizard({ currentNo, onClose, onSaved, onEvent, presetPhone, startNew }: {
   currentNo: number | null; onClose: (why: 'cancel' | 'done') => void; onSaved: (msg: string) => void; onEvent?: (name: string) => void;
   /** SIMOTEL-132 B (flag.simotel132b only): «ثبت مشتری جدید» from an unknown-number call opens on the new-customer form with that number. Absent → unchanged. */
   presetPhone?: string;
+  /** t853u: «ثبت مشتری جدید» on «مشتریان من» opens the same new-customer step (duplicate-phone check on POST /expert-lockdown/incoming/new). */
+  startNew?: boolean;
 }) {
   const ev = (n: string) => onEvent?.(n);
-  const [step, setStep] = useState<Step>(presetPhone ? 'new_form' : 'choose');
-  const [path, setPath] = useState<'old' | 'new'>(presetPhone ? 'new' : 'old');
+  const [step, setStep] = useState<Step>(presetPhone || startNew ? 'new_form' : 'choose');
+  const [path, setPath] = useState<'old' | 'new'>(presetPhone || startNew ? 'new' : 'old');
   const [phone, setPhone] = useState(presetPhone ?? ''); const [name, setName] = useState('');
   const [cust, setCust] = useState<{ id: number; name: string } | null>(null); const [created, setCreated] = useState(false);
   const [owner, setOwner] = useState<{ name: string; notified: boolean; cust?: string; refToken?: string | null; referable?: boolean; referred?: boolean } | null>(null);
@@ -130,6 +132,7 @@ export function IncomingWizard({ currentNo, onClose, onSaved, onEvent, presetPho
     if (!force && step === 'log' && why === 'cancel') { setConfirm(true); return; }
     if (step === 'other') ev('incoming_other_closed'); onClose(why);
   };
+  useEffect(() => { if (startNew) void elApi.choose('new').catch(() => undefined); }, [startNew]);
   useEffect(() => { dlg.current?.querySelector<HTMLElement>('input:not([readonly]),.iw-opt,.tc-foot .btn-primary')?.focus(); }, [step]);
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy && !fcOpen) close(step === 'ok' ? 'done' : 'cancel'); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); });
   const backTxt = currentNo ? `برگشت به کار ${faNum(currentNo)}` : 'برگشت به کارها';
