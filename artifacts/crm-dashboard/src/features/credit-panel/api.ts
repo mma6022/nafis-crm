@@ -32,7 +32,7 @@ export type Unpaid = { name?: string; count?: number; chequeList?: Cheque[] };
 export type Colour = { chequeColor?: string; chequeColorCode?: number | string };
 export type Loans = { count?: number; info?: { name?: string; totalAmount?: number | string; debtTotalAmount?: number | string; pastExpiredTotalAmount?: number | string;
   deferredTotalAmount?: number | string; suspiciousTotalAmount?: number | string; dishonored?: number | string } };
-export type CpPartView<T> = { data: T | null; at: string | null; error: boolean };
+export type CpPartView<T> = { data: T | null; at: string | null; error: boolean; errorDetail?: string | null };
 export type CpCustomer = { name: string; nationalCodeMasked: string | null; hasNationalCode: boolean; hasBirthDate: boolean; isCompany: boolean; rank: { label: string; at: string | null } | null };
 export type CpView = {
   enabled: true; customerId: number; lastAt: string | null; validHours: number | null; validUntil: string | null; valid: boolean;

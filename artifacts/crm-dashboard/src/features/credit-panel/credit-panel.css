@@ -134,4 +134,5 @@
 .qcw-score .btn{flex:none}
 .qcw-score.off{background:var(--cp-s2);border-color:var(--cp-line)}
 .qcw-score.off .qcw-score-t b{color:var(--cp-muted)}
+.qcw-score-why{margin:0;font-size:12px;font-weight:600;color:var(--cp-muted);line-height:1.5}
 .qcw-chip{display:inline-flex;align-items:center;min-height:24px;padding:0 10px;border-radius:999px;background:#fff;border:1px solid var(--cp-line2);color:var(--cp-muted);font-size:12px;font-weight:700}

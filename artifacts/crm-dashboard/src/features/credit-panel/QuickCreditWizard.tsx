@@ -74,7 +74,8 @@ export function QuickCreditWizard({ onClose, customer: fixed }: { onClose: () =>
   const scoreRow = cust ? (icc && score
     ? <div className="cpc-score" data-testid="qcw-score"><InstantCreditCheck customerId={cust.id} embedded hideRecent /></div>
     : <div className={`qcw-score${icc ? "" : " off"}`} data-testid="qcw-score-row" aria-disabled={!icc || undefined}>
-      <div className="qcw-score-t"><b>رتبهٔ اعتباری، نیاز به کد پیامکی مشتری</b>{icc ? null : <span className="qcw-chip" data-testid="qcw-score-state">غیرفعال</span>}</div>
+      <div className="qcw-score-t"><b>رتبهٔ اعتباری، نیاز به کد پیامکی مشتری</b>{icc ? null : <span className="qcw-chip" data-testid="qcw-score-state">غیرفعال</span>}
+        {icc ? null : <p className="qcw-score-why" data-testid="qcw-score-why">اعتبارسنجی اعتباریتو (اعتبارسنجی فوری) برای شما فعال نیست.</p>}</div>
       <button type="button" className="btn gh" disabled={!icc} onClick={() => setScore(true)} data-testid="qcw-score-btn">گرفتن رتبه</button>
     </div>) : null;
   let body;

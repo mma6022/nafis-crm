@@ -43,8 +43,8 @@ function ChequeItem({ c, open, onToggle }: { c: Cheque; open: boolean; onToggle:
   </li>;
 }
 
-function PartFail({ onRetry, busy }: { onRetry: () => void; busy: boolean }) {
-  return <div className="cpc-fail" role="alert" data-testid="cp-part-fail"><span>استعلام این بخش انجام نشد</span>
+function PartFail({ onRetry, busy, detail }: { onRetry: () => void; busy: boolean; detail?: string | null }) {
+  return <div className="cpc-fail" role="alert" data-testid="cp-part-fail"><span>{detail || "استعلام این بخش انجام نشد"}</span>
     <button type="button" className="btn gh" disabled={busy} onClick={onRetry}>تلاش دوباره</button></div>;
 }
 
@@ -118,14 +118,14 @@ export function CreditCard({ customerId, detailOpen }: { customerId: number; det
           {loans.data ? <span className={`cpc-stat${nLoans ? "" : " ok"}`} data-testid="cp-loans-n">{nLoans ? `${fa(nLoans)} وام فعال` : "وام فعال نیست"}</span> : null}
         </div>
       </div>
-      {colour.error ? <PartFail busy={Boolean(busy)} onRetry={() => void run({ only: ["chequeColor"] })} /> : null}
+      {colour.error ? <PartFail busy={Boolean(busy)} detail={colour.errorDetail} onRetry={() => void run({ only: ["chequeColor"] })} /> : null}
 
-      {loans.error ? <PartFail busy={Boolean(busy)} onRetry={() => void run({ only: ["activeLoans"] })} /> : null}
+      {loans.error ? <PartFail busy={Boolean(busy)} detail={loans.errorDetail} onRetry={() => void run({ only: ["activeLoans"] })} /> : null}
       {loans.data ? <dl className="cpc-loans" data-testid="cp-loans">
         {LOAN_ROWS.map((r) => <div key={r.k} className={`cpc-loan ${r.tone}`}><dt>{r.label}</dt><dd>{toman(loans.data?.info?.[r.k] ?? 0)}</dd></div>)}
       </dl> : null}
 
-      {unpaid.error ? <PartFail busy={Boolean(busy)} onRetry={() => void run({ only: ["unpaidChequePro"] })} /> : null}
+      {unpaid.error ? <PartFail busy={Boolean(busy)} detail={unpaid.errorDetail} onRetry={() => void run({ only: ["unpaidChequePro"] })} /> : null}
       {cheques.length ? <ul className="cpc-chqs" data-testid="cp-cheques">
         {visible.map((c, i) => <ChequeItem key={`${c.chequeNumber}-${i}`} c={c} open={Boolean(openCheques[i])} onToggle={() => setOpenCheques((o) => ({ ...o, [i]: !o[i] }))} />)}
       </ul> : null}
