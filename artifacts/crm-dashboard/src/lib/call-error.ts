@@ -3,8 +3,8 @@
 export const CALL_ERROR_GENERIC = 'ثبت تماس با خطا مواجه شد. لطفاً دوباره تلاش کنید.';
 const FA = /[\u0600-\u06FF]/;
 const BY_CODE: Record<string, string> = {
-  plan_item_required: 'برای این مشتری یک کار باز در «کارهای امروز» هست؛ تماس را از همان کارت ثبت کن.',
-  not_current_item: 'این کار، کار فعلی «کارهای امروز» نیست؛ اول کار فعلی را تمام کن.',
+  plan_item_required: 'گزارش این تماس را از کارت مشتری در «کارهای امروز» ثبت کن.',
+  not_current_item: 'این کار در «کارهای امروز» شما نیست.',
   outcome_required: 'نتیجه‌ی تماس را انتخاب کن.',
   note_required: 'یادداشت یک‌خطی را بنویس.',
   call_pending: 'اول گزارش تماس باز قبلی را ثبت کن.',

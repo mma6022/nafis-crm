@@ -678,9 +678,8 @@ export default function DailyCustomerInline() {
         });
         announceCallSaved(r.id, customerId);
         setResultOpen(false); setResultVal(emptyCqResult()); setResultShow(false);
-        flash("تلاش ثبت شد؛ این کار سر نوبت خودش باز می‌ماند. برگشت به کار جاری…", 3500);
+        flash("تلاش ثبت شد.", 2500);
         await Promise.all([boardQ.refetch(), todayQ.refetch(), remQ.refetch(), dqQ.refetch()]);
-        if (dqCur) pickDq(dqCur);
         return;
       }
       if (voipPendingNote && lastVoip) {
@@ -713,8 +712,7 @@ export default function DailyCustomerInline() {
         if (taskId) {
           try {
             const r = await dqApi.done(taskId, dqItem?.due_ref ?? null, resultVal.manual || null);
-            if (dqEarly && dqCur) { backTo = dqCur; flash("زودتر از نوبت انجام شد و در جای خودش علامت خورد. برگشت به کار جاری…", 3500); }
-            else if (r.done_early) flash("زودتر از نوبت انجام شد و در جای خودش علامت خورد.", 3000);
+            if (r.done_early) flash("نتیجه ثبت شد.", 2500);
           } catch { /* the call result is saved; the mark is cosmetic */ }
         }
       }
