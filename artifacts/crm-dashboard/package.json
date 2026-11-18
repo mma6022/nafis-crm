@@ -37,7 +37,8 @@
     "test:my-customers-t853": "node --experimental-strip-types scripts/my-customers-t853-fixture.mjs",
     "test:plan-prefix-t855": "node --experimental-strip-types scripts/plan-prefix-t855-check.mjs",
     "test:customer-extra-phones": "node --experimental-strip-types scripts/customer-extra-phones-ui-fixture.mjs",
-    "test:file-details-t854": "node --experimental-strip-types scripts/file-details-t854-ui-fixture.mjs"
+    "test:file-details-t854": "node --experimental-strip-types scripts/file-details-t854-ui-fixture.mjs",
+    "test:plans-list-t859": "node --experimental-strip-types scripts/plans-list-t859-check.mjs"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
