@@ -14,6 +14,8 @@ export type DqItem = {
   id: string; kind: DqKind; kinds: DqKind[]; block: "actual" | "potential"; blockIdx: number; urgent: boolean; done: boolean; due: boolean;
   due_at: string | null; timed: boolean; done_at: string | null; done_early: boolean; customer_id: number | null; name: string; tm: string;
   overdue: boolean; current: boolean; next: boolean; turn: number; due_ref: string | null;
+  /** «فضای کار بله» (flag.bale_workspace_v1): «بی‌پاسخ در بله» on a no-reply hand-off item; absent otherwise. */
+  tag?: string;
   itemId: number | null; dpStatus: string | null; reminderId: number | null; remText: string | null; call_id: number | null; live: boolean;
   direction: "in" | "out" | null; detected: "customer" | "lead" | "unknown" | null; payment_order_id: number | null; loan_file_id: number | null;
   pay: { id: number; amountToman: string; planName: string | null; createdAt: string; stage: string } | null;
@@ -164,6 +166,7 @@ export function DqStrip({ q, openId, flt, setFlt, onPick }: { q: DqQueue; openId
     const early = earlyMode && isOpen && !t.done && !t.urgent;
     const curMark = t.current && !t.done;
     const bits = [kindLabel(t)];
+    if (t.tag) bits.push(t.tag); // «فضای کار بله»: «بی‌پاسخ در بله» (flag.bale_workspace_v1 hand-off only)
     if (t.overdue) bits.push("عقب‌افتاده");
     if (t.done) bits.push(t.done_early ? "زودتر انجام شد" : "انجام شد");
     else if (early) bits.push("زودتر از نوبت");

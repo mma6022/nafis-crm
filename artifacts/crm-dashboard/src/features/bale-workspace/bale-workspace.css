@@ -147,9 +147,40 @@
   .bbt.bw-on .bws-tray{max-height:min(290px,calc(100dvh - var(--bws-top,150px) - var(--ss-dock-h,90px) - 300px))}
   .bbt.bw-on .bx>.pane.ch>.th{min-height:72px}
 }
-@media (max-width:1023px){ body:has(.ss-tb .dk-toggle) .bbt.bw-on{--bws-dock:calc(var(--ss-dock-h,72px) + 24px)} }
 .bws-tabhd{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;padding-bottom:8px;border-bottom:1px solid var(--nf-line,#E4E7F0);font-size:13px;color:var(--nf-ink-muted,#5F6B85)}
 .bws-tabhd b{font-size:16px;color:var(--nf-ink,#0B1450);font-weight:800}
 .bws-steplbl{display:none;margin:0;font-weight:800;color:var(--ink,#0B1450);font-size:14px}
 @media (max-width:640px){.bws-steplbl{display:block}}
 @media (min-width:1024px){.bbt.bw-on .bws-tray:has(.bws-sheet){max-height:min(520px,calc(100dvh - var(--bws-top,150px) - var(--ss-dock-h,90px) - 300px))}}
+
+/* «شرایط طرح در بله» on the plans page edit view (only rendered while the flag is ON, for managers) */
+.bws-ptb{margin:14px 0 4px;padding:14px;border:1px solid #DCE1F5;border-radius:14px;background:#F7F8FD;display:flex;flex-direction:column;gap:8px}
+.bws-ptb h4{margin:0;font-size:15px;font-weight:800;color:#1B2470}
+.bws-ptb-hint{margin:0;font-size:12.5px;line-height:1.8;color:#5B6380}
+.bws-ptb-ta{width:100%;min-height:112px;padding:10px 12px;border:1px solid #C9D0EC;border-radius:10px;background:#fff;font:inherit;font-size:14px;line-height:1.9;resize:vertical}
+.bws-ptb-ta:focus-visible{outline:2px solid #29369B;outline-offset:1px}
+.bws-ptb-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.bws-ptb-msg{flex:1;min-width:160px;font-size:12.5px;color:#5B6380}
+.bws-ptb-msg.err{color:#B42318;font-weight:700}
+.bws-ptb-save{min-height:44px}
+
+/* Armita 2026-11-18 #4: «پیام آماده» row — the chips scroll inside a faded strip and «همه» opens the full list, so it is clear there are more. */
+.bws-qrow{overflow:visible}
+.bws-qrow .bws-qscroll{flex:1;min-width:0;display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding:2px 0;
+  -webkit-mask-image:linear-gradient(to left,#000 calc(100% - 36px),transparent);mask-image:linear-gradient(to left,#000 calc(100% - 36px),transparent)}
+.bws-qrow .bws-qscroll::-webkit-scrollbar{display:none}
+.bbt .bws-qall,.bws-qall{flex:none;display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0 12px;border-radius:999px;border:1px solid var(--nf-line,#D5DBE6);background:#fff;color:var(--nf-brand-700,#212C85);font:inherit;font-weight:800;font-size:13px;cursor:pointer}
+.bbt .bws-qall small,.bws-qall small{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--nf-brand-50,#EEF0FA);font-size:11.5px;font-weight:800}
+.bbt .bws-qall:focus-visible,.bws-qall:focus-visible{outline:2px solid var(--nf-brand-600,#29369B);outline-offset:2px}
+
+/* Armita 2026-11-18 #3: on the Bale page (workspace ON, phones) the dock's round collapse button is hidden, so it never sits on «تماس‌ها». */
+@media (max-width:1023px){ body:has(.bbt.bw-on) .ss-tb .dk-toggle{display:none} body:has(.ss-tb .dk-toggle) .bbt.bw-on{--bws-dock:var(--ss-dock-h,72px)} }
+
+/* Armita 2026-11-18 #1: management pages keep their last field clear of the floating «گزارش خطا» pill (bottom 18px or above the dock, ~40px tall). */
+.bws-page{padding-bottom:calc(var(--ss-dock-h,0px) + 104px + env(safe-area-inset-bottom,0px))}
+
+/* Armita 2026-11-18 #5: «اعتبار» reuses the released credit card as is; only the outer spacing is the workspace's. */
+.bws-cp{padding:0;border:0;background:none}
+.bws-cp .cpc{margin:0}
+.smc-root .bws-pat{display:flex;flex-direction:column;gap:4px;padding:8px 10px;border-radius:10px;background:var(--surface-2,#F5F6FB)}
+.smc-root .bws-pat p{margin:0;font-size:13.5px;line-height:1.9;color:var(--ink,#0B1450)}

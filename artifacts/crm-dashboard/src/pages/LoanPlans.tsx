@@ -26,6 +26,7 @@ import { ErrorState, formatDate, SkeletonPanel } from '@/components/CrmShell';
 import { EmptyState, Modal } from '@/components/DataTools';
 import { CHECK_KIND_LABEL, encodeSide, NO_REQUIREMENTS, requirementsText, sideRequirements, type SideRequirements } from '@/lib/plan-requirements';
 import { BalePlanFileBadge, BalePlanFileBox } from '@/features/bale/BalePlanFilePanel';
+import { BwsPlanTermsBox } from '@/features/bale-workspace/PlanTermsBox'; // «فضای کار بله» و (flag.bale_workspace_v1; nothing while OFF)
 import { PlanRateAlerts, PlanRateFacts, planRateKeys } from '@/features/plan-rates/PlanRatePanel';
 import { Choice, faDigits, formatToman, LockBadge, TomanInput, WizardProgress, YES_NO, yn } from '@/components/plans-consult/parts';
 
@@ -190,6 +191,12 @@ export default function LoanPlans() {
   const plans = list.data ?? [];
   const selected = detail.data ?? plans.find((plan) => plan.id === selectedId) ?? null;
   const { can } = useMe();
+  const bwsPlanOpened = useRef(false);
+  useEffect(() => {
+    if (bwsPlanOpened.current || !plans.length) return;
+    const id = Number(new URLSearchParams(window.location.search).get('bws-plan')); if (!id) return;
+    const p = plans.find((x) => x.id === id); bwsPlanOpened.current = true; if (p) { setSelectedId(p.id); setEditing(p); }
+  }, [plans]);
   const canGoodsFinance = can('goods_finance.manage');
   const [goodsError, setGoodsError] = useState('');
   const persistGoods = async (planId: number, data: LoanPlanInput, goods: GoodsPlanForm) => {
@@ -692,6 +699,7 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
           </dl></div>
         </div> : null}
       </form>
+      {plan?.id && current.key === 'basics' ? <BwsPlanTermsBox planId={plan.id} planName={plan.name} /> : null}
       <div ref={goodsRef} hidden={current.key !== 'goods'}>
         <GoodsPlanSettingsFields planId={plan?.id} value={goods} onChange={setGoods} templates={templates} enabled={isGoodsPlan && canGoodsFinance} />
       </div>

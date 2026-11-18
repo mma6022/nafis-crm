@@ -4,7 +4,7 @@ import { bbFetch } from '@/features/bale-bot/api';
 import { bwsErr, jDate, type BwsInvite } from './api';
 
 const BALE_FA: Record<BwsInvite['bale'], string> = { queued: 'در صف ارسال بله…', sent: 'در بله فرستاده شد.', no_bale: 'این شماره بله ندارد', not_connected: 'حساب بله‌ی کارشناس وصل نیست؛ در بله فرستاده نشد.', blocked: 'بله الان اجازهٔ ارسال نداد (ساعت یا سقف ارسال).', failed: 'ارسال در بله انجام نشد.' };
-const SMS_FA: Record<BwsInvite['sms'], string> = { sent: 'پیامک دعوت فرستاده شد.', failed: 'پیامک فرستاده نشد.', not_configured: 'پیامک فرستاده نشد: کد الگوی پیامک دعوت در «مدیریت فروش» ثبت نشده است.', disabled: 'پیامک در این محیط خاموش است.' };
+const SMS_FA: Record<BwsInvite['sms'], string> = { sent: 'پیامک دعوت فرستاده شد.', failed: 'پیامک فرستاده نشد.', not_configured: 'پیامک دعوت: تنظیم نشده (کد الگو در «مدیریت فروش» ثبت نشده است).', disabled: 'پیامک در این محیط خاموش است.' };
 
 export function InviteResult({ inv, compact = false }: { inv: BwsInvite; compact?: boolean }) {
   if (inv.line) return <p className="bws-res ok" role="status" data-testid="bws-invite-ok"><b>{inv.line}</b>{!compact ? <span>{jDate(inv.at)}</span> : null}</p>;

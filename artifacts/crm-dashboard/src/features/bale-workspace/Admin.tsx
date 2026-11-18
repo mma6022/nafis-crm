@@ -20,11 +20,9 @@ export function BwsConsoleBlocks() {
   const me = useBwsMe(); const on = !!me.data?.canManage;
   const st = useAdmin(on); const qc = useQueryClient(); const [flash, setFlash] = useFlash();
   const [inv, setInv] = useState<string | null>(null); const [pat, setPat] = useState<string | null>(null);
-  const [pid, setPid] = useState<number | null>(null); const [terms, setTerms] = useState('');
   if (!on || !st.data) return null;
   const s = st.data;
   const put = async (path: string, method: 'PUT' | 'POST', body: unknown, ok: string) => { try { const r = await bbFetch<AdminState>(path, { method, body }); qc.setQueryData(['bws-admin'], r); setFlash(ok); return true; } catch (e) { setFlash(bwsErr(e)); return false; } };
-  const plan = s.plans.find((p) => p.id === pid) ?? null;
   return <div className="bws-adm" data-testid="bws-console">
     <H>دعوت به بله</H>
     <div className={c('bcard')}>
@@ -32,19 +30,19 @@ export function BwsConsoleBlocks() {
         <textarea className={c('inp ta')} rows={2} value={inv ?? s.inviteText} onChange={(e) => setInv(e.target.value)} data-testid="bws-invite-text" /></label>
       <label className={c('lbl')}>کد الگوی پیامک دعوت (IPPanel)
         <input className={c('inp')} dir="ltr" value={pat ?? s.smsPattern} onChange={(e) => setPat(e.target.value)} placeholder="—" /></label>
-      {!s.smsPattern ? <Chip k="g">تا کد الگو ثبت نشود، پیامک دعوت نمی‌رود</Chip> : null}
+      <div className="bws-pat" data-testid="bws-sms-pattern-text"><span className={c('hint')}>متن الگو (در IPPanel با دست ثبت می‌شود؛ {'{نام}'} = متغیر name، نام مشتری):</span><p>{s.smsPatternText}</p></div>
+      {!s.smsPattern ? <Chip k="g">پیامک دعوت: تنظیم نشده (تا کد الگو ثبت نشود، پیامک نمی‌رود)</Chip> : null}
       <div className={c('row1')}><span className={c('sp')} /><button className={c('btn pri')} type="button" disabled={inv == null && pat == null}
         onClick={async () => { if (await put('/bale-workspace/admin/invite', 'PUT', { text: inv ?? s.inviteText, smsPattern: pat ?? s.smsPattern }, 'متن دعوت ذخیره شد.')) { setInv(null); setPat(null); } }}>ذخیره</button></div>
     </div>
     <H>شرایط طرح در بله</H>
-    <div className={c('bcard')}>
-      <div className={c('picks')} role="radiogroup" aria-label="طرح">{s.plans.map((p) => <button key={p.id} type="button" role="radio" aria-checked={pid === p.id} className={c('pick', pid === p.id && 'on')} onClick={() => { setPid(p.id); setTerms(p.terms); }}>{p.name}{p.terms ? <span className={c('cnt')}>✓</span> : null}</button>)}</div>
-      {plan ? <><textarea className={c('inp ta')} rows={5} aria-label={`شرایط ${plan.name}`} value={terms} onChange={(e) => setTerms(e.target.value)} placeholder="متن آماده‌ای که کارشناس بعد از تماس در بله می‌فرستد" />
-        <div className={c('row1')}><span className={c('hint')}>فقط متن بله؛ خود طرح در «طرح‌های وام» عوض نمی‌شود.</span><span className={c('sp')} /><button className={c('btn pri')} type="button" disabled={terms === plan.terms} onClick={() => void put(`/bale-workspace/admin/plan-terms/${plan.id}`, 'PUT', { body: terms }, `شرایط ${plan.name} ذخیره شد.`)}>ذخیره</button></div></> : null}
+    <div className={c('bcard')} data-testid="bws-plan-terms-link">
+      <span className={c('hint')}>متن بلهٔ هر طرح در «طرح‌های تسهیلاتی»، داخل ویرایش همان طرح است ({fd(s.plans.filter((p) => p.terms).length)} طرح از {fd(s.plans.length)} متن دارد).</span>
+      <div className={c('row1')}><Link className={c('btn gh')} href="/loan-plans">رفتن به طرح‌ها</Link></div>
     </div>
     <H>ارسال خودکار، انبوه و بی‌پاسخ</H>
     <div className={c('bcard')}>
-      <div className={c('brow')}><span className={c('bnm')}><b>ارسال خودکار</b><span className={c('hint')}>ساعت ارسال: {s.sendHours} به وقت تهران</span></span><span className={c('sp')} />
+      <div className={c('brow')}><span className={c('bnm')}><b>ارسال خودکار</b><span className={c('hint')}>بدون محدودیت ساعت</span></span><span className={c('sp')} />
         <Tgl on={s.autoOn} onClick={() => void put('/bale-workspace/admin/auto', 'PUT', { on: !s.autoOn }, s.autoOn ? 'ارسال خودکار خاموش شد.' : 'ارسال خودکار روشن شد.')}>{s.autoOn ? 'روشن' : 'خاموش'}</Tgl></div>
       <ScenarioRows s={s} />
       <div className={c('row1')}><Link className={c('btn dash')} href="/bale-workspace/automation" data-testid="bws-new-scenario"><I n="plus" />سناریوی تازه</Link></div>
@@ -114,7 +112,7 @@ function Wizard({ s }: { s: AdminState }) {
     {step === 0 ? <div className="bws-wf">
       <label className={c('lbl')}>نام سناریو<input className={c('inp')} value={d.name} onChange={(e) => set({ name: e.target.value })} placeholder="مثلاً پیگیری بی‌پاسخ ۲۴ ساعته" /></label>
       <div className={c('picks')} role="radiogroup" aria-label="نوع">{(['bulk', 'noreply', 'auto'] as const).map((k) => <button key={k} type="button" role="radio" aria-checked={d.kind === k} className={c('pick', d.kind === k && 'on')} onClick={() => set({ kind: k })}>{KIND_FA[k]}</button>)}</div>
-      {d.kind ? <p className={c('hint')}>{d.kind === 'bulk' ? 'یک‌بار برای همهٔ مخاطبان؛ آرام و در ساعت ارسال.' : d.kind === 'noreply' ? 'اگر مشتری تا چند ساعت جواب نداد، پیام می‌رود؛ باز هم جواب نداد، به کارشناس تحویل می‌شود.' : 'بعد از اولین پیام مشتری، یک‌بار؛ فقط وقتی «ارسال خودکار» روشن است.'}</p> : null}
+      {d.kind ? <p className={c('hint')}>{d.kind === 'bulk' ? 'یک‌بار برای همهٔ مخاطبان، آرام و پشت سر هم.' : d.kind === 'noreply' ? 'اگر مشتری تا چند ساعت جواب نداد، پیام می‌رود؛ باز هم جواب نداد، به کارشناس تحویل و به «کارهای امروز» او اضافه می‌شود.' : 'بعد از اولین پیام مشتری، یک‌بار؛ فقط وقتی «ارسال خودکار» روشن است.'}</p> : null}
     </div> : null}
     {step === 1 ? <div className="bws-wf">
       <span className={c('lbl')}>چه کسانی</span>
@@ -129,7 +127,7 @@ function Wizard({ s }: { s: AdminState }) {
         <span className={c('row1')}><input className={c('inp')} style={{ width: 110 }} inputMode="numeric" dir="ltr" value={d.hours} onChange={(e) => set({ hours: Number(e.target.value.replace(/[^\d]/g, '')) || 0 })} /><span className={c('hint')}>ساعت (۱ تا ۷۲۰)</span></span></label>
         : d.kind === 'auto' ? <p className={c('hint')}>شرط: اولین پیام مشتری بعد از تأیید. هر گفتگو فقط یک‌بار.</p>
         : <p className={c('hint')}>شرط ندارد؛ بعد از تأیید یک‌بار برای همه می‌رود. سقف روزانه ندارد.</p>}
-      <p className={c('hint')}>ساعت ارسال: {s.sendHours} به وقت تهران. «لغو» یا «توقف» از طرف مشتری کسی را از فهرست بیرون نمی‌برد.</p>
+      <p className={c('hint')}>بدون محدودیت ساعت. «لغو» یا «توقف» از طرف مشتری کسی را از فهرست بیرون نمی‌برد.</p>
     </div> : null}
     {step === 3 ? <div className="bws-wf">
       <label className={c('lbl')}>متن پیام ({'{name}'} = نام مشتری)<textarea className={c('inp ta')} rows={5} value={d.body} onChange={(e) => set({ body: e.target.value })} /></label>
@@ -140,7 +138,6 @@ function Wizard({ s }: { s: AdminState }) {
     {step === 4 ? <div className="bws-wf" data-testid="bws-confirm">
       <div className="bws-sum"><span>{d.name} · {d.kind ? KIND_FA[d.kind] : ''}</span><span className={c('hint')}>{audLabel(d.audience, s.experts)}</span></div>
       <div className="bws-count">{count ? <><b>{faNum(count.n)}</b><span>گفتگو این پیام را می‌گیرند</span></> : <span className={c('hint')}>در حال شمردن…</span>}</div>
-      {count && !count.inHours ? <Chip k="g">الان خارج از ساعت ارسال است؛ از ساعت ۸ صبح شروع می‌شود</Chip> : null}
       <p className={c('hint')}>تا «تأیید و شروع» زده نشود، چیزی فرستاده نمی‌شود.</p>
     </div> : null}
     <div className={c('row1')}>
