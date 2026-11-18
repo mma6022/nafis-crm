@@ -104,10 +104,11 @@ body.ed-open .ed-scrim,body.ed-open .ed-sheet{display:block}
 }
 
 @media (min-width:1024px){
-  /* Win over later .fdv1 .fhd .nmr{display:flex} so the name row yields to the inline form. */
+  /* t848u: keep the saved name visible while the inline form is open; only hide the pencil. */
   body.is-editing .ed-view,
   body.is-editing .fdv1 .fhd .nmr.ed-view,
-  body.is-editing .fhd .nmr.ed-view{display:none !important}
+  body.is-editing .fhd .nmr.ed-view{display:inline-flex !important;flex-wrap:wrap;align-items:center;gap:0 2px}
+  body.is-editing .ed-pen{display:none}
   body.is-editing .ed-desk{display:block}
 }
 @media (max-width:1023.98px){
