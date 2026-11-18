@@ -910,3 +910,7 @@ body.dock-collapsed:has([data-testid="dci-page"]) main.pg.dci-page,
 body.dock-collapsed:has([data-testid="dci-page"]) main.pg{
   padding-bottom: calc(24px + 44px + 24px + env(safe-area-inset-bottom, 0px));
 }
+
+/* «فضای کار بله» (flag.bale_workspace_v1, Armita r3): no-reply hand-off tag beside the «تماس خروجی؛ …» line */
+.dci-bwstag{display:inline-block;margin-inline-start:8px;padding:2px 8px;border-radius:999px;background:#E8F1FD;color:#1D4E89;font-size:12px;font-weight:600;line-height:1.6;vertical-align:.1em;white-space:nowrap;cursor:default}
+.dci-bwstag-sep{font-weight:400;font-size:.8em;opacity:.55;white-space:pre}

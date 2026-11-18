@@ -1,7 +1,7 @@
 /* «فضای کار بله» د + ز + و — «مدیریت فروش» (sales manager + admin only; the server answers 403 to everyone else).
    Blocks under «پیام‌های پیش‌فرض» in the console's Bale section, plus two pages: /bale-workspace/automation (5-step wizard) and /bale-workspace/training.
    Nothing is sent before «تأیید و شروع»; the count shown is the count confirmed (server re-checks it). Ghasemi's bot is never a sender or a choice. */
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { bbFetch, bbUrl } from '@/features/bale-bot/api';
@@ -156,7 +156,7 @@ export function BwsTrainingPage() { return <Gate title="فایل‌های آمو
 function Training({ s }: { s: AdminState }) {
   const qc = useQueryClient();
   const [title, setTitle] = useState(''); const [aud, setAud] = useState<'customer' | 'expert'>('customer'); const [scope, setScope] = useState<'all' | 'selected'>('all');
-  const [ids, setIds] = useState<number[]>([]); const [url, setUrl] = useState(''); const [file, setFile] = useState<File | null>(null); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<string | null>(null);
+  const [ids, setIds] = useState<number[]>([]); const [url, setUrl] = useState(''); const [file, setFile] = useState<File | null>(null); const fileRef = useRef<HTMLInputElement | null>(null); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<string | null>(null);
   const done = (st: AdminState, m: string) => { qc.setQueryData(['bws-admin'], st); setMsg(m); };
   const add = async () => {
     setBusy(true);
@@ -164,7 +164,7 @@ function Training({ s }: { s: AdminState }) {
       const meta = { title, audience: aud, planScope: scope, planIds: ids, fileName: file?.name ?? null, url: file ? null : url };
       const r = file ? await bbFetch<{ state: AdminState }>('/bale-workspace/admin/training', { raw: file, headers: { 'Content-Type': file.type || 'application/octet-stream', 'x-bws-meta': encodeURIComponent(JSON.stringify(meta)) } })
         : await bbFetch<{ state: AdminState }>('/bale-workspace/admin/training', { body: meta });
-      done(r.state, `«${title}» اضافه شد.`); setTitle(''); setUrl(''); setFile(null); setIds([]);
+      done(r.state, `«${title}» اضافه شد.`); setTitle(''); setUrl(''); setFile(null); if (fileRef.current) fileRef.current.value = ''; setIds([]);
     } catch (e) { setMsg(bwsErr(e)); } finally { setBusy(false); }
   };
   const del = async (id: number, t: string) => { try { done(await bbFetch<AdminState>(`/bale-workspace/admin/training/${id}/delete`, { body: {} }), `«${t}» برداشته شد.`); } catch (e) { setMsg(bwsErr(e)); } };
@@ -186,7 +186,14 @@ function Training({ s }: { s: AdminState }) {
       <div className={c('picks')}><button type="button" role="radio" aria-checked={scope === 'all'} className={c('pick', scope === 'all' && 'on')} onClick={() => setScope('all')}>همهٔ طرح‌ها</button>
         {s.plans.map((p) => <button key={p.id} type="button" role="checkbox" aria-checked={scope === 'selected' && ids.includes(p.id)} className={c('pick', scope === 'selected' && ids.includes(p.id) && 'on')}
           onClick={() => { setScope('selected'); setIds(ids.includes(p.id) ? ids.filter((x) => x !== p.id) : [...ids, p.id]); }}>{p.name}</button>)}</div>
-      <label className={c('lbl')}>فایل (PDF، عکس یا ویدیو MP4، تا ۵۰ مگابایت)<input className={c('inp')} type="file" accept="application/pdf,image/jpeg,image/png,video/mp4" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></label>
+      {/* Armita r3: Persian picker instead of the browser's English «Choose File»; the native input stays (hidden) for the OS dialog. */}
+      <div className={c('lbl')}><span id="bws-tr-file-lbl">فایل (PDF، عکس یا ویدیو MP4، تا ۵۰ مگابایت)</span>
+        <div className="bws-filepick">
+          <input ref={fileRef} className="bws-vh" type="file" tabIndex={-1} aria-hidden="true" accept="application/pdf,image/jpeg,image/png,video/mp4" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <button type="button" className={c('btn gh')} aria-describedby="bws-tr-file-lbl" onClick={() => fileRef.current?.click()} data-testid="bws-file-pick">انتخاب فایل</button>
+          <span className={`bws-fname${file ? '' : ' none'}`} dir="auto" data-testid="bws-file-name" title={file?.name}>{file ? file.name : 'فایلی انتخاب نشده'}</span>
+          {file ? <button type="button" className="bws-fclear" aria-label="برداشتن فایل" onClick={() => { setFile(null); if (fileRef.current) fileRef.current.value = ''; }}>×</button> : null}
+        </div></div>
       {!file ? <label className={c('lbl')}>یا پیوند (https)<input className={c('inp')} dir="ltr" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://" /></label> : null}
       <div className={c('row1')}><span className={c('sp')} /><button className={c('btn pri')} type="button" disabled={busy || !title.trim() || (!file && !/^https:\/\//.test(url)) || (scope === 'selected' && !ids.length)} onClick={add}>{busy ? 'در حال افزودن…' : 'افزودن'}</button></div>
       {msg ? <p className={`${c('hint')} bws-flash`} role="status">{msg}</p> : null}

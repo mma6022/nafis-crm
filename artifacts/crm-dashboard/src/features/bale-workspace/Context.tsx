@@ -1,5 +1,6 @@
 /* «فضای کار بله» الف — ستون زمینهٔ مشتری (چپ در ۱۲۸۰) یا زبانه‌های پرونده / اعتبار / تماس‌ها (۳۹۰). Compact, no explanation boxes.
    Full phone + national id only for a customer the viewer may see (server decides: restricted = name + expert only). */
+import { Sep } from './Sep';
 import { Link } from 'wouter';
 import { colourClass, CreditCard } from '@/features/credit-panel/CreditCard';
 import { fd, faNum, jDate, toman, type BwsAssets, type BwsChatCtx, type BwsContext } from './api';
@@ -65,7 +66,7 @@ export function BwContext({ data, only, toast }: { data: BwsChatCtx | undefined;
   if (!c) return <aside className={cls} aria-label="زمینه‌ی مشتری"><section className="bws-blk"><h3>زمینهٔ مشتری</h3><p className="bws-mut">این گفتگو هنوز به پرونده وصل نیست.</p></section><AssetsBlock a={data.assets} /></aside>;
   if (c.restricted) return <aside className={cls} aria-label="زمینه‌ی مشتری"><section className="bws-blk"><h3>پروندهٔ کارشناس دیگر</h3><p className="bws-mut">{c.customer.name}{c.customer.expert ? ` · کارشناس: ${c.customer.expert}` : ''}</p></section></aside>;
   return <aside className={only ? 'bws-ctx tab' : 'pane cp bws-ctx'} aria-label="زمینه‌ی مشتری" data-testid="bws-ctx">
-    {!only ? <h2 className="bws-h2">زمینهٔ مشتری</h2> : <div className="bws-tabhd"><b>{c.customer.name}</b><span>#{fd(c.customer.id)}</span>{c.customer.expert ? <span>· {c.customer.expert}</span> : null}</div>}
+    {!only ? <h2 className="bws-h2">زمینهٔ مشتری</h2> : <div className="bws-tabhd"><b>{c.customer.name}</b><span>#{fd(c.customer.id)}</span>{c.customer.expert ? <><Sep /><span>{c.customer.expert}</span></> : null}</div>}
     {!only || only === 'file' ? <><FileBlock c={c} />{only ? <CasesBlock c={c} /> : null}</> : null}
     {!only || only === 'credit' ? <CreditBlock c={c} toast={toast} /> : null}
     {!only ? <CasesBlock c={c} /> : null}

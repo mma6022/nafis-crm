@@ -14,8 +14,9 @@ export type DqItem = {
   id: string; kind: DqKind; kinds: DqKind[]; block: "actual" | "potential"; blockIdx: number; urgent: boolean; done: boolean; due: boolean;
   due_at: string | null; timed: boolean; done_at: string | null; done_early: boolean; customer_id: number | null; name: string; tm: string;
   overdue: boolean; current: boolean; next: boolean; turn: number; due_ref: string | null;
-  /** «فضای کار بله» (flag.bale_workspace_v1): «بی‌پاسخ در بله» on a no-reply hand-off item; absent otherwise. */
-  tag?: string;
+  /** «فضای کار بله» (flag.bale_workspace_v1): «بی‌پاسخ در بله» on the customer's row after a no-reply hand-off today (new row or one
+   *  already on the list); tagAt = «۱۳:۱۰», tagReason = «پیام بله بی‌پاسخ ماند · امروز ۱۳:۱۰». Absent otherwise. */
+  tag?: string; tagAt?: string; tagReason?: string;
   itemId: number | null; dpStatus: string | null; reminderId: number | null; remText: string | null; call_id: number | null; live: boolean;
   direction: "in" | "out" | null; detected: "customer" | "lead" | "unknown" | null; payment_order_id: number | null; loan_file_id: number | null;
   pay: { id: number; amountToman: string; planName: string | null; createdAt: string; stage: string } | null;
@@ -176,7 +177,7 @@ export function DqStrip({ q, openId, flt, setFlt, onPick }: { q: DqQueue; openId
     const al = ["نوبت " + fd(t.turn), t.name, typ, curMark ? "کار جاری" : "", t.next ? "بعدی" : "", t.tm].filter(Boolean).join("، ");
     nodes.push(<a key={t.id} ref={isOpen ? nodeRef : undefined} data-id={t.id} data-testid={`dq-node-${t.id}`}
       className={`dci-node ${KIND_CLS[t.kind]}${t.overdue ? " is-late" : ""}${t.done ? " is-done" : ""}${t.urgent && !t.done ? " is-urgent" : ""}${curMark && !isOpen ? " is-cur" : ""}${early ? " is-early" : ""}`}
-      href={`#${t.id}`} aria-current={isOpen ? "true" : undefined} title={[t.tm, t.remText].filter(Boolean).join(" — ") || undefined} aria-label={al}
+      href={`#${t.id}`} aria-current={isOpen ? "true" : undefined} title={[t.tm, t.remText, t.tagReason].filter(Boolean).join(" — ") || undefined} aria-label={al}
       onClick={(e) => { e.preventDefault(); onPick(t); }}>
       <span className="dci-nord" aria-hidden="true">{nord}</span>
       <span className="dci-dot" aria-hidden="true" />

@@ -1,4 +1,5 @@
 /* «فضای کار بله» ه‍ — دعوت به بله (بله + پیامک با هم). No Bale account → «این شماره بله ندارد» on screen, the SMS still goes (Mohammad t381s1476). */
+import { Sep } from './Sep';
 import { useEffect, useRef, useState } from 'react';
 import { bbFetch } from '@/features/bale-bot/api';
 import { bwsErr, jDate, type BwsInvite } from './api';
@@ -10,7 +11,7 @@ export function InviteResult({ inv, compact = false }: { inv: BwsInvite; compact
   if (inv.line) return <p className="bws-res ok" role="status" data-testid="bws-invite-ok"><b>{inv.line}</b>{!compact ? <span>{jDate(inv.at)}</span> : null}</p>;
   return <div className={`bws-res${inv.error ? ' err' : ''}`} role={inv.error ? 'alert' : 'status'} data-testid={inv.error ? 'bws-invite-err' : 'bws-invite-state'}>
     {inv.error ? <b className="bws-err">{inv.error}</b> : <b>{BALE_FA[inv.bale]}</b>}
-    <span>{SMS_FA[inv.sms]}{!compact ? ` · ${jDate(inv.at)}` : ''}</span>
+    <span>{SMS_FA[inv.sms]}{!compact ? <><Sep />{jDate(inv.at)}</> : null}</span>
   </div>;
 }
 /** One button + live result. `path` = /bale-workspace/chats/:id/invite or /bale-workspace/customers/:id/invite. */

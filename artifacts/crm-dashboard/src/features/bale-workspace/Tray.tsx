@@ -1,5 +1,6 @@
 /* «فضای کار بله» ب — دکمهٔ «ابزار» کنار کادر ارسال؛ سینی بین آخرین پیام و کادر ارسال باز می‌شود (in flow: the thread shrinks, nothing is covered).
    Experts: quick messages, plan terms, customer training files, invite, stars, request contact. No bulk here (manager-only, «مدیریت فروش»). */
+import { Sep } from './Sep';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { bbFetch } from '@/features/bale-bot/api';
@@ -29,7 +30,7 @@ export function BwTray({ chatId, ctx, initialSub = null, toast, refresh, onClose
     {sub === 'plans' && c ? <PlanTerms chatId={chatId} explained={c.explained} toast={toast} onSent={() => { setSub(null); reload(); }} onBack={() => setSub(null)} /> : null}
     {sub === 'train' && a ? <div className="bws-sub"><h4><button className="ib" type="button" aria-label="بازگشت" onClick={() => setSub(null)}><I n="back" /></button>فایل آموزشی برای مشتری</h4>
       <ul className="bws-pick">{a.customerTraining.map((t) => <li key={t.id}><button type="button" disabled={!canSend || busy != null} onClick={() => act(`t${t.id}`, () => bbFetch(`/bale-workspace/chats/${chatId}/training/${t.id}`, { body: {} }), `«${t.title}» فرستاده شد`)}>
-        <b>{t.title}</b><span>{t.kind === 'link' ? 'پیوند' : t.kind === 'video' ? 'ویدیو' : 'فایل'} · {t.plansLabel}</span></button></li>)}</ul></div> : null}
+        <b>{t.title}</b><span>{t.kind === 'link' ? 'پیوند' : t.kind === 'video' ? 'ویدیو' : 'فایل'}<Sep />{t.plansLabel}</span></button></li>)}</ul></div> : null}
     {sub === 'quick' && a ? <div className="bws-sub"><h4><button className="ib" type="button" aria-label="بازگشت" onClick={() => setSub(null)}><I n="back" /></button>پیام‌های آماده ({fd(a.quick.length)})</h4>
       <ul className="bws-pick" data-testid="bws-quick-all">{a.quick.map((q) => <li key={q.id}><button type="button" disabled={!canSend || busy != null} aria-busy={busy === q.id}
         onClick={() => act(q.id, () => bbFetch(`/bale-bot/chats/${chatId}/quick/${q.id}`, { body: {} }), `«${q.title}» فرستاده شد`)}><b>{q.title}</b><span>یک ضربه می‌فرستد</span></button></li>)}</ul></div> : null}
@@ -48,7 +49,7 @@ export function BwTray({ chatId, ctx, initialSub = null, toast, refresh, onClose
         <span className="sp" />
         <InviteButton path={`/bale-workspace/chats/${chatId}/invite`} last={c.invites[0] ?? null} toast={toast} onDone={() => reload()} cls="bws-btn sec" />
       </div> : <p className="bws-mut">برای ستاره، شرایط طرح و دعوت، اول گفتگو را به پرونده وصل کنید.</p>}
-      {c?.explained.length ? <p className="bws-mut">آخرین طرح توضیح‌داده‌شده: {c.explained[0].name} · {jDate(c.explained[0].at)}</p> : null}
+      {c?.explained.length ? <p className="bws-mut">آخرین طرح توضیح‌داده‌شده: {c.explained[0].name}<Sep />{jDate(c.explained[0].at)}</p> : null}
     </> : null}
   </div>;
 }
@@ -60,7 +61,7 @@ function PlanTerms({ chatId, explained, toast, onSent, onBack }: { chatId: numbe
   return <div className="bws-sheet" role="dialog" aria-label="ارسال شرایط طرح" data-testid="bws-plan-sheet">
     <h4><button className="ib" type="button" aria-label="بازگشت" onClick={onBack}><I n="back" /></button>طرح‌هایی که توضیح دادید</h4>
     <ul className="bws-plans">{items.map((p) => <li key={p.id}><label><input type="checkbox" checked={sel.includes(p.id)} onChange={(e) => setSel(e.target.checked ? [...sel, p.id] : sel.filter((x) => x !== p.id))} />
-      <span><b>{p.name}</b>{ex.has(p.id) ? <small className="bws-chip">قبلاً فرستاده شد · {jDate(ex.get(p.id)!, false)}</small> : null}<em>{p.terms}</em></span></label></li>)}</ul>
+      <span><b>{p.name}</b>{ex.has(p.id) ? <small className="bws-chip">قبلاً فرستاده شد<Sep />{jDate(ex.get(p.id)!, false)}</small> : null}<em>{p.terms}</em></span></label></li>)}</ul>
     <div className="bws-sheet-f"><span className="bws-mut">{sel.length ? `${fd(sel.length)} طرح در یک پیام` : 'یک یا چند طرح را انتخاب کنید'}</span><button className="bws-btn" type="button" disabled={!sel.length || busy} onClick={send} data-testid="bws-plan-send">{busy ? 'در حال ارسال…' : 'ارسال در بله'}</button></div>
   </div>;
 }

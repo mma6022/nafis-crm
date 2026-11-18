@@ -263,7 +263,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onCallPhone, onResult, onPromo
   remBar?: { text: string; hint?: string } | null;
   userId: number | undefined;
   /** DCI-QUEUE 440000 (flag.dci_queue_v21): early bar, interrupt banner, payment / file-action card. Absent → v2.0 markup. */
-  dq?: { top?: ReactNode; cur?: ReactNode; card?: ReactNode } | null;
+  dq?: { top?: ReactNode; cur?: ReactNode; card?: ReactNode; tag?: ReactNode } | null;
   wizard: { open: boolean; onOpen: (mode: "new" | "edit", startStep?: WizStep) => void; onClose: () => void };
   /** credit-panel v1 (flag.credit_panel_v1): credit card here, the full «پرونده‌ی مشتری» moves to the left column. Absent/false → today's markup. */
   cp?: boolean;
@@ -413,7 +413,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onCallPhone, onResult, onPromo
   return <section className="dci-col dci-mid" aria-label="اطلاعات تماس و پرونده‌ها">
     {dq?.top ?? null}
     <div className="dci-head">
-    {dq?.cur ?? <p className="dci-cur">{m.call}</p>}
+    {dq?.cur ? <>{dq.cur}{dq.tag ?? null}</> : <p className="dci-cur">{m.call}{dq?.tag ?? null}</p>}
     <div className="dci-head-main">
       <div className="dci-who-row">
         <div className="dci-who">
@@ -809,6 +809,8 @@ export default function DailyCustomerInline() {
     const dqMid = dq && dqItem ? {
       top: dqEarly && dq ? <DqEarlyBar q={dq} it={dqItem} cur={dqCur} onBack={() => dqCur && pickDq(dqCur)} /> : null,
       cur: dqBanner,
+      // «فضای کار بله» (flag.bale_workspace_v1, Armita r3): small «بی‌پاسخ در بله · HH:MM» beside the «تماس خروجی؛ …» line; hover = full reason.
+      tag: dqItem.tag ? <span className="dci-bwstag" data-testid="dq-bws-tag" title={dqItem.tagReason}>{dqItem.tag}{dqItem.tagAt ? <><span className="dci-bwstag-sep">{" · "}</span>{dqItem.tagAt}</> : null}</span> : null,
       card: dqItem.pay && !dqItem.done ? <DqPayCard it={dqItem} customerId={board.customer.id} onDone={(msg) => { flash(msg); void dqQ.refetch(); }} />
         : dqItem.fileAct && !dqItem.done ? <DqFileActCard it={dqItem} customerId={board.customer.id} /> : null,
     } : null;

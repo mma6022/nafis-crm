@@ -184,3 +184,13 @@
 .bws-cp .cpc{margin:0}
 .smc-root .bws-pat{display:flex;flex-direction:column;gap:4px;padding:8px 10px;border-radius:10px;background:var(--surface-2,#F5F6FB)}
 .smc-root .bws-pat p{margin:0;font-size:13.5px;line-height:1.9;color:var(--ink,#0B1450)}
+
+/* Armita r3 — thin «·» (never a Persian zero), Persian file picker */
+.bws-sep{font-weight:400;font-size:.8em;opacity:.5;white-space:pre}
+.bws-vh{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important;border:0!important}
+.bws-filepick{display:flex;align-items:center;gap:10px;margin-top:6px;min-height:44px;padding:4px 6px 4px 12px;border:1px solid var(--nf-line,#E4E7F0);border-radius:12px;background:#fff}
+.bws-filepick > button:first-of-type{flex:0 0 auto;min-height:36px}
+.bws-fname{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--nf-ink,#0B1450)}
+.bws-fname.none{color:var(--nf-ink-muted,#5F6B85)}
+.bws-fclear{flex:0 0 auto;width:32px;height:32px;border:0;border-radius:8px;background:transparent;color:var(--nf-ink-muted,#5F6B85);font-size:18px;cursor:pointer}
+.bws-fclear:hover,.bws-fclear:focus-visible{background:var(--nf-surface-2,#F3F4F8)}

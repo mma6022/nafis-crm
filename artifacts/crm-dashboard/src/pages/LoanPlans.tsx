@@ -28,7 +28,7 @@ import { CHECK_KIND_LABEL, encodeSide, NO_REQUIREMENTS, requirementsText, sideRe
 import { BalePlanFileBadge, BalePlanFileBox } from '@/features/bale/BalePlanFilePanel';
 import { BwsPlanTermsBox } from '@/features/bale-workspace/PlanTermsBox'; // «فضای کار بله» و (flag.bale_workspace_v1; nothing while OFF)
 import { PlanRateAlerts, PlanRateFacts, planRateKeys } from '@/features/plan-rates/PlanRatePanel';
-import { Choice, faDigits, formatToman, LockBadge, TomanInput, WizardProgress, YES_NO, yn } from '@/components/plans-consult/parts';
+import { Choice, enDigits, faDigits, formatToman, LockBadge, TomanInput, WizardProgress, YES_NO, yn } from '@/components/plans-consult/parts';
 
 const INSTALLMENT_OPTIONS = [6, 9, 12, 18, 24, 36, 48] as const;
 type InstallmentOption = (typeof INSTALLMENT_OPTIONS)[number];
@@ -625,7 +625,7 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
           <div className="field"><label>نوع طرح <LockBadge>فقط کارکنان</LockBadge></label><DictionarySelect value={form.loanType} options={optionsFor(options, 'loan_type')} onChange={(loanType) => setForm({ ...form, loanType })} testId="select-plan-loan-type" /></div>
           <div className="field"><label>روش اجرا</label><DictionarySelect value={form.processMode} options={optionsFor(options, 'process_mode')} onChange={(processMode) => setForm({ ...form, processMode })} /></div>
           <div className="field"><label>مدت زمان انجام</label><select value={form.grantDays} onChange={(event) => setForm({ ...form, grantDays: event.target.value })} required><option value="">انتخاب کنید</option>{GRANT_TIMES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-          <div className="field"><label>هزینه ثابت تشکیل پرونده (تومان)</label><input type="text" inputMode="numeric" pattern="[0-9]+" value={form.filingFeeToman} onChange={(event) => setForm({ ...form, filingFeeToman: event.target.value.replace(/\D/g, '').slice(0, 30) })} required data-testid="input-plan-filing-fee" /></div>
+          <div className="field"><label>هزینه ثابت تشکیل پرونده (تومان)</label><input type="text" inputMode="numeric" pattern="[0-9۰-۹]+" value={faDigits(form.filingFeeToman)} onChange={(event) => setForm({ ...form, filingFeeToman: enDigits(event.target.value).replace(/\D/g, '').slice(0, 30) })} required data-testid="input-plan-filing-fee" /></div>
           <div className="field full"><Choice label="وضعیت طرح در کاتالوگ" value={form.active ? 'on' : 'off'} options={[{ value: 'on', label: 'فعال' }, { value: 'off', label: 'غیرفعال' }]} onChange={(v) => setForm({ ...form, active: v === 'on' })} testId="choice-plan-active" /></div>
         </div> : null}
 
