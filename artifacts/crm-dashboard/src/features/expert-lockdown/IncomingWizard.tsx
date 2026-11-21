@@ -79,6 +79,8 @@ function LogCall({ customer, phone, currentNo, saveLabel, onSaved, extra, onForm
   // NEWCUST-65 (Mohammad 11:36, live): a closer (Hasani / Ghasemi) also records a customer they JUST registered here with the first-call form
   // (server-scoped by isInboundSelfRegistered): P1 stays with them, P2/P3 move to Kazemi. Their existing customers keep the regular «ثبت تماس».
   const closer = isNew && rawKind === 'legacy' && launcher.config?.enabled === true;
+  // t868 (Mohammad t868s2964): name the team's own non-P1 owner (team 2 → خردکار), never a fixed «آقای کاظمی».
+  const nonP1Owner = (launcher.config?.nonP1OwnerName || '').trim() || 'کارشناس تماس اول';
   const kind = closer ? 'simple' : rawKind;
   const auto = useRef(false);
   const [reopen, setReopen] = useState(false); // PM rule v1.1.1: an existing customer whose first-call form is still incomplete → scene 13 notice
@@ -91,11 +93,11 @@ function LogCall({ customer, phone, currentNo, saveLabel, onSaved, extra, onForm
     const backLabel = currentNo ? `برگشت به کار ${faNum(currentNo)}` : 'برگشت به کارها';
     return <div className="tc-form">{extra}
       <p className="dp-hint" data-testid="iw-first-hint"><Info size={13} aria-hidden="true" /> تماس اول این مشتری است: نتیجه‌ی تماس و فرم تماس اول با هم ثبت می‌شوند (اجباری).</p>
-      <p className="tc-xol"><Lock size={13} aria-hidden="true" /> {closer ? 'اگر اولویت ۱ شد پیش خودت می‌ماند؛ اولویت ۲ یا ۳ خودکار به آقای کاظمی منتقل می‌شود · کار جاری سر جایش می‌ماند' : 'با برچسب «خارج از لیست» ثبت می‌شود · کار جاری سر جایش می‌ماند'}</p>
+      <p className="tc-xol"><Lock size={13} aria-hidden="true" /> {closer ? `اگر اولویت ۱ شد پیش خودت می‌ماند؛ اولویت ۲ یا ۳ خودکار به ${nonP1Owner} منتقل می‌شود · کار جاری سر جایش می‌ماند` : 'با برچسب «خارج از لیست» ثبت می‌شود · کار جاری سر جایش می‌ماند'}</p>
       <div className="tc-foot"><button type="button" className="btn btn-primary" onClick={() => launcher.launch(cust)} data-testid="iw-first-open"><FileText size={15} aria-hidden="true" /> {saveLabel}</button></div>
       {fc ? createPortal(<SimpleCallForm strict confirmClose reopenNotice={reopen} closeConfirmBody={closer ? 'مشتری ثبت شده، ولی این تماس و اطلاعات تماس اول ثبت نمی‌شود.' : undefined} customer={{ id: customer.id, name: cust.name ?? customer.name, phone: cust.phone ?? phone ?? '', priority: cust.priority ?? null }} userId={user?.id}
         returnLabel={backLabel} eyebrow={isNew ? 'تماس ورودی · مشتری جدید' : 'تماس ورودی'} onClose={finish} onNext={finish}
-        onDone={(r) => { savedRef.current = (r as { transferredToQualifier?: boolean }).transferredToQualifier ? `${customer.name}: فرم تماس اول ثبت شد و مشتری به آقای کاظمی منتقل شد` : `${customer.name}: تماس و فرم تماس اول ثبت شد`; void elApi.firstCallLogged(customer.id, r.callLogId).catch(() => undefined); }} />, document.body) : null}
+        onDone={(r) => { savedRef.current = (r as { transferredToQualifier?: boolean }).transferredToQualifier ? `${customer.name}: فرم تماس اول ثبت شد و مشتری به ${nonP1Owner} منتقل شد` : `${customer.name}: تماس و فرم تماس اول ثبت شد`; void elApi.firstCallLogged(customer.id, r.callLogId).catch(() => undefined); }} />, document.body) : null}
     </div>;
   }
   return <OutOfListLog customer={customer} currentNo={currentNo} idPrefix="iw" saveLabel={saveLabel === 'ثبت تماس و فرم تماس اول' ? 'ثبت تماس' : saveLabel} onSaved={(m) => onSaved(m, false)} extra={extra} />;

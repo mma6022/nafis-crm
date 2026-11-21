@@ -5,6 +5,8 @@ import type { PlanEvaluation } from './plan-reasons';
 export type TeamSalesConfig = {
   enabled: boolean; qualifierSalespersonId: number; closerSalespersonIds: number[]; noteMinLength: number;
   closerFirstCallWorkingHours: number;
+  /** t868: who gets this expert's non-P1 customers under their own team rule (team 2 → خردکار, team 1 → کاظمی). */
+  nonP1OwnerName?: string | null;
 };
 export type NextCloser = { salespersonId: number; name: string; dueAt: string | null; dueLabel: string | null; workingHours: number;
   /** crm-kz-return: present when asked for a specific customer. HISTORY-A: 'self' = a closer upgrading their own customer (stays with them). */
