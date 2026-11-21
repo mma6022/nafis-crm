@@ -28,6 +28,7 @@ import { isSalesManagerUser, roleSql } from "./sales-manager";
 import { baleBotAad, openBotToken, type BotKeyEnv } from "./bale-bot-crypto";
 import * as baleContact from "./bale-contact";
 import * as customerBale from "./customer-bale";
+import { cbMakeIdentityFn } from "./customer-bale-identity";
 import * as signReminder from "./bale-sign-reminder";
 import { isTraineeSalesperson } from "./multi-team";
 
@@ -306,6 +307,7 @@ export function storeUpdate(bot: BotRow, u: any): number[] {
           chat: after, bot, customerId: after.customer_id, customerName: nm,
           text: p.kind === "text" ? (p.text ?? "") : (p.kind === "photo" ? "ارسال عکس" : ""),
           hasPhoto: p.kind === "photo",
+          identityFn: customerBale.cbIdentityStepsOn() ? cbMakeIdentityFn(after.customer_id) : undefined,
         });
       }
     }

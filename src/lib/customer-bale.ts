@@ -9,6 +9,10 @@ type ChatRow = { id: number; owner_id?: number; customer_id?: number | null; [k:
 import { LOAN_STAGE_LABELS } from "./manager-work";
 import { planLabelForCustomer, publicBankNames } from "./plan-label";
 import { aiAutoOffIfNoKey, aiEnabled } from "./ai-master";
+import {
+  CB_IDENTITY_STEPS_TEXTS, extractIdentity, formatJalaliConfirm, isNo, isYes,
+  type JalaliDate,
+} from "./bale-identity-parse";
 
 export const CB_FLAGS = {
   tracking: "flag.customer_bale_tracking",
@@ -18,6 +22,8 @@ export const CB_FLAGS = {
 export type CbFlagKey = keyof typeof CB_FLAGS;
 /** KB editor + API-key admin (and the shared-bot token field). Separate from the three phase flags; default OFF. */
 export const CB_ADMIN_FLAG = "flag.customer_bale_admin";
+/** t866: separate national-ID and birth-date steps + normaliser. Absent or any value other than '1' is OFF. */
+export const CB_IDENTITY_STEPS_FLAG = "flag.customer_bale_identity_steps_v1";
 export const CB_KB_SCOPE_ALL = "همهٔ ربات‌ها";
 export const CB_KB_SCOPE_SHARED = "فقط ربات نفیس وام";
 export const CB_KB_SCOPE_EXPERTS = "ربات‌های کارشناس";
@@ -155,6 +161,9 @@ export function cbAnyFlagOn(): boolean {
 
 export function cbAdminFlagOn(): boolean {
   return setting(CB_ADMIN_FLAG) === "1";
+}
+export function cbIdentityStepsOn(): boolean {
+  return setting(CB_IDENTITY_STEPS_FLAG) === "1";
 }
 
 export function cbSetAdminFlag(on: boolean, at = nowIso()): void {
@@ -338,6 +347,7 @@ export function ensureCustomerBaleSchema(): void {
   )`);
   try { execute("ALTER TABLE customer_bale_kb ADD COLUMN category TEXT"); } catch { /* already there */ }
   try { execute("ALTER TABLE customer_bale_kb ADD COLUMN scope TEXT"); } catch { /* already there */ }
+  try { execute("ALTER TABLE customer_bale_filings ADD COLUMN identity_draft_json TEXT"); } catch { /* already there */ }
   schemaReady = true;
   try { ensureSharedCustomerBot(); } catch { /* bale_bots may not exist until ensureBaleBotSchema */ }
 }
@@ -395,7 +405,7 @@ export function last30DaysTehranWindow(now = new Date()): { start: string; end: 
 
 /* ---------------- queue ---------------- */
 
-export type CbKeyboard = "cb_menu" | "cb_back" | "cb_docs" | "cb_otp" | "cb_identity" | "contact" | null;
+export type CbKeyboard = "cb_menu" | "cb_back" | "cb_docs" | "cb_otp" | "cb_identity" | "cb_identity_confirm" | "contact" | null;
 
 export function cbQueueText(chat: { id: number }, bot: { id: number; user_id: number }, text: string, keyboard: CbKeyboard = null, at = nowIso()): number | null {
   if (!bcMaySendFromBot(bot as BotRow)) {
@@ -434,6 +444,7 @@ export function cbReplyMarkup(keyboard: string | null): Record<string, unknown> 
   if (keyboard === "cb_docs") return { resize_keyboard: true, keyboard: [[{ text: CB_BTNS.sendPhoto }], [{ text: CB_BTNS.replace }], [{ text: CB_TEXTS.backMenu }]] };
   if (keyboard === "cb_otp") return { resize_keyboard: true, keyboard: [[{ text: CB_BTNS.submitCode }]] };
   if (keyboard === "cb_identity") return { resize_keyboard: true, keyboard: [[{ text: CB_BTNS.continue }]] };
+  if (keyboard === "cb_identity_confirm") return { resize_keyboard: true, keyboard: [[{ text: CB_IDENTITY_STEPS_TEXTS.yes }, { text: CB_IDENTITY_STEPS_TEXTS.no }]] };
   return null;
 }
 
@@ -603,6 +614,7 @@ export type FilingRow = {
   cancelled: number;
   updated_at: string;
   created_at: string;
+  identity_draft_json?: string | null;
 };
 
 export function cbActiveFiling(chatRow: number): FilingRow | null {
@@ -616,9 +628,10 @@ function saveFiling(f: FilingRow, at = nowIso()) {
   executeChanges(
     `UPDATE customer_bale_filings SET step=?, wait_kind=?, plan_id=?, identity_status=?, credit_status=?,
      docs_json=?, doc_index=?, review_ok=?, fee_paid=?, application_id=?, contract_generation_id=?,
-     contract_status=?, cancelled=?, updated_at=? WHERE id=?`,
+     contract_status=?, cancelled=?, identity_draft_json=?, updated_at=? WHERE id=?`,
     [f.step, f.wait_kind, f.plan_id, f.identity_status, f.credit_status, f.docs_json, f.doc_index,
-      f.review_ok, f.fee_paid, f.application_id, f.contract_generation_id, f.contract_status, f.cancelled, at, f.id],
+      f.review_ok, f.fee_paid, f.application_id, f.contract_generation_id, f.contract_status, f.cancelled,
+      f.identity_draft_json ?? null, at, f.id],
   );
 }
 
@@ -862,6 +875,28 @@ export function cbCreateHandoff(opts: { chatRow: number; customerId?: number; ow
 
 export type CbReply = { text: string; keyboard: CbKeyboard; extras?: string[]; buttons?: string[]; wait?: { title: string; next: string }; card?: string };
 
+
+type IdentityDraft = { nid?: string; birth?: string; year?: number; month?: number; day?: number; sub?: "nid" | "birth" | "confirm" };
+
+function identityDraft(f: FilingRow): IdentityDraft {
+  try { return f.identity_draft_json ? JSON.parse(f.identity_draft_json) as IdentityDraft : {}; }
+  catch { return {}; }
+}
+
+function setIdentityDraft(f: FilingRow, draft: IdentityDraft | null) {
+  f.identity_draft_json = draft && (draft.nid || draft.birth || draft.sub) ? JSON.stringify(draft) : null;
+}
+
+function identityStepsPrompt(f: FilingRow): CbReply {
+  const d = identityDraft(f);
+  const head = stepLine(1) + "\n";
+  if (d.sub === "confirm" && d.year && d.month && d.day) {
+    return { text: head + formatJalaliConfirm({ year: d.year, month: d.month, day: d.day, jalali: d.birth ?? "" }), keyboard: "cb_identity_confirm" };
+  }
+  if (d.nid) return { text: head + CB_IDENTITY_STEPS_TEXTS.askBirth, keyboard: "cb_identity" };
+  return { text: head + CB_IDENTITY_STEPS_TEXTS.askNid, keyboard: "cb_identity" };
+}
+
 function filingPrompt(f: FilingRow, customerId: number): CbReply {
   const head = (n: number) => stepLine(n) + "\n";
   if (f.wait_kind === "identity") return { text: head(1) + CB_TEXTS.identityWait, keyboard: "cb_back", wait: { title: CB_TEXTS.waitExpert, next: CB_TEXTS.identityWaitNext }, extras: [CB_TEXTS.identityAfter] };
@@ -873,6 +908,7 @@ function filingPrompt(f: FilingRow, customerId: number): CbReply {
   if (f.wait_kind === "sign") return { text: head(7) + CB_TEXTS.contractPending, keyboard: "cb_back", wait: { title: CB_TEXTS.waitSign, next: CB_TEXTS.contractPendingNext }, extras: [CB_TEXTS.contractPendingHint] };
   if (f.step <= 1) {
     if (f.identity_status === "ok") { /* fall through to 2 */ }
+    else if (cbIdentityStepsOn()) return identityStepsPrompt(f);
     else return { text: head(1) + CB_TEXTS.identityNeeded, keyboard: "cb_identity" };
   }
   if (f.step <= 2 && f.identity_status === "ok" && f.credit_status !== "ok") {
@@ -1055,12 +1091,87 @@ async function handleAi(ctx: InboundCtx, question: string): Promise<CbReply> {
   return send(ctx, { text: labeled, keyboard: "cb_back", buttons: [CB_BTNS.gotIt, CB_BTNS.expert] });
 }
 
+
+async function applyIdentityResult(ctx: InboundCtx, f: FilingRow, customerId: number, at: string, nid: string, birth: string): Promise<CbReply> {
+  const res = ctx.identityFn ? await ctx.identityFn(nid, birth) : "wait";
+  if (res === "ok") {
+    f.identity_status = "ok"; f.step = 2; f.wait_kind = null;
+    setIdentityDraft(f, null);
+    saveFiling(f, at);
+    return send(ctx, filingPrompt(f, customerId));
+  }
+  f.identity_status = "wait"; f.wait_kind = "identity";
+  saveFiling(f, at);
+  cbOpenTask("identity_manual", { chatRow: ctx.chat.id, filingId: f.id, customerId, ownerId: cbHandoffOwnerId(customerId, ctx.chat.owner_id) }, at);
+  return send(ctx, filingPrompt(f, customerId));
+}
+
+function goConfirm(f: FilingRow, birth: JalaliDate, nid: string): IdentityDraft {
+  return { nid, birth: birth.jalali, year: birth.year, month: birth.month, day: birth.day, sub: "confirm" };
+}
+
+async function handleIdentitySteps(ctx: InboundCtx, f: FilingRow, t: string): Promise<CbReply> {
+  const at = ctx.at!;
+  const customerId = ctx.customerId!;
+  const head = () => identityStepsPrompt(f);
+  if (t === CB_BTNS.continue) return send(ctx, head());
+
+  const draft = identityDraft(f);
+
+  if (draft.sub === "confirm" && draft.nid && draft.birth) {
+    if (isYes(t)) return await applyIdentityResult(ctx, f, customerId, at, draft.nid, draft.birth);
+    if (isNo(t)) {
+      setIdentityDraft(f, { nid: draft.nid, sub: "birth" });
+      saveFiling(f, at);
+      return send(ctx, identityStepsPrompt(f));
+    }
+    // A new date (or both) replaces the pending confirmation.
+  }
+
+  const extracted = extractIdentity(t);
+  let nid = draft.nid;
+  if (extracted.nid) nid = extracted.nid;
+
+  if (extracted.birth && nid) {
+    setIdentityDraft(f, goConfirm(f, extracted.birth, nid));
+    saveFiling(f, at);
+    return send(ctx, identityStepsPrompt(f));
+  }
+
+  if (!draft.nid && !extracted.nid) {
+    const retry = extracted.nidReason === "checksum" ? CB_IDENTITY_STEPS_TEXTS.retryNidChecksum : CB_IDENTITY_STEPS_TEXTS.retryNid;
+    return send(ctx, { text: stepLine(1) + "\n" + retry, keyboard: "cb_identity" });
+  }
+
+  if (extracted.nid && !extracted.birth) {
+    setIdentityDraft(f, { nid: extracted.nid, sub: "birth" });
+    saveFiling(f, at);
+    // If they only sent a date-less nid while we already had a confirm pending, just ask the date again.
+    if (extracted.birthReason === "range") {
+      return send(ctx, { text: stepLine(1) + "\n" + CB_IDENTITY_STEPS_TEXTS.retryBirthRange, keyboard: "cb_identity" });
+    }
+    return send(ctx, identityStepsPrompt(f));
+  }
+
+  if (nid && !extracted.birth) {
+    const retry = extracted.birthReason === "range" ? CB_IDENTITY_STEPS_TEXTS.retryBirthRange : CB_IDENTITY_STEPS_TEXTS.retryBirth;
+    if (extracted.nid && extracted.nid !== draft.nid) {
+      setIdentityDraft(f, { nid: extracted.nid, sub: "birth" });
+      saveFiling(f, at);
+    }
+    return send(ctx, { text: stepLine(1) + "\n" + retry, keyboard: "cb_identity" });
+  }
+
+  return send(ctx, identityStepsPrompt(f));
+}
+
 async function handleFilingInput(ctx: InboundCtx, f: FilingRow, t: string): Promise<CbReply> {
   const at = ctx.at!;
   const customerId = ctx.customerId!;
 
-  // identity: "CODE DATE" or two lines
+  // identity
   if (f.step <= 1 && f.identity_status !== "ok" && f.wait_kind !== "identity") {
+    if (cbIdentityStepsOn()) return await handleIdentitySteps(ctx, f, t);
     const m = t.match(/(\d{10})\s+(\d{4}[\/-]?\d{1,2}[\/-]?\d{1,2})/);
     if (m && ctx.identityFn) {
       const res = await ctx.identityFn(m[1], m[2]);

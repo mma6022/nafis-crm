@@ -4,10 +4,10 @@ import { queryRow, queryRows, execute, executeChanges } from "../src/lib/crm-db.
 import { ensureBaleBotSchema, _resetSchemaFlagForTests, setBaleBotFetch } from "../src/lib/bale-bot.ts";
 import { ensureBaleContactSchema, _resetBcSchemaFlagForTests, BC_GHASEMI_USER_ID, bcMaySendFromBot } from "../src/lib/bale-contact.ts";
 import {
-  CB_FLAGS, CB_ADMIN_FLAG, CB_TEXTS, CB_BTNS, CB_DEFAULT_OPENAI_MODEL, CB_DEFAULT_DEEPSEEK_MODEL,
+  CB_FLAGS, CB_ADMIN_FLAG, CB_IDENTITY_STEPS_FLAG, CB_TEXTS, CB_BTNS, CB_DEFAULT_OPENAI_MODEL, CB_DEFAULT_DEEPSEEK_MODEL,
   CB_KB_SCOPE_ALL, CB_KB_SCOPE_SHARED, CB_KB_SCOPE_EXPERTS, CB_TEST_TITLE, CB_TEST_OK, CB_TEST_FAIL,
   ensureCustomerBaleSchema, _resetCustomerBaleSchemaFlag, cbFlagOn, cbSetFlag, cbAnyFlagOn,
-  cbAdminFlagOn, cbSetAdminFlag, cbSetPhaseFlags, faDigits, stepLine,
+  cbAdminFlagOn, cbSetAdminFlag, cbIdentityStepsOn, cbSetPhaseFlags, faDigits, stepLine,
   cbHandleInbound, cbListCasesForCustomer, cbTop3Plans, cbOpenSamePlan, planLabelForCustomer,
   cbStartOrResumeFiling, cbActiveFiling, cbOnFeePaid, cbIssueContract, cbAdvanceContract,
   cbAnswerAi, cbGuardAiText, cbStoreSecret, cbSecretMeta, cbReadSecret, cbMaskSecretIn,
@@ -19,6 +19,7 @@ import {
 import { bcLinkOrCreateLead, BC_OK_NEW, BC_ASK_FIRST_SHARED } from "../src/lib/bale-contact.ts";
 import { botSends, isSharedCustomerBot as isSharedBotRow } from "../src/lib/bale-bot.ts";
 import { jalaliWeekdayDate } from "../../crm-dashboard/src/features/bale-bot/jalali.ts";
+import { CB_IDENTITY_STEPS_TEXTS, nidFromNine, formatJalaliConfirm } from "../src/lib/bale-identity-parse.ts";
 
 if (!process.env.CRM_DATABASE_PATH) {
   const fs = await import("node:fs");
@@ -130,6 +131,8 @@ const maryamId = insCust("مریم حسینی", "09120000042", 3, "B1");
 
 const flagsOff = () => { cbSetFlag("tracking", false, AT); cbSetFlag("ai", false, AT); cbSetFlag("filing", false, AT); };
 const flagsOn = () => { cbSetFlag("tracking", true, AT); cbSetFlag("ai", true, AT); cbSetFlag("filing", true, AT); };
+// Masked live copies may have admin/phase flags already ON; start the suite from a known off state.
+cbSetAdminFlag(false, AT);
 flagsOff();
 
 const ctxOf = (chat, bot, customerId, name, extra = {}) => ({
@@ -305,9 +308,10 @@ await checkAsync("filing: resume at same step, human waits, fee then create unde
   wipeOut(chat.id);
   await cbHandleInbound(ctx(CB_BTNS.resume));
   // pick a plan that is NOT 19 (already open) — use اقتصاد نوین / plan 8 if offered, else first non-19
-  const plans = cbTop3Plans(filerId, new Date("2026-11-09T20:00:00.000Z"));
+  // Pick with the same clock the inbound handler uses (today), and avoid plan 19 if it is already open.
+  const plans = cbTop3Plans(filerId);
   assert.ok(plans.length, "top-3 available for filer");
-  const pick = plans[0];
+  const pick = plans.find((p) => p.id !== 19) ?? plans[0];
   await cbHandleInbound(ctx(pick.label));
   f = cbActiveFiling(chat.id);
   assert.ok(f.plan_id, "plan selected");
@@ -674,6 +678,170 @@ check("Jalali dates on bale-bot/KB surfaces use design order weekday day month y
   const s = jalaliWeekdayDate("2026-10-29T08:30:00.000Z");
   assert.ok(!s.startsWith("۱۴۰۵"), "must not lead with the year (fa-IR default order)");
   assert.ok(!s.includes("،"), "design date has spaces only, no comma");
+});
+
+
+/* t866 identity steps (flag OFF by default; existing combined-regex tests stay valid) */
+const stepsOff = () => setSetting(CB_IDENTITY_STEPS_FLAG, "0");
+const stepsOn = () => setSetting(CB_IDENTITY_STEPS_FLAG, "1");
+
+check("t866 flag defaults OFF and is only on when the row is exactly '1'", () => {
+  setSetting(CB_IDENTITY_STEPS_FLAG, null);
+  assert.equal(cbIdentityStepsOn(), false);
+  setSetting(CB_IDENTITY_STEPS_FLAG, "0");
+  assert.equal(cbIdentityStepsOn(), false);
+  setSetting(CB_IDENTITY_STEPS_FLAG, "yes");
+  assert.equal(cbIdentityStepsOn(), false);
+  setSetting(CB_IDENTITY_STEPS_FLAG, "1");
+  assert.equal(cbIdentityStepsOn(), true);
+  stepsOff();
+  assert.equal(cbIdentityStepsOn(), false);
+});
+
+await checkAsync("t866 flag OFF still uses the combined prompt and regex; flag ON asks for national ID alone", async () => {
+  flagsOn();
+  stepsOff();
+  const id = insCust("آزمایش ت۸۶۶ الف", "09120000050", 6, "A1");
+  const chat = linkChat(openChat(kazemi, "آزمایش"), id);
+  const ctx = (text, extra = {}) => ctxOf(chat, kazemi, id, "آزمایش", { text, ...extra });
+  await cbHandleInbound(ctx(CB_TEXTS.menuApply));
+  let tx = texts(chat.id).join("\n");
+  assert.ok(tx.includes("کد ملی و تاریخ تولد شمسی را وارد کنید"), tx);
+  assert.ok(!tx.includes("لطفاً فقط کد ملی"), tx);
+  stepsOn();
+  wipeOut(chat.id);
+  await cbHandleInbound(ctx(CB_BTNS.continue));
+  tx = texts(chat.id).join("\n");
+  assert.ok(tx.includes("لطفاً فقط کد ملی"), tx);
+  assert.ok(!tx.includes("کد ملی و تاریخ تولد شمسی را وارد کنید"), tx);
+  stepsOff();
+});
+
+await checkAsync("t866 two separate steps, confirmation, then mocked identityFn; both-in-one-message also works", async () => {
+  flagsOn();
+  stepsOn();
+  const nid = nidFromNine("012345678");
+  const id = insCust("آزمایش ت۸۶۶ ب", "09120000051", 6, "A1");
+  const chat = linkChat(openChat(kazemi, "آزمایش"), id);
+  const calls = [];
+  const ctx = (text, extra = {}) => ctxOf(chat, kazemi, id, "آزمایش", {
+    text,
+    identityFn: async (n, b) => { calls.push({ n, b }); return "ok"; },
+    ...extra,
+  });
+  await cbHandleInbound(ctx(CB_TEXTS.menuApply));
+  let tx = texts(chat.id).join("\n");
+  assert.ok(tx.includes("لطفاً فقط کد ملی"), tx);
+
+  // NID only (Latin) → ask birth, no inquiry yet
+  wipeOut(chat.id);
+  await cbHandleInbound(ctx(nid));
+  assert.equal(calls.length, 0);
+  tx = texts(chat.id).join("\n");
+  assert.ok(tx.includes("حالا تاریخ تولد شمسی"), tx);
+
+  // Year only (2371 shape) → retry, still no inquiry
+  wipeOut(chat.id);
+  await cbHandleInbound(ctx("تاریخ تولد ۱۳۵۳"));
+  assert.equal(calls.length, 0);
+  tx = texts(chat.id).join("\n");
+  assert.ok(tx.includes("تاریخ تولد را نشناختم"), tx);
+
+  // Valid date → confirmation, still no inquiry
+  wipeOut(chat.id);
+  await cbHandleInbound(ctx("1370/5/3"));
+  assert.equal(calls.length, 0);
+  tx = texts(chat.id).join("\n");
+  assert.ok(tx.includes("تاریخ تولد شما ۳ مرداد ۱۳۷۰ است؟"), tx);
+  assert.ok(tx.includes("بله/خیر"), tx);
+
+  // خیر → ask date again
+  wipeOut(chat.id);
+  await cbHandleInbound(ctx("خیر"));
+  tx = texts(chat.id).join("\n");
+  assert.ok(tx.includes("حالا تاریخ تولد شمسی"), tx);
+  assert.equal(calls.length, 0);
+
+  // Date again, then بله → inquiry with normalised values
+  wipeOut(chat.id);
+  await cbHandleInbound(ctx("۳ مرداد ۱۳۷۰"));
+  tx = texts(chat.id).join("\n");
+  assert.ok(tx.includes("تاریخ تولد شما ۳ مرداد ۱۳۷۰ است؟"), tx);
+  wipeOut(chat.id);
+  await cbHandleInbound(ctx("بله"));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].n, nid);
+  assert.equal(calls[0].b, "1370/05/03");
+  const f = cbActiveFiling(chat.id);
+  assert.equal(f.identity_status, "ok");
+  assert.equal(f.step, 2);
+  tx = texts(chat.id).join("\n");
+  assert.ok(tx.includes("هویت شما تأیید شده است") || tx.includes("استعلام اعتبار"), tx);
+  stepsOff();
+});
+
+await checkAsync("t866 extracts both from one message (2371 period+labels, 2344 two-line Persian) and waits for بله before calling identityFn", async () => {
+  flagsOn();
+  stepsOn();
+  const nid = nidFromNine("012345678");
+  const faNid = nid.replace(/\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[d]);
+  const id = insCust("آزمایش ت۸۶۶ پ", "09120000052", 6, "A1");
+  const chat = linkChat(openChat(kazemi, "آزمایش"), id);
+  const calls = [];
+  const ctx = (text) => ctxOf(chat, kazemi, id, "آزمایش", {
+    text, identityFn: async (n, b) => { calls.push({ n, b }); return "wait"; },
+  });
+  await cbHandleInbound(ctx(CB_TEXTS.menuApply));
+  wipeOut(chat.id);
+  // 2371's last attempt shape: label + Persian NID + period + date with mixed scripts
+  await cbHandleInbound(ctx(`کدملی ${faNid}. تاریخ تولد ۱۳۷۰/05/3`));
+  assert.equal(calls.length, 0, "must not inquire before confirmation");
+  let tx = texts(chat.id).join("\n");
+  assert.ok(tx.includes("تاریخ تولد شما ۳ مرداد ۱۳۷۰ است؟"), tx);
+  let f = cbActiveFiling(chat.id);
+  assert.equal(f.identity_status, null);
+  // New filing for the 2344 today shape
+  const id2 = insCust("آزمایش ت۸۶۶ ت", "09120000053", 6, "A1");
+  const chat2 = linkChat(openChat(kazemi, "آزمایش"), id2);
+  const calls2 = [];
+  const ctx2 = (text) => ctxOf(chat2, kazemi, id2, "آزمایش", {
+    text, identityFn: async (n, b) => { calls2.push({ n, b }); return "ok"; },
+  });
+  await cbHandleInbound(ctx2(CB_TEXTS.menuApply));
+  wipeOut(chat2.id);
+  await cbHandleInbound(ctx2(`${faNid}\n۱۳۷۰/۵/۰۳`));
+  assert.equal(calls2.length, 0);
+  tx = texts(chat2.id).join("\n");
+  assert.ok(tx.includes("تاریخ تولد شما ۳ مرداد ۱۳۷۰ است؟"), tx);
+  await cbHandleInbound(ctx2("بله"));
+  assert.equal(calls2.length, 1);
+  assert.equal(calls2[0].n, nid);
+  assert.equal(calls2[0].b, "1370/05/03");
+  assert.equal(cbActiveFiling(chat2.id).identity_status, "ok");
+  stepsOff();
+});
+
+await checkAsync("t866 checksum retry; no SAPI; padding 9-digit input", async () => {
+  flagsOn();
+  stepsOn();
+  const nid = nidFromNine("012345678");
+  const id = insCust("آزمایش ت۸۶۶ ث", "09120000054", 6, "A1");
+  const chat = linkChat(openChat(kazemi, "آزمایش"), id);
+  const calls = [];
+  const ctx = (text) => ctxOf(chat, kazemi, id, "آزمایش", {
+    text, identityFn: async (n, b) => { calls.push({ n, b }); return "ok"; },
+  });
+  await cbHandleInbound(ctx(CB_TEXTS.menuApply));
+  wipeOut(chat.id);
+  await cbHandleInbound(ctx("1111111111"));
+  let tx = texts(chat.id).join("\n");
+  assert.ok(tx.includes("رقم کنترلی"), tx);
+  assert.equal(calls.length, 0);
+  wipeOut(chat.id);
+  await cbHandleInbound(ctx(nid.slice(1))); // 9 digits, leading zero padded
+  tx = texts(chat.id).join("\n");
+  assert.ok(tx.includes("حالا تاریخ تولد شمسی"), tx);
+  stepsOff();
 });
 
 if (failures.length) {
