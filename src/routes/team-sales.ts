@@ -12,7 +12,7 @@ import {
   TeamSalesError, citySuggestions, editFirstCall, firstCallEditInfo, formatDue, getTeamSalesConfig, teamConfigFor, peekCloserFor, peekNextCloser, planOptions, previewQualification, priorityHistory, promoteToPriorityOne, submitQualification,
 } from "../lib/team-sales";
 import { manualOutcomeError, readManualOutcome } from "../lib/call-outcome";
-import { setNonP1TransferredHeader } from "../lib/nonp1-transfer";
+import { nonP1QualifierDisplayName, setNonP1TransferredHeader } from "../lib/nonp1-transfer";
 import { addWorkingHours, type QualifierAnswers } from "../lib/team-sales-rules";
 import { ConsultProfileError, canActOnCustomerProfile, consultProfile, editConsultProfile } from "../lib/consult-profile";
 import { isAdminRole } from "../lib/customer-integrity";
@@ -44,7 +44,11 @@ function answersOf(body: unknown): QualifierAnswers | null {
 
 router.get("/team-sales/config", requirePermission("customers.view"), (_req, res): void => {
   const cfg = getTeamSalesConfig();
-  res.json({ enabled: cfg.enabled, qualifierSalespersonId: cfg.qualifierSalespersonId,
+  // t868 (Mohammad t868s2964): additive — who gets this expert's non-P1 customers under their own team rule
+  // (team 2 → خردکار, team 1 → کاظمی), for the incoming-wizard hint. Display only; routing is unchanged.
+  const sp = (res.locals.authUser as AuthUser | undefined)?.salespersonId ?? null;
+  const nonP1OwnerName = nonP1QualifierDisplayName({ salespersonId: sp, priority: 2 });
+  res.json({ enabled: cfg.enabled, qualifierSalespersonId: cfg.qualifierSalespersonId, nonP1OwnerName,
     closerSalespersonIds: cfg.closerSalespersonIds, noteMinLength: cfg.noteMinLength,
     closerFirstCallWorkingHours: cfg.closerFirstCallWorkingHours, workHours: cfg.workHours, workDays: cfg.workDays,
     maxNoAnswerAttempts: cfg.maxNoAnswerAttempts });

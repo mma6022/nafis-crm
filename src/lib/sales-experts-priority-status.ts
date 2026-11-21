@@ -27,10 +27,11 @@
 import { execute, queryRow } from "./crm-db";
 import { ensureFcSchema } from "./files-carousel";
 import { getTeamSalesConfig } from "./team-sales";
+import { isTraineeSalesperson, mtFlagOn, ownerForPriority, resolveTeam, resolveTeamSalesConfig } from "./multi-team";
 import {
   NONP1_PROTECTED_CUSTOMER_IDS,
-  NONP1_TRAINEE_SALESPERSON_IDS,
   nonP1QualifierDisplayName,
+  nonP1SalespersonDisplayName,
   openCaseReason,
 } from "./nonp1-transfer";
 
@@ -79,9 +80,6 @@ export function psPriorityDemoteTransferName(
   actor: { id?: number | null; role?: string | null; salespersonId?: number | null },
 ): string | null {
   try {
-    const cfg = getTeamSalesConfig();
-    const qualifier = Number(cfg.qualifierSalespersonId);
-    if (!cfg.enabled || !Number.isFinite(qualifier)) return null;
     const c = queryRow<{ priority: number | null; salesperson_id: number | null; status: string | null; merged_into_customer_id: number | null }>(
       "SELECT priority, salesperson_id, status, merged_into_customer_id FROM customers WHERE id=?",
       [customerId],
@@ -89,14 +87,25 @@ export function psPriorityDemoteTransferName(
     if (!c) return null;
     if (c.priority != 1) return null;
     const sp = c.salesperson_id == null ? null : Number(c.salesperson_id);
+    // t868 (Mohammad t868s2964): same team rule as nonP1Decision — multi_team_v1 ON uses the customer's team
+    // (team 2 → خردکار), OFF keeps the legacy config. Destination shown is the team's owner for priority 2.
+    const mt = mtFlagOn();
+    const cfg = mt ? resolveTeamSalesConfig({ customerId, salespersonId: sp }) : getTeamSalesConfig();
+    let qualifier = Number(cfg.qualifierSalespersonId);
+    if (mt) {
+      const team = resolveTeam({ customerId, salespersonId: sp });
+      const dest = team ? ownerForPriority(team, 2) : null;
+      if (dest != null) qualifier = dest;
+    }
+    if (!cfg.enabled || !Number.isFinite(qualifier)) return null;
     if (actor.salespersonId != null && Number(actor.salespersonId) === qualifier) return null;
     if (NONP1_PROTECTED_CUSTOMER_IDS.includes(customerId)) return null;
-    if (sp != null && NONP1_TRAINEE_SALESPERSON_IDS.includes(sp)) return null;
+    if (sp != null && isTraineeSalesperson(sp)) return null;
     if (sp == null || !cfg.closerSalespersonIds.map(Number).includes(sp)) return null;
     if (c.merged_into_customer_id != null) return null;
     if ((c.status ?? "in_progress") !== "in_progress") return null;
     if (openCaseReason(customerId)) return null;
-    return psQualifierExpertName();
+    return mt ? nonP1SalespersonDisplayName(qualifier) : psQualifierExpertName();
   } catch {
     return null;
   }

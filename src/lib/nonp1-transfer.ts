@@ -42,9 +42,38 @@ export const NONP1_TRANSFER_TO_HEADER = "X-Nafis-Customer-Transferred-To";
 export const NONP1_REACTIVATION_REASON = "reactivation" as const;
 export const NONP1_TOAST = "مشتری به آقای کاظمی منتقل شد";
 
-/** Display name of the current first-call expert (qualifier), e.g. «آقای کاظمی». Never a fixed string. */
-export function nonP1QualifierDisplayName(): string | null {
+/** Display name of a salesperson: salespersons.name first (e.g. «آقای کاظمی», «حسین خردکار …»), then the active user's full name. */
+export function nonP1SalespersonDisplayName(salespersonId: number | null | undefined): string | null {
   try {
+    if (salespersonId == null || !Number.isFinite(Number(salespersonId))) return null;
+    const s = queryRow<{ n: string | null }>("SELECT name AS n FROM salespersons WHERE id=?", [Number(salespersonId)]);
+    const sn = (s?.n || "").trim();
+    if (sn) return sn;
+    const u = queryRow<{ n: string | null }>(
+      "SELECT full_name AS n FROM users WHERE salesperson_id=? AND role='salesperson' AND active=1 ORDER BY id LIMIT 1",
+      [Number(salespersonId)],
+    );
+    return ((u?.n || "").trim() || null);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Display name of the first-call expert (qualifier). t868 (Mohammad t868s2964): team-aware — with flag.multi_team_v1
+ * ON and a customer hint, it is the customer's own team rule (team 2 → خردکار, team 1 → کاظمی); otherwise the legacy
+ * config. Never a fixed string.
+ */
+export function nonP1QualifierDisplayName(hint: { customerId?: number | null; salespersonId?: number | null; priority?: number | null } = {}): string | null {
+  try {
+    if (mtFlagOn() && (hint.customerId != null || hint.salespersonId != null)) {
+      const team = resolveTeam({ customerId: hint.customerId ?? undefined, salespersonId: hint.salespersonId ?? undefined });
+      const cfg = resolveTeamSalesConfig({ customerId: hint.customerId ?? undefined, salespersonId: hint.salespersonId ?? undefined });
+      if (!cfg.enabled) return null;
+      const pri = hint.priority === 2 || hint.priority === 3 ? hint.priority : null;
+      const dest = (team ? ownerForPriority(team, pri as 1 | 2 | 3 | null) : null) ?? Number(cfg.qualifierSalespersonId);
+      return nonP1SalespersonDisplayName(dest);
+    }
     const cfg = getTeamSalesConfig();
     const q = Number(cfg.qualifierSalespersonId);
     if (!cfg.enabled || !Number.isFinite(q)) return null;
@@ -61,9 +90,23 @@ export function nonP1QualifierDisplayName(): string | null {
   }
 }
 
+/**
+ * t868: the toast names the customer's ACTUAL owner after the move (customers.salesperson_id, read on the same
+ * connection right after the transfer), so team 2 shows خردکار and team 1 shows کاظمی. Falls back to the legacy name.
+ */
+export function nonP1TransferredToName(customerId: number): string | null {
+  try {
+    const c = queryRow<{ sp: number | null }>("SELECT salesperson_id AS sp FROM customers WHERE id=?", [customerId]);
+    const name = c?.sp != null ? nonP1SalespersonDisplayName(Number(c.sp)) : null;
+    return name ?? nonP1QualifierDisplayName();
+  } catch {
+    return nonP1QualifierDisplayName();
+  }
+}
+
 export function setNonP1TransferredHeader(res: { setHeader(name: string, value: string): void }, customerId: number): void {
   res.setHeader(NONP1_TRANSFER_HEADER, String(customerId));
-  const name = nonP1QualifierDisplayName();
+  const name = nonP1TransferredToName(customerId);
   if (name) res.setHeader(NONP1_TRANSFER_TO_HEADER, encodeURIComponent(name));
 }
 
