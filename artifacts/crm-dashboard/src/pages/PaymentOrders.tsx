@@ -297,7 +297,7 @@ function CommissionCard({ order: o, c, isAdmin, onReturn, onRetried }: { order: 
     {c.scope === 'status' ? <p className="secondary-cell">جزئیات مبالغ فقط برای کارشناس همین پرونده و مدیر نمایش داده می‌شود.</p> : null}
     {c.rows.length ? <ul className="gp-comm-rows">{c.rows.map((r) => <li key={r.id} className={r.neutralized ? 'neutralized' : ''} data-testid={`commission-row-${r.id}`}>
       <div><strong>{KIND_LABELS[r.kind] ?? r.kind}</strong><span className="secondary-cell">{r.salespersonName ? `${r.salespersonName} · ` : ''}{monthLabel(r.month)}{r.neutralized ? ' · خنثی شد' : ''}</span></div>
-      <b className={toBig(r.amountToman) < 0n ? 'neg' : 'pos'} dir="ltr">{toBig(r.amountToman) < 0n ? '−' : '+'}{absBig(r.amountToman).toLocaleString('fa-IR')} تومان</b>
+      <b className={toBig(r.amountToman) < 0n ? 'neg' : 'pos'} dir="ltr">{toBig(r.amountToman) < 0n ? '−' : '+'}{faGrouped(absBig(r.amountToman))} تومان</b>
     </li>)}</ul> : null}
     {isAdmin && c.lastError ? <div className="gp-alert"><CircleAlert size={14} /> {c.lastError}</div> : null}
     {retry.isError ? <div className="gp-alert">{errText(retry.error)}</div> : null}
@@ -470,7 +470,7 @@ function UnpayDialog({ order: o, onClose, onDone }: { order: PaymentOrder; onClo
   return <ConfirmDialog title="«پرداخت‌شده» برگردد؟" testId="unpay" tone="danger" icon={<Undo2 size={16} />} confirmLabel="برگرداندن و ثبت ردیف برگشتی" busy={m.isPending} error={m.isError ? errText(m.error) : null}
     reason={{ label: 'دلیل', min: 5, hint: 'در تاریخچه و ردیف دفتر نوشته می‌شود.' }} onConfirm={(r) => m.mutate(r)} onClose={onClose}>
     <p>فقط برای وقتی که علامت اشتباهی خورده و پولی واریز نشده. دستور به «در انتظار علامت پرداخت» برمی‌گردد و برای پورسانت ثبت‌شده <b>یک ردیف برگشتی در همان ماه</b> در دفتر ثبت می‌شود. چیزی پاک نمی‌شود.</p>
-    {rows.length ? <ul className="gp-comm-rows compact">{rows.map((r) => <li key={r.id}><span>{r.salespersonName ? `${r.salespersonName} · ` : ''}{KIND_LABELS[r.kind] ?? r.kind}</span><b className="neg" dir="ltr">−{toBig(r.amountToman).toLocaleString('fa-IR')} تومان</b></li>)}</ul> : null}
+    {rows.length ? <ul className="gp-comm-rows compact">{rows.map((r) => <li key={r.id}><span>{r.salespersonName ? `${r.salespersonName} · ` : ''}{KIND_LABELS[r.kind] ?? r.kind}</span><b className="neg" dir="ltr">−{faGrouped(toBig(r.amountToman) < 0n ? -toBig(r.amountToman) : toBig(r.amountToman))} تومان</b></li>)}</ul> : null}
   </ConfirmDialog>;
 }
 
@@ -480,7 +480,7 @@ function ReturnCaseDialog({ order: o, c, onClose, onDone }: { order: PaymentOrde
   return <ConfirmDialog title="ثبت برگشت پرونده" testId="return-case" tone="danger" icon={<RotateCcw size={16} />} confirmLabel="ثبت برگشت پرونده" busy={m.isPending} error={m.isError ? errText(m.error) : null}
     reason={{ label: 'دلیل برگشت', min: 5 }} onConfirm={(r) => m.mutate(r)} onClose={onClose}>
     <p>مشتری پرونده را برگرداند؟ پورسانت این پرونده در <b>{monthLabel(c.returnCaseMonth)}</b> از دفتر کسر می‌شود. ردیف‌های قبلی پاک نمی‌شوند.</p>
-    {rows.length ? <ul className="gp-comm-rows compact" data-testid="return-case-preview">{rows.map((r) => <li key={r.id}><span>{r.salespersonName ? `${r.salespersonName} · ` : ''}{KIND_LABELS[r.kind] ?? r.kind}</span><b className="neg" dir="ltr">−{toBig(r.amountToman).toLocaleString('fa-IR')} تومان</b></li>)}</ul> : null}
+    {rows.length ? <ul className="gp-comm-rows compact" data-testid="return-case-preview">{rows.map((r) => <li key={r.id}><span>{r.salespersonName ? `${r.salespersonName} · ` : ''}{KIND_LABELS[r.kind] ?? r.kind}</span><b className="neg" dir="ltr">−{faGrouped(toBig(r.amountToman) < 0n ? -toBig(r.amountToman) : toBig(r.amountToman))} تومان</b></li>)}</ul> : null}
   </ConfirmDialog>;
 }
 

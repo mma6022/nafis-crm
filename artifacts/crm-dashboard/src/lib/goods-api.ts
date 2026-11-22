@@ -142,14 +142,26 @@ export async function openAuthedFile(path: string, print = false) {
 export const digitsOnly = (v: string) => v.replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[^0-9]/g, '');
 export const toBig = (v?: string | number | null) => { try { return BigInt(String(v ?? '0').split('.')[0] || '0'); } catch { return 0n; } };
 /** Persian digits, no grouping — for record IDs like «خرید کالا ۱۰۰۱». */
-export const faId = (v?: string | number | null) => String(v ?? '').replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
-/** Grouped Persian amount using ٬ (not a Latin comma). */
+const FA_DIGITS = '۰۱۲۳۴۵۶۷۸۹';
+const toFaDigits = (s: string) => s.replace(/\d/g, (d) => FA_DIGITS[Number(d)]);
+const groupAscii = (digits: string) => digits.replace(/\B(?=(\d{3})+(?!\d))/g, '٬');
+export const faId = (v?: string | number | null) => toFaDigits(String(v ?? ''));
+/** Grouped Persian amount using the Persian separator ٬ — never a Latin comma. */
 export const faGrouped = (v?: string | number | bigint | null) => {
   const n = typeof v === 'bigint' ? v : toBig(v as string | number | null);
-  return n.toLocaleString('fa-IR').replace(/,/g, '٬').replace(/\u060C/g, '٬');
+  const sign = n < 0n ? '−' : '';
+  const abs = n < 0n ? -n : n;
+  return sign + toFaDigits(groupAscii(abs.toString()));
 };
 export const toman = (v?: string | number | null) => `${faGrouped(v)} تومان`;
-export const faNum = (v?: string | number | null) => (v === null || v === undefined || v === '' ? '—' : Number(v).toLocaleString('fa-IR', { maximumFractionDigits: 2 }).replace(/,/g, '٬').replace(/\u060C/g, '٬'));
+export const faNum = (v?: string | number | null) => {
+  if (v === null || v === undefined || v === '') return '—';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '—';
+  const sign = n < 0 ? '−' : '';
+  const [i, frac] = Math.abs(n).toFixed(2).replace(/\.?0+$/, '').split('.');
+  return sign + toFaDigits(groupAscii(i) + (frac ? `٫${frac}` : ''));
+};
 
 export type Me = { id: number; role: string; permissions: string[]; salespersonId?: number | null; fullName?: string | null };
 export function useMe() {
@@ -222,6 +234,16 @@ export const PO_STAGES = [
 export const poStageLabel = (s?: string) => PO_STAGES.find((x) => x.key === s)?.label ?? s ?? '—';
 
 export const docStatusLabel = (s?: string | null) => ({ generated: 'تولیدشده', generating: 'در حال تولید', sending: 'در حال ارسال', sent: 'ارسال‌شده، در انتظار امضا', signed: 'امضاشده', rejected: 'ردشده', delivery_unknown: 'وضعیت ارسال نامشخص', failed: 'خطا', superseded: 'جایگزین‌شده', cancelled: 'لغوشده' } as Record<string, string>)[s ?? ''] ?? (s || 'تولیدنشده');
+export const providerStatusLabel = (s?: string | null) => {
+  if (!s) return '';
+  const k = s.toLowerCase().replace(/[\s_\-]/g, '');
+  return ({
+    accept: 'امضا شد', accepted: 'امضا شد', signed: 'امضا شد',
+    reject: 'رد شد', rejected: 'رد شد', declined: 'رد شد',
+    readyforsign: 'در انتظار امضا', sent: 'ارسال‌شده', pending: 'در انتظار امضا',
+    cancelled: 'لغو شد', canceled: 'لغو شد', expired: 'منقضی شد',
+  } as Record<string, string>)[k] ?? s;
+};
 export const ownerTypeLabel = (s?: string) => ({ company: 'شرکت', person: 'شخص', customer: 'مشتری' } as Record<string, string>)[s ?? ''] ?? s ?? '—';
 
 const EVENT_LABELS: Record<string, string> = {
@@ -231,6 +253,10 @@ const EVENT_LABELS: Record<string, string> = {
   team_commission_posted: 'پورسانت ثبت شد', team_commission_reversed: 'برگشت پرونده · کسر پورسانت در ماه بعد', team_commission_unposted: '«پرداخت‌شده» برگشت · پورسانت خنثی شد',
   payment_recorded: '«پرداخت‌شده» ثبت شد', payment_reverted: '«پرداخت‌شده» برگشت (ثبت اشتباه)',
   admin_stage_back: 'بازگشت مرحله توسط مدیر', admin_document_resend: 'تولید نسخهٔ تازهٔ سند توسط مدیر', admin_invoice_revised: 'ویرایش اقلام فاکتور توسط مدیر',
+  company_credit_registered_in_nafisvam_wallet: 'اعتبار شرکت در کیف پول نفیس‌وام ثبت شد',
+  acknowledgement_template_refreshed: 'قالب اقرارنامه به‌روز شد',
+  t664_credit_corrected: 'اصلاح اعتبار',
+  plan_settings_corrected_after_settlement: 'اصلاح تنظیمات طرح پس از تسویه',
 };
 /** Payment-order history has its own vocabulary (its «created» is not the goods «reserve» event). */
 const PO_EVENT_LABELS: Record<string, string> = {

@@ -9,7 +9,7 @@ import { NEXT_STEP } from '@/pages/GoodsPurchases';
 import { getGetCompanyWalletQueryKey } from '@workspace/api-client-react';
 import { useListContractTemplates, getListContractTemplatesQueryKey, type ContractMapping } from '@workspace/api-client-react';
 import { UpdatedContractBanner } from '@/components/UpdatedContractBanner';
-import { api, digitsOnly, errText, eventLabel, faId, openAuthedFile, rawCode, stageIndex, stageLabel, STAGES, toBig, toman, docStatusLabel, useMe, type GoodsDocument, type Purchase, type PurchaseEvent, type PurchaseItem, type PaymentOrder } from '@/lib/goods-api';
+import { api, digitsOnly, errText, eventLabel, faGrouped, faId, openAuthedFile, providerStatusLabel, rawCode, stageIndex, stageLabel, STAGES, toBig, toman, docStatusLabel, useMe, type GoodsDocument, type Purchase, type PurchaseEvent, type PurchaseItem, type PaymentOrder } from '@/lib/goods-api';
 import { CustomerName } from '@/components/customer/CustomerName';
 import { DocResendButton, DocumentHistoryPanel } from '@/features/doc-resend/DocResendWizard';
 import { useDocResendMe, useAdminControls, postAdminInvoice, ADMIN_AUDIT_SHORT, parseEventDetail } from '@/features/doc-resend/api';
@@ -151,7 +151,7 @@ function InvoicePanel({ p, editable, adminRevise, onSaved }: { p: Purchase; edit
       <tbody>{rows.map((r, i) => <tr key={i}>
         <td>{editable ? <input value={r.title} onChange={(e) => set(i, { title: e.target.value })} placeholder="مثال: یخچال ساید بای ساید" data-testid={`input-item-title-${i}`} /> : r.title}</td>
         <td>{editable ? <input type="number" min={1} step={1} value={r.quantity} onChange={(e) => set(i, { quantity: e.target.value })} style={{ width: 70 }} /> : Number(r.quantity).toLocaleString('fa-IR')}</td>
-        <td>{editable ? <input dir="ltr" inputMode="numeric" value={toBig(digitsOnly(r.unitPriceToman)) ? toBig(digitsOnly(r.unitPriceToman)).toLocaleString('en-US') : ''} onChange={(e) => set(i, { unitPriceToman: digitsOnly(e.target.value) })} data-testid={`input-item-price-${i}`} /> : toman(r.unitPriceToman)}</td>
+        <td>{editable ? <input dir="ltr" inputMode="numeric" value={toBig(digitsOnly(r.unitPriceToman)) ? faGrouped(toBig(digitsOnly(r.unitPriceToman))) : ''} onChange={(e) => set(i, { unitPriceToman: digitsOnly(e.target.value) })} data-testid={`input-item-price-${i}`} /> : toman(r.unitPriceToman)}</td>
         <td className="mono">{toman((toBig(digitsOnly(r.unitPriceToman)) * BigInt(Math.max(0, Math.floor(Number(r.quantity) || 0)))).toString())}</td>
         {editable ? <td><button className="icon-button" type="button" disabled={rows.length === 1} onClick={() => setRows(rows.filter((_, j) => j !== i))} aria-label="حذف ردیف"><Trash2 size={14} /></button></td> : null}
       </tr>)}</tbody>
@@ -200,13 +200,13 @@ function DocumentPanel({ title, kind, doc, pid, templateId, active, canAct, read
   const missing = fields.some((f) => !(values[f.variable] ?? '').trim());
   const open = (print: boolean) => openAuthedFile(`/goods-purchases/${pid}/documents/${kind}/pdf`, print).catch((e) => setFlash({ ok: false, text: errText(e) }));
   return <div className={`panel gp-stage-panel gp-doc ${signed ? 'signed' : rejected ? 'rejected' : ''}`}>
-    <div className="panel-head"><div><h3><FileText size={16} /> {title}</h3><p>{kind === 'acknowledgement' ? `قالب: ${template?.name ?? (templates.isLoading ? '…' : templateId ? `#${templateId}` : 'تنظیم نشده')}` : 'پیش‌نمایش، چاپ و ارسال برای امضای الکترونیک در امضامی.'}</p></div><span className={`inline-badge ${signed ? 'active' : rejected ? 'inactive' : 'gold'}`}>{docStatusLabel(signed ? 'signed' : status)}{doc?.version ? ` · نسخه ${doc.version.toLocaleString('fa-IR')}` : ''}</span></div>
+    <div className="panel-head"><div><h3><FileText size={16} /> {title}</h3><p>{kind === 'acknowledgement' ? `قالب: ${template?.name ?? (templates.isLoading ? '…' : templateId ? `#${templateId}` : 'تنظیم نشده')}` : 'پیش‌نمایش، چاپ و ارسال برای امضای الکترونیک در امضامی.'}</p></div><span className={`inline-badge ${signed ? 'active' : rejected ? 'inactive' : 'gold'}`}>{docStatusLabel(signed ? 'signed' : status)}{doc?.version ? ` · نسخه ${faId(doc.version)}` : ''}</span></div>
     <div className="gp-doc-meta">
       {doc?.createdAt ? <span>تولید: {formatDateTime(doc.createdAt)}</span> : null}
-      {doc?.providerStatus ? <span>وضعیت امضامی: {doc.providerStatus}</span> : null}
+      {doc?.providerStatus ? <span>وضعیت امضامی: {providerStatusLabel(doc.providerStatus)}</span> : null}
     </div>
     {liveSignatureStatus ? <div className="gp-alert" role="status" data-testid={`status-live-signature-${kind}`}>
-      وضعیت زندهٔ امضامی: {docStatusLabel(liveSignatureStatus.status)}{liveSignatureStatus.providerStatus ? <> · <bdi dir="auto">{liveSignatureStatus.providerStatus}</bdi></> : null}
+      وضعیت زندهٔ امضامی: {docStatusLabel(liveSignatureStatus.status)}{liveSignatureStatus.providerStatus ? <> · <bdi dir="auto">{providerStatusLabel(liveSignatureStatus.providerStatus)}</bdi></> : null}
       <br />زمان استعلام: {formatDateTime(liveSignatureStatus.checkedAt)}. این استعلام فقط‌خواندنی بود و مرحلهٔ خرید را تغییر نداد.
     </div> : null}
     {kind === 'acknowledgement' && !signed && status === 'sent' ? <UpdatedContractBanner kind="goods" subjectId={pid} onDone={() => qc.invalidateQueries({ queryKey: ['goods-purchase', pid] })} /> : null}

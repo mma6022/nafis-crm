@@ -21,7 +21,7 @@ export function Wizard({ title, testId, steps, step, summary, children, onClose,
   next: { label: string; onClick: () => void; disabled?: boolean; tone?: 'primary' | 'green' | 'danger'; icon?: ReactNode; testId?: string };
 }) {
   return <Modal title={title} onClose={onClose} testId={testId}>
-    <div className="gp-wiz">
+    <div className="gp-wiz" data-step={step}>
       <div className="gp-wiz-head"><strong>{steps[step]}</strong><span>مرحله {(step + 1).toLocaleString('fa-IR')} از {steps.length.toLocaleString('fa-IR')}</span></div>
       <div className="gp-wiz-bar" aria-hidden="true">{steps.map((s, i) => <i key={s} className={i <= step ? 'on' : ''} />)}</div>
       {summary ? <div className="gp-wiz-summary">{summary}</div> : null}

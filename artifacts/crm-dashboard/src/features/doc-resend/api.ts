@@ -93,7 +93,9 @@ export const ACK_SUPERSEDE_OLDER_SIGNED = false;
 /** Mohammad: the previous unsigned Emzami request is cancelled when a new document is issued. */
 export const PREVIOUS_UNSIGNED_EMZAMI_CANCELLED = true;
 export const PREVIOUS_EMZAMI_CANCEL_TEXT = 'درخواست امضای قبلی لغو می‌شود';
-export const BALE_NOTIFY_CONFIRM_TEXT = 'یک پیام اطلاع در بله برای مشتری فرستاده می‌شود. پیامک فرستاده نمی‌شود.';
+export const BALE_NOTIFY_CONFIRM_TEXT = 'پیام بله به مشتری می‌رود';
+export const DISABLED_RESEND_REASON = 'در این مرحله نیست';
+
 
 export const BLOCK_REASON_SHORT: Record<string, string> = {
   completed_financial_lock: 'پس از تکمیل نمی‌شود برگشت',

@@ -6,7 +6,7 @@ import { docStatusLabel, errText, faId, stageLabel, poStageLabel } from '@/lib/g
 import { formatDateTime } from '@/components/CrmShell';
 import {
   useAdminControls, postGoodsStage, postPaymentStage, postGoodsResend, BLOCK_REASON, BLOCK_REASON_SHORT,
-  PREVIOUS_UNSIGNED_EMZAMI_CANCELLED, PREVIOUS_EMZAMI_CANCEL_TEXT, BALE_NOTIFY_CONFIRM_TEXT, historyBadges,
+  PREVIOUS_UNSIGNED_EMZAMI_CANCELLED, BALE_NOTIFY_CONFIRM_TEXT, DISABLED_RESEND_REASON, historyBadges,
   type AdminControls, type GoodsAdminControls, type HistoryDoc,
 } from './api';
 import './doc-resend.css';
@@ -26,7 +26,14 @@ function hasOpenSignatureRequest(docs: HistoryDoc[]) {
   return docs.some((d) => ['sending', 'sent', 'delivery_unknown'].includes(d.status));
 }
 
-type Effect = { removed?: string; remains?: string; notes: string[] };
+type Effect = { removed?: string; remains?: string; cancel?: string; bale?: string; notes: string[] };
+
+function remainLine(kindLabel: string, docs: HistoryDoc[]): string {
+  const signed = docs.filter((d) => d.status === 'signed');
+  if (signed.length) return signed.map((d) => `${kindLabel} نسخهٔ ${faId(d.version)} (امضاشده)`).join(' و ');
+  if (docs.length) return `${kindLabel}های قبلی در سابقه می‌مانند و حذف نمی‌شوند.`;
+  return 'سندهای قبلی در سابقه می‌مانند و حذف نمی‌شوند.';
+}
 
 function confirmEffect(kind: 'goods' | 'payment', action: Action, controls: AdminControls, target: string): Effect {
   const notes: string[] = [];
@@ -37,9 +44,12 @@ function confirmEffect(kind: 'goods' | 'payment', action: Action, controls: Admi
     notes.push(prev > 0
       ? `نسخهٔ ${faId(next)} ساخته می‌شود؛ نسخهٔ ${faId(prev)} سر جایش می‌ماند`
       : `نسخهٔ ${faId(next)} ساخته می‌شود`);
-    if (PREVIOUS_UNSIGNED_EMZAMI_CANCELLED && hasOpenSignatureRequest(docs)) notes.push(PREVIOUS_EMZAMI_CANCEL_TEXT);
-    if (controls.baleNotify) notes.push(BALE_NOTIFY_CONFIRM_TEXT);
-    return { remains: 'فاکتورهای قبلی در سابقه می‌مانند و حذف نمی‌شوند.', notes };
+    return {
+      remains: remainLine('فاکتور', docs),
+      cancel: PREVIOUS_UNSIGNED_EMZAMI_CANCELLED && hasOpenSignatureRequest(docs) ? 'درخواست امضای قبلی (امضانشده)' : undefined,
+      bale: controls.baleNotify ? BALE_NOTIFY_CONFIRM_TEXT : undefined,
+      notes,
+    };
   }
   if (action === 'resend_acknowledgement' && controls.kind === 'goods') {
     const docs = controls.documents.acknowledgement;
@@ -48,9 +58,12 @@ function confirmEffect(kind: 'goods' | 'payment', action: Action, controls: Admi
     notes.push(prev > 0
       ? `نسخهٔ ${faId(next)} ساخته می‌شود؛ نسخهٔ ${faId(prev)} سر جایش می‌ماند`
       : `نسخهٔ ${faId(next)} ساخته می‌شود`);
-    if (PREVIOUS_UNSIGNED_EMZAMI_CANCELLED && hasOpenSignatureRequest(docs)) notes.push(PREVIOUS_EMZAMI_CANCEL_TEXT);
-    if (controls.baleNotify) notes.push(BALE_NOTIFY_CONFIRM_TEXT);
-    return { remains: 'اقرارنامه‌های قبلی در سابقه می‌مانند و حذف نمی‌شوند.', notes };
+    return {
+      remains: remainLine('اقرارنامه', docs),
+      cancel: PREVIOUS_UNSIGNED_EMZAMI_CANCELLED && hasOpenSignatureRequest(docs) ? 'درخواست امضای قبلی (امضانشده)' : undefined,
+      bale: controls.baleNotify ? BALE_NOTIFY_CONFIRM_TEXT : undefined,
+      notes,
+    };
   }
 
   // stage_back
@@ -78,16 +91,21 @@ function confirmEffect(kind: 'goods' | 'payment', action: Action, controls: Admi
   // goods stage-back
   if (controls.kind !== 'goods') return { notes };
   const invoices = controls.documents.invoice;
-  const acks = controls.documents.acknowledgement;
   const signedInv = invoices.filter((d) => d.status === 'signed');
   const from = controls.stage;
+  const cancel = (from === 'invoice_signature' && PREVIOUS_UNSIGNED_EMZAMI_CANCELLED && hasOpenSignatureRequest(invoices))
+    ? 'درخواست امضای قبلی (امضانشده)'
+    : undefined;
   const preSettlement = ['invoice_draft', 'invoice_signature'].includes(target);
   if (preSettlement && ['invoice_signature', 'settlement_pending'].includes(from)) {
     return {
-      removed: 'امضای ثبت‌شدهٔ فاکتور روی پرونده (برای ادامه، امضای تازه لازم است)',
+      removed: from === 'invoice_signature'
+        ? 'امضای در جریان روی پرونده (برای ادامه، امضای تازه لازم است)'
+        : 'امضای ثبت‌شدهٔ فاکتور روی پرونده (برای ادامه، امضای تازه لازم است)',
       remains: signedInv.length
-        ? `فاکتور ${signedInv.map((d) => `نسخهٔ ${faId(d.version)}`).join(' و ')} در سابقه می‌ماند`
+        ? signedInv.map((d) => `فاکتور نسخهٔ ${faId(d.version)} (امضاشده)`).join(' و ')
         : 'سندهای قبلی در سابقه می‌مانند و حذف نمی‌شوند.',
+      cancel,
       notes,
     };
   }
@@ -98,7 +116,7 @@ function confirmEffect(kind: 'goods' | 'payment', action: Action, controls: Admi
       notes,
     };
   }
-  return { remains: 'سندهای قبلی در سابقه می‌مانند و حذف نمی‌شوند.', notes };
+  return { remains: 'سندهای قبلی در سابقه می‌مانند و حذف نمی‌شوند.', cancel, notes };
 }
 
 export function DocResendButton({ kind, id, onDone }: { kind: 'goods' | 'payment'; id: number; onDone: (msg: string) => void }) {
@@ -158,21 +176,25 @@ export function DocResendWizard({ kind, id, onClose, onDone }: { kind: 'goods' |
       },
     ];
     if (kind === 'goods' && controls && controls.kind === 'goods') {
+      const invoiceOk = controls.allowedResendKinds.includes('invoice');
+      const ackOk = controls.allowedResendKinds.includes('acknowledgement');
       list.push({
-        key: 'resend_invoice', title: 'تولید فاکتور تازه', hint: 'فاکتورهای امضاشدهٔ قبلی سر جایشان می‌مانند.',
-        disabled: !controls.allowedResendKinds.includes('invoice'),
+        key: 'resend_invoice', title: 'تولید فاکتور تازه',
+        hint: invoiceOk ? 'فاکتورهای امضاشدهٔ قبلی سر جایشان می‌مانند.' : DISABLED_RESEND_REASON,
+        disabled: !invoiceOk,
       });
       list.push({
-        key: 'resend_acknowledgement', title: 'تولید اقرارنامهٔ تازه', hint: 'نسخه‌های قبلی در سابقه می‌مانند.',
-        disabled: !controls.allowedResendKinds.includes('acknowledgement'),
+        key: 'resend_acknowledgement', title: 'تولید اقرارنامهٔ تازه',
+        hint: ackOk ? 'نسخه‌های قبلی در سابقه می‌مانند.' : DISABLED_RESEND_REASON,
+        disabled: !ackOk,
       });
     }
     return list;
   }, [kind, controls]);
 
-  if (q.isLoading) return <Wizard title="بازگشت مرحله یا ارسال دوباره" testId="doc-resend-wizard" steps={STEPS} step={0} onClose={onClose} next={{ label: 'ادامه', disabled: true, onClick: () => undefined }}><p>در حال بارگذاری…</p></Wizard>;
+  if (q.isLoading) return <Wizard title="بازگشت مرحله یا سند تازه" testId="doc-resend-wizard" steps={STEPS} step={0} onClose={onClose} next={{ label: 'ادامه', disabled: true, onClick: () => undefined }}><p>در حال بارگذاری…</p></Wizard>;
   if (q.isError || !controls) {
-    return <Wizard title="بازگشت مرحله یا ارسال دوباره" testId="doc-resend-wizard" steps={STEPS} step={0} onClose={onClose} next={{ label: 'دوباره تلاش کنید', onClick: () => { void q.refetch(); }, testId: 'button-doc-resend-retry' }}>
+    return <Wizard title="بازگشت مرحله یا سند تازه" testId="doc-resend-wizard" steps={STEPS} step={0} onClose={onClose} next={{ label: 'دوباره تلاش کنید', onClick: () => { void q.refetch(); }, testId: 'button-doc-resend-retry' }}>
       <div className="gp-alert" role="alert" data-testid="doc-resend-network-error">{q.error ? errText(q.error) : 'این قابلیت در دسترس نیست.'}</div>
     </Wizard>;
   }
@@ -196,7 +218,7 @@ export function DocResendWizard({ kind, id, onClose, onDone }: { kind: 'goods' |
   const pathLabel = action === 'stage_back' && target ? `از ${controls.stageLabel} ← به ${labelFor(kind, target)}` : null;
 
   return <Wizard
-    title="بازگشت مرحله یا ارسال دوباره"
+    title="بازگشت مرحله یا سند تازه"
     testId="doc-resend-wizard"
     steps={STEPS}
     step={step}
@@ -212,23 +234,26 @@ export function DocResendWizard({ kind, id, onClose, onDone }: { kind: 'goods' |
     }}
     summary={step === 0 ? <span className="dr-stage-badge">مرحلهٔ فعلی: <b>{controls.stageLabel}</b></span> : undefined}
   >
-    {step === 0 ? <div className="dr-choices" data-testid="doc-resend-step-action">
+    {step === 0 ? <div className="dr-choices" role="radiogroup" aria-label="انتخاب کار" data-testid="doc-resend-step-action">
       {actions.map((a) => (
-        <button type="button" key={a.key} className={`dr-choice${action === a.key ? ' on' : ''}`} aria-pressed={action === a.key} disabled={a.disabled} onClick={() => setAction(a.key)} data-testid={`choice-action-${a.key}`}>
+        <button type="button" key={a.key} role="radio" className={`dr-choice${action === a.key ? ' on' : ''}`} aria-checked={action === a.key} disabled={a.disabled} onClick={() => setAction(a.key)} data-testid={`choice-action-${a.key}`}>
+          <i className="dr-radio" aria-hidden="true" />
           <span><strong>{a.title}</strong>{a.hint ? <small>{a.hint}</small> : null}</span>
         </button>
       ))}
       {controls.blockedTargetStages.length ? <p className="dr-locked">{BLOCK_REASON[controls.blockedTargetStages[0].reason] ?? 'برخی مراحل به خاطر ثبت مالی قابل انتخاب نیستند.'}</p> : null}
     </div> : null}
 
-    {step === 1 && action === 'stage_back' ? <div className="dr-choices" data-testid="doc-resend-step-target">
+    {step === 1 && action === 'stage_back' ? <div className="dr-choices" role="radiogroup" aria-label="انتخاب مرحله" data-testid="doc-resend-step-target">
       {controls.allowedTargetStages.map((s) => (
-        <button type="button" key={s} className={`dr-choice${target === s ? ' on' : ''}`} aria-pressed={target === s} onClick={() => setTarget(s)} data-testid={`choice-stage-${s}`}>
+        <button type="button" key={s} role="radio" className={`dr-choice${target === s ? ' on' : ''}`} aria-checked={target === s} onClick={() => setTarget(s)} data-testid={`choice-stage-${s}`}>
+          <i className="dr-radio" aria-hidden="true" />
           <span><strong>{labelFor(kind, s)}</strong></span>
         </button>
       ))}
       {controls.blockedTargetStages.map((b) => (
-        <button type="button" key={b.stage} className="dr-choice" disabled data-testid={`choice-stage-blocked-${b.stage}`}>
+        <button type="button" key={b.stage} role="radio" className="dr-choice" aria-checked={false} disabled data-testid={`choice-stage-blocked-${b.stage}`}>
+          <i className="dr-radio" aria-hidden="true" />
           <span><strong>{labelFor(kind, b.stage)}</strong><small>{BLOCK_REASON_SHORT[b.reason] ?? BLOCK_REASON[b.reason] ?? 'قابل انتخاب نیست.'}</small></span>
         </button>
       ))}
@@ -239,7 +264,7 @@ export function DocResendWizard({ kind, id, onClose, onDone }: { kind: 'goods' |
       <p className="dr-doc-note">نسخهٔ {faId(nextVersion(history))} ساخته می‌شود.</p>
       {history.length ? <ul className="dr-history">{history.map((d) => (
         <li key={d.id}>
-          <span>نسخه {faId(d.version)}{d.invoiceNumber ? ` · شماره ${d.invoiceNumber}` : ''} · {historyBadges(historyKind, history, d, docStatusLabel).join(' · ')}</span>
+          <span>نسخه {faId(d.version)}{d.invoiceNumber ? ` · شماره ${faId(d.invoiceNumber)}` : ''} · {historyBadges(historyKind, history, d, docStatusLabel).join(' · ')}</span>
           <span>{formatDateTime(d.createdAt)}</span>
         </li>
       ))}</ul> : <p className="secondary-cell" data-testid="doc-resend-empty-docs">هنوز سندی در سابقه نیست.</p>}
@@ -259,9 +284,11 @@ export function DocResendWizard({ kind, id, onClose, onDone }: { kind: 'goods' |
       {pathLabel ? <div className="dr-kv"><span>مسیر</span><b>{pathLabel}</b></div> : null}
       <div className="dr-kv"><span>دلیل</span><b>{reason.trim()}</b></div>
       <div className="dr-effect" role="status">
-        {effect.removed ? <p><strong>برداشته می‌شود: </strong>{effect.removed}</p> : null}
-        {effect.remains ? <p><strong>می‌ماند: </strong>{effect.remains}</p> : null}
-        {effect.notes.map((n) => <p key={n}>{n}</p>)}
+        {effect.notes.map((n) => <p key={n} className="dr-effect-note">{n}</p>)}
+        {effect.remains ? <div className="dr-effect-group" data-testid="dr-effect-keeps"><strong>می‌ماند</strong><p>{effect.remains}</p></div> : null}
+        {effect.cancel ? <div className="dr-effect-group" data-testid="dr-effect-cancel"><strong>لغو می‌شود</strong><p>{effect.cancel}</p></div> : null}
+        {effect.removed ? <div className="dr-effect-group" data-testid="dr-effect-removed"><strong>برداشته می‌شود</strong><p>{effect.removed}</p></div> : null}
+        {effect.bale ? <div className="dr-effect-group" data-testid="dr-effect-bale"><strong>پیام بله</strong><p>{effect.bale}</p></div> : null}
       </div>
       {mutation.isError ? <div className="gp-alert" role="alert">{errText(mutation.error)}</div> : null}
     </div> : null}
@@ -281,7 +308,7 @@ export function DocumentHistoryPanel({ controls }: { controls: GoodsAdminControl
         <strong>{b.title}</strong>
         {b.rows.length ? <ul className="dr-history">{b.rows.map((d) => (
           <li key={d.id}>
-            <span>نسخه {faId(d.version)}{d.invoiceNumber ? ` · شماره ${d.invoiceNumber}` : ''} · {historyBadges(b.kind, b.rows, d, docStatusLabel).join(' · ')}</span>
+            <span>نسخه {faId(d.version)}{d.invoiceNumber ? ` · شماره ${faId(d.invoiceNumber)}` : ''} · {historyBadges(b.kind, b.rows, d, docStatusLabel).join(' · ')}</span>
             <span>{formatDateTime(d.createdAt)}</span>
           </li>
         ))}</ul> : <p className="secondary-cell">موردی نیست.</p>}

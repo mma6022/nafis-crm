@@ -1,53 +1,90 @@
-/* t882 wizard: 44px touch targets, Persian digits come from the shared stepper, full width on 390. */
+/* t882 wizard: bordered radio rows (≥44px), Persian digits, confirm groups, 390 typography. */
 .dr-choices { display: flex; flex-direction: column; gap: 8px; }
 .dr-choice {
-  display: flex; align-items: flex-start; gap: 10px; min-height: 44px;
+  display: flex; align-items: center; gap: 10px; min-height: 44px;
   text-align: right; width: 100%; border: 1px solid var(--border, #d0d5dd);
   background: #fff; border-radius: 10px; padding: 10px 12px; cursor: pointer;
 }
 .dr-choice:hover:not(:disabled) { border-color: #98a2b3; }
-.dr-choice[aria-pressed="true"], .dr-choice.on {
+.dr-choice[aria-checked="true"], .dr-choice.on {
   border-color: #1570ef; background: #eff8ff; box-shadow: inset 0 0 0 1px #1570ef;
+}
+.dr-radio {
+  flex: none; width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid #98a2b3; background: #fff; position: relative;
+}
+.dr-choice.on .dr-radio, .dr-choice[aria-checked="true"] .dr-radio {
+  border-color: #1570ef;
+}
+.dr-choice.on .dr-radio::after, .dr-choice[aria-checked="true"] .dr-radio::after {
+  content: ""; position: absolute; inset: 3px; border-radius: 50%; background: #1570ef;
 }
 .dr-choice strong { display: block; font-size: 14px; }
 .dr-choice small { display: block; color: #475569; font-size: 12px; margin-top: 2px; }
 .dr-choice:disabled { cursor: not-allowed; opacity: 0.78; background: #f8fafc; }
 .dr-choice:disabled strong { color: #344054; }
 .dr-choice:disabled small { color: #667085; }
+.dr-choice:disabled .dr-radio { border-color: #d0d5dd; background: #f2f4f7; }
 .dr-history { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .dr-history li { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 13px; border-bottom: 1px dashed #eaecf0; padding-bottom: 6px; }
 .dr-locked { font-size: 13px; color: #b42318; margin: 8px 0 0; }
 .dr-open { min-height: 44px; }
 .dr-stage-badge { display: inline-block; font-size: 12px; color: #475569; }
 .dr-doc-note { margin: 0 0 8px; font-size: 14px; }
-.dr-reason { resize: none; }
+.dr-reason, [data-testid="modal-doc-resend-wizard"] textarea.dr-reason {
+  resize: none !important;
+  field-sizing: fixed;
+}
 .dr-reason-meta { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; margin-top: 6px; }
 .dr-reason-hint { color: #b42318; font-size: 12px; }
 .dr-reason-count { font-size: 12px; color: #475569; font-variant-numeric: tabular-nums; }
-.dr-confirm { display: grid; gap: 10px; }
+.dr-confirm { display: grid; gap: 10px; padding-top: 4px; }
 .dr-kv { display: grid; gap: 2px; }
 .dr-kv span { font-size: 12px; color: #667085; }
 .dr-kv b { font-size: 14px; font-weight: 650; }
 .dr-effect {
   background: #fef3f2; border: 1px solid #fecdca; border-radius: 10px;
   padding: 10px 12px; color: #7a271a; font-size: 13px; line-height: 1.7;
+  display: grid; gap: 8px;
 }
-.dr-effect p { margin: 0; }
-.dr-effect p + p { margin-top: 4px; }
-.dr-effect strong { font-weight: 700; }
+.dr-effect p, .dr-effect-note { margin: 0; font-size: 13px; }
+.dr-effect-group { display: grid; gap: 2px; }
+.dr-effect-group + .dr-effect-group { padding-top: 6px; border-top: 1px solid #fecdca; }
+.dr-effect-group strong { font-weight: 700; font-size: 13px; }
+.dr-effect-group p { font-size: 13px; }
 .gp-events li.dr-audit, .gp-history li.dr-audit { display: block; }
 .gp-events li.dr-audit span, .gp-history li.dr-audit span { display: block; font-size: 13px; line-height: 1.7; color: #1d2939; }
 
-/* Modal sits above the 390 dock (z-index ~90) so footer buttons are not covered. Close is ≥44px. */
+/* Modal sits above the 390 dock (z-index ~90). Close and footer buttons are ≥44px. */
 .modal-backdrop:has([data-testid="modal-doc-resend-wizard"]) { z-index: 120; }
+[data-testid="modal-doc-resend-wizard"] .modal-close,
+[data-testid="modal-doc-resend-wizard"] .gp-wiz-foot .btn {
+  min-width: 44px; min-height: 44px;
+}
 [data-testid="modal-doc-resend-wizard"] .modal-close {
-  width: 44px; height: 44px; min-width: 44px; min-height: 44px;
-  display: grid; place-items: center; padding: 0;
+  width: 44px; height: 44px; display: grid; place-items: center; padding: 0;
 }
 
-/* Optional typography: step label slightly bolder/larger */
 [data-testid="modal-doc-resend-wizard"] .gp-wiz-head span {
   font-size: 13px; font-weight: 650; color: #344054;
+}
+[data-testid="modal-doc-resend-wizard"] .gp-wiz-bar { margin-bottom: 14px; }
+[data-testid="modal-doc-resend-wizard"] .gp-wiz-body { padding-top: 4px; }
+
+/* Optional 1: DND banner is a one-line chip, and only on step 1, with a gap from the step title. */
+[data-testid="modal-doc-resend-wizard"] .ss-dnd-host { display: none; }
+[data-testid="modal-doc-resend-wizard"]:has(.gp-wiz[data-step="0"]) .ss-dnd-host {
+  display: block; margin: 0 0 10px;
+}
+[data-testid="modal-doc-resend-wizard"] .ss-dnd {
+  margin: 0; min-height: 36px; padding: 4px 8px 4px 10px;
+  font-size: 12px; line-height: 1.3; gap: 8px; border-radius: 999px;
+}
+[data-testid="modal-doc-resend-wizard"] .ss-dnd span {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3;
+}
+[data-testid="modal-doc-resend-wizard"] .ss-dnd .btn {
+  min-height: 32px; padding: 0 10px; font-size: 12px;
 }
 
 @media (min-width: 800px) {
@@ -56,4 +93,31 @@
 
 @media (max-width: 430px) {
   .dr-choice { padding: 12px; }
+  .dr-history li { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .dr-history li > span:last-child { color: #667085; font-size: 12px; }
+
+  /* Optional 2: «گزارش خطا» is icon-only and 44px on the phone. */
+  [data-testid="modal-doc-resend-wizard"] .diag-inline {
+    width: 44px; height: 44px; min-width: 44px; min-height: 44px;
+    padding: 0; font-size: 0; gap: 0; overflow: hidden;
+    display: grid; place-items: center;
+  }
+  [data-testid="modal-doc-resend-wizard"] .diag-inline svg { width: 18px; height: 18px; }
+
+  /* Optional 7: wizard max-height clears the dock; the body scrolls inside. */
+  .modal-backdrop:has([data-testid="modal-doc-resend-wizard"]) {
+    align-items: flex-end;
+    padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px) + 8px);
+  }
+  [data-testid="modal-doc-resend-wizard"] {
+    max-height: calc(100dvh - 84px - env(safe-area-inset-bottom, 0px) - 24px);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  [data-testid="modal-doc-resend-wizard"] .gp-wiz {
+    display: flex; flex-direction: column; min-height: 0; flex: 1;
+  }
+  [data-testid="modal-doc-resend-wizard"] .gp-wiz-body {
+    overflow: auto; flex: 1; min-height: 0;
+  }
+  [data-testid="modal-doc-resend-wizard"] .gp-wiz-foot { flex: none; }
 }
