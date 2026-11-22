@@ -99,6 +99,16 @@ export function ensureSalesKpiSchema(db: DatabaseSync): void {
   }
 }
 
+
+const NAME_TITLE_RE = /^(آقای|خانم|آقا|بانو|مهندس|دکتر)\s+/u;
+/** Sort key for expert names: titles stripped so «خانم حسنی» sorts as حسنی. */
+export function kpiNameKey(name: string | null | undefined): string {
+  return String(name || "").replace(NAME_TITLE_RE, "").trim();
+}
+export function compareKpiNames(a: string | null | undefined, b: string | null | undefined): number {
+  return kpiNameKey(a).localeCompare(kpiNameKey(b), "fa") || String(a || "").localeCompare(String(b || ""), "fa");
+}
+
 export function faDigits(s: string | number): string {
   return String(s).replace(/\d/g, (d) => FA[Number(d)]);
 }
@@ -1130,6 +1140,14 @@ export function salesKpiReport(db: DatabaseSync, actor: AuthUser, query: KpiQuer
       };
     });
 
+  expertRows.sort((a, b) => {
+    const ta = a.teamId == null ? 1e9 : a.teamId;
+    const tb = b.teamId == null ? 1e9 : b.teamId;
+    const ra = a.rankInTeam == null ? 1e9 : a.rankInTeam;
+    const rb = b.rankInTeam == null ? 1e9 : b.rankInTeam;
+    return ta - tb || ra - rb || compareKpiNames(a.name, b.name) || a.salespersonId - b.salespersonId;
+  });
+
   const teamRows: TeamKpi[] = teams
     .filter((t) => {
       if (filterTeam != null && t.teamId !== filterTeam) return false;
@@ -1197,9 +1215,10 @@ export function salesKpiReport(db: DatabaseSync, actor: AuthUser, query: KpiQuer
     experts: expertRows,
     filters: {
       teams: access === "manager" ? teams.map((t) => ({ teamId: t.teamId, name: t.name })) : teamRows.map((t) => ({ teamId: t.teamId, name: t.name })),
-      experts: access === "manager"
+      experts: (access === "manager"
         ? experts.filter((e) => filterTeam == null || e.teamId === filterTeam).map((e) => ({ salespersonId: e.salespersonId, name: e.name, teamId: e.teamId }))
-        : expertRows.map((e) => ({ salespersonId: e.salespersonId, name: e.name, teamId: e.teamId })),
+        : expertRows.map((e) => ({ salespersonId: e.salespersonId, name: e.name, teamId: e.teamId }))
+      ).slice().sort((a, b) => compareKpiNames(a.name, b.name) || a.salespersonId - b.salespersonId),
     },
   };
 }

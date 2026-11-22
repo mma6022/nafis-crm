@@ -302,6 +302,12 @@ await ok("protected tables and customer phones unchanged", async () => {
 await ok("faNum helper", async () => {
   assert.equal(kpi.faNum(120000000), "۱۲۰٬۰۰۰٬۰۰۰");
   assert.equal(kpi.faPct(12.5), "۱۲٫۵٪");
+  assert.equal(kpi.faNum(-14), "−۱۴");
+  assert.equal(kpi.faNum(-14).includes("\u2212") || kpi.faNum(-14).includes("−"), true);
+  assert.equal(kpi.faNum(-14).includes("-"), false);
+  assert.equal(kpi.kpiNameKey("خانم حسنی"), "حسنی");
+  assert.equal(kpi.kpiNameKey("آقای کاظمی"), "کاظمی");
+  assert.ok(kpi.compareKpiNames("خانم حسنی", "آقای کاظمی") < 0);
 });
 
 
@@ -314,6 +320,26 @@ await ok("zero sales show unit and no rank; Aban range has ranks and comparison"
   const sales0 = azar.experts[0].kpis.find((k) => k.key === "successful_sales");
   assert.match(sales0.display, /فروش/);
   assert.equal(/[0-9]/.test(sales0.display), false);
+  // Zero-sales rows keep rank-last order, then deterministic by name (titles stripped).
+  const byTeam = new Map();
+  for (const e of azar.experts) {
+    const k = e.teamId == null ? "none" : String(e.teamId);
+    if (!byTeam.has(k)) byTeam.set(k, []);
+    byTeam.get(k).push(e);
+  }
+  for (const [tid, members] of byTeam) {
+    const names = members.map((m) => m.name);
+    const expected = [...members].sort((a, b) => kpi.compareKpiNames(a.name, b.name) || a.salespersonId - b.salespersonId).map((m) => m.name);
+    assert.deepEqual(names, expected, "zero-sales order team " + tid);
+  }
+  const hasaniAzar = azar.experts.find((e) => e.salespersonId === 3);
+  if (hasaniAzar) {
+    const ds = hasaniAzar.kpis.find((k) => k.key === "successful_sales")?.deltaDisplay || "";
+    if (ds.includes("فروش") && ds.includes("۱۴")) {
+      assert.ok(ds.includes("−"), "delta uses minus sign, got " + JSON.stringify(ds));
+      assert.equal(ds.includes("-"), false, "delta must not use hyphen-minus");
+    }
+  }
 
   const aban = kpi.salesKpiReport(crmDb, admin, { period: "custom", from: "2026-10-23", to: "2026-11-21" }, now);
   assert.match(aban.previousLabel, /تا/);
