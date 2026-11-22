@@ -286,7 +286,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const SAM_FOLDED = ['/sales-teams', '/settings/default-owner', '/settings/call-queue', '/call-queue-discipline', '/daily-plans'];
   const mtMe = useSalesTeamsMe(Boolean(user) && !elLocked).data; // multi-team v1 — skip for locked experts (not an allowed shell endpoint)
   const spMe = useSalesPerformanceMe(Boolean(user)).data; // sales-performance v1
-  const attMe = useAttendanceMe(Boolean(user) && isAdminUser).data; // attendance v1 (flag.attendance_v1)
+  const attMe = useAttendanceMe(Boolean(user) && isAdminUser).data; // attendance v1: admin + sales_manager (canView); wizard is canManage / plain admin
   const basePageTitle = isAdminUser && (location === '/my-wallet' || location.startsWith('/my-wallet/')) ? 'کیف پول کارشناس‌ها' : location === '/settings/links' && !lpMe?.enabled ? 'تنظیمات' /* links v1.0 off: same title as before */ : location === '/sales-teams' && mtMe?.readonly ? 'تیم من' : titleFor(location);
   
   // SALES-SHELL v2 (per-user flag.sales_shell_v2.user.<id>; ALL OFF by default): no sidebar, bottom dock / tab bar.
@@ -326,7 +326,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
     if (item.smc) return Boolean(smcMe?.enabled && smcMe.canManage && !smcMe.merged);
     if (item.sam) return samOn;
     if (item.spPerf) return Boolean(spMe?.canView);
-    if (item.att) return Boolean(attMe?.enabled && attMe.isAdmin);
+    if (item.att) return Boolean(attMe?.enabled && attMe.canView);
     if (item.ct) return Boolean(ctCfg?.enabled && (ctCfg.manager || ctCfg.viewer)); // t742s2933: plain admin keeps the report (read-only)
     if (item.cq === 'discipline') return Boolean(cqCfg?.manager && cqCfg.flags.discipline);
     // R2 «پنل محدود»: only «صف تماس من» and «یادآورها» stay in the menu.

@@ -7,7 +7,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export type AttMe = { enabled: boolean; flag: string; isAdmin: boolean; canManage: boolean };
+export type AttMe = { enabled: boolean; flag: string; isAdmin: boolean; canView: boolean; canManage: boolean };
 
 export type AttSettings = {
   host: string; port: number; hasCommKey: boolean;

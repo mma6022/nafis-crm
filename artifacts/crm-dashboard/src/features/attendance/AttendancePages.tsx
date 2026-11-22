@@ -13,36 +13,49 @@ const WEEKDAYS: { n: number; label: string }[] = [
 ];
 
 function Tabs({ current }: { current: 'board' | 'report' | 'settings' }) {
+  const me = useAttendanceMe(true).data;
   return (
     <nav className="att-tabs" aria-label="بخش‌های حضور و غیاب">
       <Link href="/attendance" className={current === 'board' ? 'is-on' : ''} data-testid="att-tab-board">تابلوی امروز</Link>
       <Link href="/attendance/report" className={current === 'report' ? 'is-on' : ''} data-testid="att-tab-report">گزارش ماهانه</Link>
-      <Link href="/attendance/settings" className={current === 'settings' ? 'is-on' : ''} data-testid="att-tab-settings">تنظیم اتصال</Link>
+      {me?.canManage ? <Link href="/attendance/settings" className={current === 'settings' ? 'is-on' : ''} data-testid="att-tab-settings">تنظیم اتصال</Link> : null}
     </nav>
   );
 }
 
-function Gate({ children }: { children: React.ReactNode }) {
+function Gate({ children, need }: { children: React.ReactNode; need: 'view' | 'manage' }) {
   const me = useAttendanceMe(true);
   if (me.isLoading) return <section className="att-page" dir="rtl"><p>در حال بارگذاری…</p></section>;
   if (!me.data?.enabled) return <section className="att-page" dir="rtl" data-testid="att-disabled"><h1>حضور و غیاب</h1><p className="att-lead">این بخش فعلاً فعال نیست.</p></section>;
-  if (!me.data.isAdmin) return <section className="att-page" dir="rtl"><h1>حضور و غیاب</h1><p className="att-lead">فقط مدیر به این بخش دسترسی دارد.</p></section>;
+  if (need === 'manage' && !me.data.canManage) {
+    return (
+      <section className="att-page" dir="rtl" data-testid="att-settings-forbidden">
+        <h1>اتصال دستگاه</h1>
+        <p className="att-lead">فقط مدیر سامانه می‌تواند اتصال دستگاه را تنظیم کند.</p>
+        <p><Link href="/attendance">بازگشت به تابلوی امروز</Link></p>
+      </section>
+    );
+  }
+  if (need === 'view' && !me.data.canView) {
+    return <section className="att-page" dir="rtl" data-testid="att-forbidden"><h1>حضور و غیاب</h1><p className="att-lead">فقط مدیر سامانه و مدیر فروش می‌توانند این صفحه را ببینند.</p></section>;
+  }
   return <>{children}</>;
 }
 
 export function AttendanceBoardPage() {
-  return <Gate><BoardInner /></Gate>;
+  return <Gate need="view"><BoardInner /></Gate>;
 }
 export function AttendanceReportPage() {
-  return <Gate><ReportInner /></Gate>;
+  return <Gate need="view"><ReportInner /></Gate>;
 }
 export function AttendanceSettingsPage() {
-  return <Gate><WizardInner /></Gate>;
+  return <Gate need="manage"><WizardInner /></Gate>;
 }
 
 function BoardInner() {
   const q = useAttendanceBoard(true);
   const mut = useAttendanceMutations();
+  const canManage = Boolean(useAttendanceMe(true).data?.canManage);
   const b = q.data;
   return (
     <section className="att-page" dir="rtl" data-testid="page-attendance-board">
@@ -51,11 +64,13 @@ function BoardInner() {
       <Tabs current="board" />
       {b?.placeholderNote ? <div className="att-note muted">{b.placeholderNote}</div> : null}
       {b?.lastError ? <div className="att-note bad" role="alert">آخرین همگام‌سازی ناموفق بود ({b.lastError}).</div> : null}
-      <div style={{ marginBottom: 14 }}>
-        <button type="button" className="nf-btn nf-btn-primary" data-testid="att-pull" disabled={mut.pull.isPending} onClick={() => mut.pull.mutate()}>
-          {mut.pull.isPending ? 'در حال خواندن از دستگاه…' : 'به‌روزرسانی از دستگاه'}
-        </button>
-      </div>
+      {canManage ? (
+        <div style={{ marginBottom: 14 }}>
+          <button type="button" className="nf-btn nf-btn-primary" data-testid="att-pull" disabled={mut.pull.isPending} onClick={() => mut.pull.mutate()}>
+            {mut.pull.isPending ? 'در حال خواندن از دستگاه…' : 'به‌روزرسانی از دستگاه'}
+          </button>
+        </div>
+      ) : null}
       {q.isLoading ? <p>در حال بارگذاری…</p> : null}
       {q.error ? <div className="att-note bad" role="alert">{(q.error as Error).message}</div> : null}
       <div className="att-board">

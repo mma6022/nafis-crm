@@ -191,6 +191,19 @@ function AdminOnlyRoute({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** Plain سامانه admin only (excludes «مدیر فروش», whose session role is also admin). */
+function PlainAdminRoute({ children }: { children: ReactNode }) {
+  const { data: session, isLoading } = useGetAuthSession({
+    query: { queryKey: getGetAuthSessionQueryKey(), retry: false },
+  });
+  if (isLoading) return <LoadingSplash />;
+  if (!session?.user) return <Redirect to="/login" />;
+  const u = session.user as { role?: string; salesManager?: boolean; baseRole?: string };
+  const plain = u.role === 'admin' && !u.salesManager && u.baseRole !== 'sales_manager';
+  if (!plain) return <Redirect to={u.role === 'admin' ? '/attendance' : '/'} />;
+  return <>{children}</>;
+}
+
 function SmartFilingRoute({ children }: { children: ReactNode }) {
   const { data: session, isLoading } = useGetAuthSession({
     query: { queryKey: getGetAuthSessionQueryKey(), retry: false },
@@ -343,7 +356,7 @@ function AppWithRoutes() {
                     <Route path="/settings/releases">
                       <AdminOnlyRoute><Releases /></AdminOnlyRoute>
                     </Route>
-                    <Route path="/attendance/settings"><AdminOnlyRoute><AttendanceSettingsPage /></AdminOnlyRoute></Route>
+                    <Route path="/attendance/settings"><PlainAdminRoute><AttendanceSettingsPage /></PlainAdminRoute></Route>
                     <Route path="/attendance/report"><AdminOnlyRoute><AttendanceReportPage /></AdminOnlyRoute></Route>
                     <Route path="/attendance"><AdminOnlyRoute><AttendanceBoardPage /></AdminOnlyRoute></Route>
                     <Route component={NotFound} />
