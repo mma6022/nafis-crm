@@ -106,7 +106,7 @@
 .cses-off p { margin:0; color:var(--muted); font-size:14px; line-height:1.7; }
 @media (min-width: 800px) {
   .cses { padding:24px 24px 180px; }
-  .cses-f .row { grid-template-columns: minmax(240px, 2fr) minmax(120px, 1fr) 44px; align-items:center; }
+  .cses-f .row { grid-template-columns: minmax(0, 1fr) 44px; align-items:center; }
   .cses-cols { grid-template-columns: 1fr 1fr; }
   .cses-radios { grid-template-columns: 1fr 1fr 1fr; }
   .cses-cards { display:none; }
@@ -136,3 +136,9 @@ html.cses-page .ss-ttl p { display:none; }
 @media (min-width: 1024px) {
   html.cses-page .cses { padding-bottom: 200px; }
 }
+
+.cses-chip .cses-n { font-variant-numeric:tabular-nums; color:var(--muted); font-size:12px; font-weight:700; }
+.cses-chip.on .cses-n { color:inherit; }
+.cses-presence { margin-top:2px; }
+.cses-needval { margin:0; font-size:12px; color:#9A3412; line-height:1.6; }
+.cses-range { display:grid; grid-template-columns:1fr 1fr; gap:8px; }

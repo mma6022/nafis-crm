@@ -5,8 +5,8 @@ import { Check, Lock, Trash2 } from 'lucide-react';
 import { faDigits } from '@/lib/credit-grade';
 import { gregorianToJalaliValue, jalaliValueToGregorian } from '@/lib/jalali';
 import {
-  downloadExport, fetchMeta, fetchPreview, useSegmentsMe,
-  type Condition, type FieldCat, type Meta, type Preview, type PublicRow, type SegmentQuery,
+  downloadExport, fetchMeta, fetchPreview, fetchValues, useSegmentsMe,
+  type Condition, type FieldCat, type FieldValues, type Meta, type Preview, type PublicRow, type SegmentQuery,
 } from './api';
 import './customer-segments.css';
 
@@ -73,6 +73,7 @@ function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
   const [loading, setLoading] = useState(false);
   const [includePhones, setIncludePhones] = useState(false);
   const [exported, setExported] = useState(false);
+  const [valueStats, setValueStats] = useState<FieldValues[] | null>(null);
 
   useEffect(() => {
     if (!ready) return;
@@ -84,6 +85,15 @@ function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
     }).catch((e) => { if (!cancel) setErr(e instanceof Error ? e.message : 'خطا'); });
     return () => { cancel = true; };
   }, [ready]);
+
+  useEffect(() => {
+    if (!ready || !meta) return;
+    let cancel = false;
+    fetchValues({ source, includeUnlinkedLeads: scope === 'all' && includeUnlinked }).then((r) => {
+      if (!cancel) setValueStats(r.fields);
+    }).catch((e) => { if (!cancel) setErr(e instanceof Error ? e.message : 'خطا'); });
+    return () => { cancel = true; };
+  }, [ready, meta, source, includeUnlinked, scope]);
 
   const fields = meta?.fields ?? [];
   const byKey = useMemo(() => new Map(fields.map((f) => [f.key, f])), [fields]);
@@ -117,7 +127,7 @@ function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
   return (
     <div className="cses" dir="rtl" data-testid="page-customer-segments">
       <header className="cses-h">
-        <p className="cses-lead">مشتری‌ها را بر اساس دادهٔ پرونده و فرم‌های سایت جدا کنید و خروجی اکسل بگیرید. فیلترها با «و» ترکیب می‌شوند.{scope === 'own' ? ' شما فقط مشتری‌هایی را می‌بینید که الان مالک‌شان هستید.' : ''}</p>
+        <p className="cses-lead">مشتری‌ها را بر اساس دادهٔ پرونده و فرم‌های سایت جدا کنید و خروجی اکسل بگیرید. فیلتر روی مقدار واقعی فیلد است، نه فقط پر یا خالی بودن. فیلترها با «و» ترکیب می‌شوند.{scope === 'own' ? ' شما فقط مشتری‌هایی را می‌بینید که الان مالک‌شان هستید.' : ''}</p>
       </header>
       <p className="cses-step-now">مرحله {faDigits(step)} از {faDigits(4)}</p>
       <ol className="cses-steps">
@@ -195,6 +205,7 @@ function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
       {step === 2 && meta ? (
         <FiltersStep
           fields={fields}
+          valueStats={valueStats}
           conditions={conditions}
           setConditions={setConditions}
           onBack={() => go(1)}
@@ -355,20 +366,27 @@ function JalaliRange({ min, max, onChange }: { min?: string; max?: string; onCha
   );
 }
 
-function FiltersStep({ fields, conditions, setConditions, onBack, onNext, loading }: {
-  fields: FieldCat[]; conditions: Condition[]; setConditions: (c: Condition[]) => void;
+function FiltersStep({ fields, valueStats, conditions, setConditions, onBack, onNext, loading }: {
+  fields: FieldCat[]; valueStats: FieldValues[] | null; conditions: Condition[]; setConditions: (c: Condition[]) => void;
   onBack: () => void; onNext: () => void; loading: boolean;
 }) {
   const [q, setQ] = useState('');
   const found = fields.filter((f) => !isPii(f) && (!q.trim() || f.label.includes(q.trim()) || f.key.includes(q.trim())));
+  const statsBy = useMemo(() => new Map((valueStats ?? []).map((s) => [s.field, s])), [valueStats]);
   const add = (field: string) => {
     const f = fields.find((x) => x.key === field);
     if (!f || isPii(f)) return;
-    setConditions([...conditions, { field, op: defaultOps(f), values: [] }]);
+    const stats = statsBy.get(field);
+    const op = (f.type === 'number' || f.type === 'date')
+      ? (f.type === 'date' ? 'date_range' : 'range')
+      : (f.type === 'text' && !(stats && stats.values.length) && f.ops.includes('contains') ? 'contains' : defaultOps(f));
+    setConditions([...conditions, { field, op, values: [] }]);
     setQ('');
   };
   const quick = [
     { field: 'job', values: ['retired'], label: 'بازنشسته' },
+    { field: 'ssoRetiree', values: ['self'], label: 'خودش بازنشسته تأمین اجتماعی' },
+    { field: 'ssoRetiree', values: ['family'], label: 'بازنشسته در خانواده' },
     { field: 'canReferRetiree', values: ['yes'], label: 'می‌تواند بازنشسته معرفی کند' },
     { field: 'bouncedAny', values: ['yes'], label: 'چک برگشتی در هر منبع' },
     { field: 'hasSiteApply', values: ['yes'], label: 'فرم سایت دارد' },
@@ -377,7 +395,7 @@ function FiltersStep({ fields, conditions, setConditions, onBack, onNext, loadin
     <section className="cses-card" data-testid="cses-step2">
       <div className="cses-sec">
         <h2>فیلترها</h2>
-        <p className="cses-hint">همهٔ شرط‌ها با هم اعمال می‌شوند (و). داخل هر شرط، چند گزینه با «یا» هستند. اگر فیلتری نگذارید، همهٔ مشتری‌های همان منبع می‌آیند.</p>
+        <p className="cses-hint">برای هر فیلد، مقدارهای واقعی را انتخاب کنید (با تعداد). چند مقدار در یک فیلد با «یا» هستند؛ فیلترهای جدا با «و» ترکیب می‌شوند. «پر شده» و «خالی است» هم اگر بخواهید هست. اگر فیلتری نگذارید، همهٔ مشتری‌های همان منبع می‌آیند.</p>
         <div className="cses-quick">
           {quick.map((x) => (
             <button type="button" key={x.label} onClick={() => setConditions([...conditions, { field: x.field, op: 'in', values: x.values }])}>{x.label}</button>
@@ -386,55 +404,17 @@ function FiltersStep({ fields, conditions, setConditions, onBack, onNext, loadin
         <div className="cses-filters">
           {conditions.map((c, i) => {
             const f = fields.find((x) => x.key === c.field);
+            const stats = statsBy.get(c.field);
             return (
-              <div className="cses-f" key={`${c.field}-${i}`} data-testid="cses-condition">
-                <div className="row">
-                  <select value={c.field} title={f?.label} onChange={(e) => {
-                    const nf = fields.find((x) => x.key === e.target.value);
-                    const next = conditions.slice();
-                    next[i] = { field: e.target.value, op: nf ? defaultOps(nf) : 'in', values: [] };
-                    setConditions(next);
-                  }}>
-                    {fields.filter((x) => !isPii(x)).map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
-                  </select>
-                  <select value={c.op} onChange={(e) => {
-                    const next = conditions.slice(); next[i] = { ...c, op: e.target.value }; setConditions(next);
-                  }}>
-                    {(f?.ops ?? ['in']).map((op) => <option key={op} value={op}>{OP_LABEL[op] ?? op}</option>)}
-                  </select>
-                  <button type="button" className="cses-btn ghost cses-del" aria-label="حذف" title="حذف" onClick={() => setConditions(conditions.filter((_, j) => j !== i))}><Trash2 size={18} aria-hidden="true" /></button>
-                </div>
-                {f?.description ? <p className="cses-hint">{f.description}</p> : null}
-                {c.op === 'in' && f?.options ? (
-                  <div className="cses-chips">
-                    {f.options.map((o) => {
-                      const on = (c.values ?? []).includes(o.value);
-                      return (
-                        <button type="button" key={o.value} className={`cses-chip${on ? ' on' : ''}`} onClick={() => {
-                          const values = on ? (c.values ?? []).filter((v) => v !== o.value) : [...(c.values ?? []), o.value];
-                          const next = conditions.slice(); next[i] = { ...c, values }; setConditions(next);
-                        }}>{o.label}</button>
-                      );
-                    })}
-                  </div>
-                ) : null}
-                {(c.op === 'eq' || c.op === 'contains') && !(c.op === 'in' && f?.options) ? (
-                  <input type="text" value={c.values?.[0] ?? ''} onChange={(e) => { const next = conditions.slice(); next[i] = { ...c, values: [e.target.value] }; setConditions(next); }} />
-                ) : null}
-                {c.op === 'range' ? (
-                  <div className="row">
-                    <input type="number" placeholder="از" value={c.min ?? ''} onChange={(e) => { const next = conditions.slice(); next[i] = { ...c, min: e.target.value }; setConditions(next); }} />
-                    <input type="number" placeholder="تا" value={c.max ?? ''} onChange={(e) => { const next = conditions.slice(); next[i] = { ...c, max: e.target.value }; setConditions(next); }} />
-                  </div>
-                ) : null}
-                {c.op === 'date_range' ? (
-                  <JalaliRange
-                    min={c.min != null ? String(c.min) : ''}
-                    max={c.max != null ? String(c.max) : ''}
-                    onChange={(min, max) => { const next = conditions.slice(); next[i] = { ...c, min, max }; setConditions(next); }}
-                  />
-                ) : null}
-              </div>
+              <ConditionRow
+                key={`${c.field}-${i}`}
+                field={f}
+                stats={stats}
+                condition={c}
+                fields={fields}
+                onChange={(next) => { const list = conditions.slice(); list[i] = next; setConditions(list); }}
+                onRemove={() => setConditions(conditions.filter((_, j) => j !== i))}
+              />
             );
           })}
         </div>
@@ -451,4 +431,97 @@ function FiltersStep({ fields, conditions, setConditions, onBack, onNext, loadin
       </div>
     </section>
   );
+}
+
+function ConditionRow({ field, stats, condition, fields, onChange, onRemove }: {
+  field: FieldCat | undefined; stats: FieldValues | undefined; condition: Condition;
+  fields: FieldCat[]; onChange: (c: Condition) => void; onRemove: () => void;
+}) {
+  const [q, setQ] = useState('');
+  const c = condition;
+  const f = field;
+  const isValueOp = c.op === 'in' || c.op === 'eq' || c.op === 'contains';
+  const noValueYet = isValueOp && !(c.values && c.values.length);
+  const values = stats?.values ?? f?.options ?? [];
+  const shown = q.trim()
+    ? values.filter((o) => o.label.includes(q.trim()) || o.value.includes(q.trim()))
+    : values;
+  const pickValue = (value: string) => {
+    const on = (c.values ?? []).includes(value);
+    const next = on ? (c.values ?? []).filter((v) => v !== value) : [...(c.values ?? []), value];
+    onChange({ ...c, op: 'in', values: next, min: undefined, max: undefined });
+  };
+  const setPresence = (op: 'exists' | 'not_exists') => {
+    onChange({ ...c, op: c.op === op ? 'in' : op, values: [], min: undefined, max: undefined });
+  };
+  const showChips = (f?.type !== 'number' && f?.type !== 'date' && f?.key !== 'name' && f?.key !== 'customerId');
+  const showContains = f?.type === 'text' && (f.key === 'name' || (showChips && q.trim() && !shown.length));
+  const showRange = f?.type === 'number' || f?.key === 'customerId';
+  const showDate = f?.type === 'date';
+  return (
+    <div className="cses-f" data-testid="cses-condition">
+      <div className="row">
+        <select value={c.field} title={f?.label} onChange={(e) => {
+          const nf = fields.find((x) => x.key === e.target.value);
+          const typ = nf?.type;
+          const op = typ === 'date' ? 'date_range' : typ === 'number' || nf?.key === 'customerId' ? 'range' : defaultOps(nf ?? f ?? { ops: ['in'] } as FieldCat);
+          onChange({ field: e.target.value, op, values: [] });
+        }}>
+          {fields.filter((x) => !isPii(x)).map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
+        </select>
+        <button type="button" className="cses-btn ghost cses-del" aria-label="حذف" title="حذف" onClick={onRemove}><Trash2 size={18} aria-hidden="true" /></button>
+      </div>
+      {f?.description ? <p className="cses-hint">{f.description}</p> : null}
+      {showChips ? (
+        <>
+          {values.length > 12 ? (
+            <input className="cses-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجوی مقدار…" aria-label="جستجوی مقدار" />
+          ) : null}
+          <div className="cses-chips" data-testid="cses-value-chips">
+            {shown.map((o) => {
+              const on = (c.values ?? []).includes(o.value) && c.op === 'in';
+              const count = 'count' in o && typeof o.count === 'number' ? o.count : undefined;
+              return (
+                <button type="button" key={o.value} className={`cses-chip${on ? ' on' : ''}`} data-testid="cses-value-chip" onClick={() => pickValue(o.value)}>
+                  <span>{o.label}</span>
+                  {count != null ? <span className="cses-n">{uiText(String(count))}</span> : null}
+                </button>
+              );
+            })}
+            {!shown.length && values.length ? <p className="cses-hint">مقداری با این جستجو پیدا نشد.</p> : null}
+            {!values.length && !valueStatsLoading(stats) ? <p className="cses-hint">برای این فیلد هنوز مقدار ذخیره‌شده‌ای نیست؛ می‌توانید «پر شده» یا «خالی است» را بزنید.</p> : null}
+          </div>
+        </>
+      ) : null}
+      {showContains ? (
+        <input type="text" value={c.op === 'contains' || c.op === 'eq' ? (c.values?.[0] ?? '') : ''} placeholder="شامل این نوشته…" onChange={(e) => onChange({ ...c, op: 'contains', values: [e.target.value] })} />
+      ) : null}
+      {showRange ? (
+        <div className="cses-range">
+          <input type="number" placeholder={stats?.min != null ? `از ${uiText(String(stats.min))}` : 'از'} value={c.min ?? ''} onChange={(e) => onChange({ ...c, op: 'range', min: e.target.value, values: [] })} />
+          <input type="number" placeholder={stats?.max != null ? `تا ${uiText(String(stats.max))}` : 'تا'} value={c.max ?? ''} onChange={(e) => onChange({ ...c, op: 'range', max: e.target.value, values: [] })} />
+        </div>
+      ) : null}
+      {showDate ? (
+        <JalaliRange
+          min={c.min != null ? String(c.min) : ''}
+          max={c.max != null ? String(c.max) : ''}
+          onChange={(min, max) => onChange({ ...c, op: 'date_range', min, max, values: [] })}
+        />
+      ) : null}
+      <div className="cses-chips cses-presence">
+        <button type="button" className={`cses-chip${c.op === 'exists' ? ' on' : ''}`} onClick={() => setPresence('exists')}>
+          پر شده{stats ? <span className="cses-n">{uiText(String(stats.filled))}</span> : null}
+        </button>
+        <button type="button" className={`cses-chip${c.op === 'not_exists' ? ' on' : ''}`} onClick={() => setPresence('not_exists')}>
+          خالی است{stats ? <span className="cses-n">{uiText(String(stats.empty))}</span> : null}
+        </button>
+      </div>
+      {noValueYet ? <p className="cses-needval">هنوز مقداری انتخاب نشده؛ همه می‌آیند. برای محدود کردن، مقدار دقیق را بزنید — نه فقط پر بودن فیلد.</p> : null}
+    </div>
+  );
+}
+
+function valueStatsLoading(stats: FieldValues | undefined) {
+  return !stats;
 }

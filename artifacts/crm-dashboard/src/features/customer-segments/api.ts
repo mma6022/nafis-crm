@@ -18,6 +18,9 @@ export type PublicRow = {
 };
 export type Preview = { total: number; page: number; pageSize: number; columns: string[]; rows: PublicRow[]; scope?: 'all' | 'own' };
 export type Meta = { groups: Array<{ id: string; label: string }>; fields: FieldCat[]; owners: FieldOpt[]; tags: Array<{ tag: string; label: string }>; scope?: 'all' | 'own' };
+export type ValueOpt = { value: string; label: string; count: number };
+export type FieldValues = { field: string; type: string; filled: number; empty: number; values: ValueOpt[]; min?: number | string; max?: number | string };
+export type ValuesResponse = { source: 'both' | 'file' | 'site'; includeUnlinkedLeads: boolean; fields: FieldValues[] };
 
 export function useSegmentsMe(enabled: boolean) {
   return useQuery<SegmentsMe>({
@@ -63,4 +66,13 @@ export async function downloadExport(q: SegmentQuery, includePhones: boolean): P
   const a = document.createElement('a');
   a.href = url; a.download = name; a.click();
   URL.revokeObjectURL(url);
+}
+
+export async function fetchValues(q: Pick<SegmentQuery, 'source' | 'includeUnlinkedLeads'>): Promise<ValuesResponse> {
+  const r = await fetch(`${base()}/api/customer-segments/values`, {
+    method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ source: q.source, includeUnlinkedLeads: q.includeUnlinkedLeads }),
+  });
+  if (!r.ok) throw new Error(r.status === 404 ? 'این گزارش فعلاً فعال نیست.' : r.status === 403 ? 'این گزارش فقط برای مدیر، مدیر فروش و کارشناس است.' : 'خواندن مقدارهای فیلتر ممکن نشد.');
+  return r.json() as Promise<ValuesResponse>;
 }
