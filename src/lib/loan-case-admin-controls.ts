@@ -24,6 +24,11 @@ const canonical = (value: any): any => Array.isArray(value) ? value.map(canonica
 const same = (a: unknown, b: unknown) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 const planIdOf = (a: any) => Number(a.plan_id ?? parse(a.plan_ids)?.[0] ?? a.plan_ids);
 const stamp = () => new Date().toISOString();
+// Stages that come before the final funder decision (expert-approve) in the workflow. funder_amendment_*,
+// funder_documents_correction and later stages depend on the recorded decision and are left untouched.
+const STAGES_BEFORE_FUNDER_DECISION = new Set<string>(["draft", "funder_initial_approval", "primary_contract_pending_signature",
+  "approved_contract_pending_signature", "customer_documents_upload", "customer_documents_review", "guarantor_registration",
+  "guarantor_documents_upload", "guarantor_documents_review", "collateral_upload", "collateral_review", "expert_approval"]);
 function revisionPlan(a: any): any {
   const plan = parse(a.plan_snapshot_json);
   const replacement = a.current_primary_generation_id == null ? null : queryRow<any>(
@@ -147,9 +152,23 @@ export function registerLoanCaseAdminControls(router: Router, deps: Dependencies
       if (["completed", "final_invoice_pending_signature"].includes(b.stage) && !posted(a.id))
         fail(409, "admin_stage_requires_financial_posting");
       const before = beforeState(a), status = deps.workflowStatus(b.stage), ts = stamp();
-      executeChanges("UPDATE loan_applications SET stage=?,status=?,updated_at=? WHERE id=?", [b.stage, status, ts, a.id]);
-      record(a, b.stage, "admin-stage-corrected", actor, { reason: b.reason.trim(), before,
-        after: { ...before, stage: b.stage, status }, financialPostingChanged: false,
+      // t874: sending a case back before the final funder decision must also drop that decision, otherwise
+      // expert-approve (guard funder_decision IS NULL) can never record the new one. Old values go to the audit.
+      const clearDecision = STAGES_BEFORE_FUNDER_DECISION.has(b.stage) &&
+        (a.funder_decision != null || a.funder_reason != null || a.expert_reviewed_at != null);
+      if (clearDecision) {
+        executeChanges(`UPDATE loan_applications SET stage=?,status=?,funder_decision=NULL,funder_reason=NULL,
+          expert_reviewed_at=NULL,updated_at=? WHERE id=?`, [b.stage, status, ts, a.id]);
+      } else {
+        executeChanges("UPDATE loan_applications SET stage=?,status=?,updated_at=? WHERE id=?", [b.stage, status, ts, a.id]);
+      }
+      const decisionBefore = { funderDecision: a.funder_decision ?? null, funderReason: a.funder_reason ?? null,
+        expertReviewedAt: a.expert_reviewed_at ?? null };
+      record(a, b.stage, "admin-stage-corrected", actor, { reason: b.reason.trim(),
+        before: clearDecision ? { ...before, ...decisionBefore } : before,
+        after: clearDecision ? { ...before, stage: b.stage, status, funderDecision: null, funderReason: null, expertReviewedAt: null }
+          : { ...before, stage: b.stage, status },
+        ...(clearDecision ? { funderDecisionCleared: true } : {}), financialPostingChanged: false,
         financialTermsLocked: loanCaseFinancialTermsLocked(a) });
       return { ok: true, applicationId: Number(a.id), stage: b.stage, requiresNewContract: false };
     });
