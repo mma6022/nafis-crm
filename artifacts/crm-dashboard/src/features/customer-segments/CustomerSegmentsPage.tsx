@@ -28,6 +28,13 @@ const CARD_PRIMARY = ['phone', 'job', 'status', 'city'];
 const defaultOps = (f: FieldCat) => (f.ops.includes('in') ? 'in' : f.ops[0]);
 const isPii = (f: FieldCat) => f.sensitive === 'phone' || f.sensitive === 'national';
 const uiText = (v: string) => faDigits(v);
+/** Count label: Persian digits + thousands separator «٬». Not for ids. */
+export function faCount(n: string | number): string {
+  const digits = String(n).replace(/[^\d]/g, '');
+  if (!digits) return '';
+  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, '٬');
+  return faDigits(grouped);
+}
 
 export default function CustomerSegmentsPage() {
   const me = useSegmentsMe(true).data;
@@ -127,7 +134,7 @@ function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
   return (
     <div className="cses" dir="rtl" data-testid="page-customer-segments">
       <header className="cses-h">
-        <p className="cses-lead">مشتری‌ها را بر اساس دادهٔ پرونده و فرم‌های سایت جدا کنید و خروجی اکسل بگیرید. فیلتر روی مقدار واقعی فیلد است، نه فقط پر یا خالی بودن. فیلترها با «و» ترکیب می‌شوند.{scope === 'own' ? ' شما فقط مشتری‌هایی را می‌بینید که الان مالک‌شان هستید.' : ''}</p>
+        <p className="cses-lead">{scope === 'own' ? 'فیلتر روی مقدار فیلد است؛ فقط مشتری‌های خودتان.' : 'فیلتر روی مقدار فیلد است؛ فیلترها با «و».'}</p>
       </header>
       <p className="cses-step-now">مرحله {faDigits(step)} از {faDigits(4)}</p>
       <ol className="cses-steps">
@@ -221,7 +228,7 @@ function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
           ) : null}
           {preview && preview.total > 0 ? (
             <>
-              <p className="cses-count"><span>{faDigits(preview.total)}</span> مورد پیدا شد</p>
+              <p className="cses-count"><span>{faCount(preview.total)}</span> مورد پیدا شد</p>
               <SourceLegend rows={preview.rows} />
               <div className="cses-cards" data-testid="cses-preview-cards">
                 {preview.rows.map((row) => (
@@ -269,7 +276,7 @@ function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
         <section className="cses-card" data-testid="cses-step4">
           <div className="cses-sec">
             <h2>خروجی اکسل</h2>
-            {preview ? <p className="cses-count"><span>{faDigits(preview.total)}</span> ردیف با {faDigits(exportColCount)} ستون</p> : <p className="cses-hint">ابتدا پیش‌نمایش را ببینید.</p>}
+            {preview ? <p className="cses-count"><span>{faCount(preview.total)}</span> ردیف با {faCount(exportColCount)} ستون</p> : <p className="cses-hint">ابتدا پیش‌نمایش را ببینید.</p>}
             <p className="cses-hint">این کار در گزارش ممیزی ثبت می‌شود.</p>
             <label className="cses-opt">
               <input type="checkbox" checked={includePhones} onChange={(e) => setIncludePhones(e.target.checked)} />
@@ -395,7 +402,7 @@ function FiltersStep({ fields, valueStats, conditions, setConditions, onBack, on
     <section className="cses-card" data-testid="cses-step2">
       <div className="cses-sec">
         <h2>فیلترها</h2>
-        <p className="cses-hint">برای هر فیلد، مقدارهای واقعی را انتخاب کنید (با تعداد). چند مقدار در یک فیلد با «یا» هستند؛ فیلترهای جدا با «و» ترکیب می‌شوند. «پر شده» و «خالی است» هم اگر بخواهید هست. اگر فیلتری نگذارید، همهٔ مشتری‌های همان منبع می‌آیند.</p>
+        <p className="cses-hint">مقدار را برگزینید؛ چند مقدار با «یا».</p>
         <div className="cses-quick">
           {quick.map((x) => (
             <button type="button" key={x.label} onClick={() => setConditions([...conditions, { field: x.field, op: 'in', values: x.values }])}>{x.label}</button>
@@ -483,8 +490,8 @@ function ConditionRow({ field, stats, condition, fields, onChange, onRemove }: {
               const count = 'count' in o && typeof o.count === 'number' ? o.count : undefined;
               return (
                 <button type="button" key={o.value} className={`cses-chip${on ? ' on' : ''}`} data-testid="cses-value-chip" onClick={() => pickValue(o.value)}>
-                  <span>{o.label}</span>
-                  {count != null ? <span className="cses-n">{uiText(String(count))}</span> : null}
+                  <span className="cses-chip-label">{o.label}</span>
+                  {count != null ? <span className="cses-n">{faCount(count)}</span> : null}
                 </button>
               );
             })}
@@ -498,8 +505,8 @@ function ConditionRow({ field, stats, condition, fields, onChange, onRemove }: {
       ) : null}
       {showRange ? (
         <div className="cses-range">
-          <input type="number" placeholder={stats?.min != null ? `از ${uiText(String(stats.min))}` : 'از'} value={c.min ?? ''} onChange={(e) => onChange({ ...c, op: 'range', min: e.target.value, values: [] })} />
-          <input type="number" placeholder={stats?.max != null ? `تا ${uiText(String(stats.max))}` : 'تا'} value={c.max ?? ''} onChange={(e) => onChange({ ...c, op: 'range', max: e.target.value, values: [] })} />
+          <input type="number" placeholder={stats?.min != null ? `از ${faCount(stats.min)}` : 'از'} value={c.min ?? ''} onChange={(e) => onChange({ ...c, op: 'range', min: e.target.value, values: [] })} />
+          <input type="number" placeholder={stats?.max != null ? `تا ${faCount(stats.max)}` : 'تا'} value={c.max ?? ''} onChange={(e) => onChange({ ...c, op: 'range', max: e.target.value, values: [] })} />
         </div>
       ) : null}
       {showDate ? (
@@ -511,13 +518,15 @@ function ConditionRow({ field, stats, condition, fields, onChange, onRemove }: {
       ) : null}
       <div className="cses-chips cses-presence">
         <button type="button" className={`cses-chip${c.op === 'exists' ? ' on' : ''}`} onClick={() => setPresence('exists')}>
-          پر شده{stats ? <span className="cses-n">{uiText(String(stats.filled))}</span> : null}
+          <span className="cses-chip-label">پر شده</span>
+          {stats ? <span className="cses-n">{faCount(stats.filled)}</span> : null}
         </button>
         <button type="button" className={`cses-chip${c.op === 'not_exists' ? ' on' : ''}`} onClick={() => setPresence('not_exists')}>
-          خالی است{stats ? <span className="cses-n">{uiText(String(stats.empty))}</span> : null}
+          <span className="cses-chip-label">خالی است</span>
+          {stats ? <span className="cses-n">{faCount(stats.empty)}</span> : null}
         </button>
       </div>
-      {noValueYet ? <p className="cses-needval">هنوز مقداری انتخاب نشده؛ همه می‌آیند. برای محدود کردن، مقدار دقیق را بزنید — نه فقط پر بودن فیلد.</p> : null}
+      {noValueYet ? <p className="cses-needval">چیزی انتخاب نشده؛ همه می‌آیند</p> : null}
     </div>
   );
 }
