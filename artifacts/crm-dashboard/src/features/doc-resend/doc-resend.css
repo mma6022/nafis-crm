@@ -53,7 +53,8 @@
 .dr-effect-group strong { font-weight: 700; font-size: 13px; }
 .dr-effect-group p { font-size: 13px; }
 .gp-events li.dr-audit, .gp-history li.dr-audit { display: block; }
-.gp-events li.dr-audit span, .gp-history li.dr-audit span { display: block; font-size: 13px; line-height: 1.7; color: #1d2939; }
+.gp-events li.dr-audit strong, .gp-history li.dr-audit strong { display: block; font-weight: 700; color: #1d2939; }
+.gp-events li.dr-audit span, .gp-history li.dr-audit span { display: block; font-size: 11.5px; line-height: 1.7; color: #94a3b8; }
 
 /* Modal sits above the 390 dock (z-index ~90). Close and footer buttons are ≥44px. */
 .modal-backdrop:has([data-testid="modal-doc-resend-wizard"]) { z-index: 120; }

@@ -88,6 +88,8 @@ function confirmEffect(kind: 'goods' | 'payment', action: Action, controls: Admi
   const cancel = (from === 'invoice_signature' && PREVIOUS_UNSIGNED_EMZAMI_CANCELLED && hasOpenSignatureRequest(invoices))
     ? 'درخواست امضای قبلی (امضانشده)'
     : undefined;
+  // Same Bale confirm row as resend: only when an unsigned request will actually be cancelled and the sub-flag is on.
+  const bale = cancel && controls.baleNotify ? BALE_NOTIFY_CONFIRM_TEXT : undefined;
   const preSettlement = ['invoice_draft', 'invoice_signature'].includes(target);
   if (preSettlement && ['invoice_signature', 'settlement_pending'].includes(from)) {
     const hasSigned = signedInv.length > 0;
@@ -95,7 +97,7 @@ function confirmEffect(kind: 'goods' | 'payment', action: Action, controls: Admi
     if (from === 'invoice_signature') {
       // With an open unsigned request and no recorded signature, hide this line — «لغو می‌شود» is enough.
       // With no open request, the recorded invoice signature is what is cleared.
-      if (hasSigned) removed = 'امضای ثبت‌شده‌ی فاکتور (برای ادامه، امضای تازه لازم است)';
+      if (hasSigned) removed = 'امضای ثبت‌شده‌ی فاکتور؛ برای ادامه امضای تازه لازم است';
     } else {
       removed = 'امضای ثبت‌شدهٔ فاکتور روی پرونده (برای ادامه، امضای تازه لازم است)';
     }
@@ -105,6 +107,7 @@ function confirmEffect(kind: 'goods' | 'payment', action: Action, controls: Admi
         ? signedInv.map((d) => `فاکتور نسخهٔ ${faId(d.version)} (امضاشده)`).join(' و ')
         : 'سندهای قبلی در سابقه می‌مانند و حذف نمی‌شوند.'],
       cancel,
+      bale,
     };
   }
   if (from === 'registrar_confirmation' && (target === 'acknowledgement_signature' || target === 'settlement_pending')) {
@@ -113,7 +116,7 @@ function confirmEffect(kind: 'goods' | 'payment', action: Action, controls: Admi
       remains: ['اقرارنامهٔ قبلی در سابقه می‌ماند و حذف نمی‌شود.'],
     };
   }
-  return { remains: ['سندهای قبلی در سابقه می‌مانند و حذف نمی‌شوند.'], cancel };
+  return { remains: ['سندهای قبلی در سابقه می‌مانند و حذف نمی‌شوند.'], cancel, bale };
 }
 
 export function DocResendButton({ kind, id, onDone }: { kind: 'goods' | 'payment'; id: number; onDone: (msg: string) => void }) {
