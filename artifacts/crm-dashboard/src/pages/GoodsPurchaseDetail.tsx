@@ -9,10 +9,10 @@ import { NEXT_STEP } from '@/pages/GoodsPurchases';
 import { getGetCompanyWalletQueryKey } from '@workspace/api-client-react';
 import { useListContractTemplates, getListContractTemplatesQueryKey, type ContractMapping } from '@workspace/api-client-react';
 import { UpdatedContractBanner } from '@/components/UpdatedContractBanner';
-import { api, digitsOnly, errText, eventLabel, openAuthedFile, rawCode, stageIndex, stageLabel, STAGES, toBig, toman, docStatusLabel, useMe, type GoodsDocument, type Purchase, type PurchaseItem, type PaymentOrder } from '@/lib/goods-api';
+import { api, digitsOnly, errText, eventLabel, faId, openAuthedFile, rawCode, stageIndex, stageLabel, STAGES, toBig, toman, docStatusLabel, useMe, type GoodsDocument, type Purchase, type PurchaseEvent, type PurchaseItem, type PaymentOrder } from '@/lib/goods-api';
 import { CustomerName } from '@/components/customer/CustomerName';
 import { DocResendButton, DocumentHistoryPanel } from '@/features/doc-resend/DocResendWizard';
-import { useDocResendMe, useAdminControls, postAdminInvoice } from '@/features/doc-resend/api';
+import { useDocResendMe, useAdminControls, postAdminInvoice, ADMIN_AUDIT_SHORT, parseEventDetail } from '@/features/doc-resend/api';
 
 export default function GoodsPurchaseDetail() {
   const { id } = useParams<{ id: string }>();
@@ -53,11 +53,11 @@ export default function GoodsPurchaseDetail() {
     <Link href="/goods-purchases" className="text-link gp-back"><ArrowRight size={14} />بازگشت به خریدها</Link>
     <div className="gp-hero2">
       <div className="gp-hero2-main">
-        <div className="eyebrow">خرید کالا #{p.id.toLocaleString('fa-IR')}</div>
+        <div className="eyebrow">خرید کالا {faId(p.id)}</div>
         <h2><CustomerName id={p.customerId} name={p.customerName} /></h2>
         <p>کارشناس فروش فعلی: {p.customerSalespersonName || 'بدون تخصیص'} · {p.planName} · ایجاد {formatDateTime(p.createdAt)}</p>
       </div>
-      <div className="gp-hero2-amount"><span>اعتبار رزروشده</span><strong>{toman(p.creditAmountToman)}</strong><em className={`gp-chip ${p.stage === 'completed' ? 'green' : 'light'}`}><i />{stageLabel(p.stage)} · {(idx + 1).toLocaleString('fa-IR')}/{STAGES.length.toLocaleString('fa-IR')}</em></div>
+      <div className="gp-hero2-amount"><span>اعتبار رزروشده</span><strong>{toman(p.creditAmountToman)}</strong><em className={`gp-chip ${p.stage === 'completed' ? 'green' : 'light'}`}><i />{stageLabel(p.stage)} · {faId(idx + 1)}/{faId(STAGES.length)}</em></div>
     </div>
 
     <Stepper steps={STAGES.map((st) => st.label)} current={idx} done={p.stage === 'completed'} testId="goods-stepper" />
@@ -100,12 +100,23 @@ export default function GoodsPurchaseDetail() {
 
       <aside className="panel gp-events gp-history">
         <h3>رویدادها</h3>
-        {(p.events ?? []).length ? <ul>{[...(p.events ?? [])].reverse().map((e, i) => <li key={i}><strong>{eventLabel(e.action)}</strong><span>{formatDateTime(e.createdAt)}</span></li>)}</ul> : <p className="secondary-cell">رویدادی ثبت نشده است.</p>}
+        {(p.events ?? []).length ? <ul>{[...(p.events ?? [])].reverse().map((e, i) => <GoodsAuditEvent key={i} event={e} />)}</ul> : <p className="secondary-cell">رویدادی ثبت نشده است.</p>}
       </aside>
     </div>
     {ask ? <ConfirmDialog title={ask.title} testId="confirm-goods-action" confirmLabel={ask.label} tone={ask.tone ?? 'primary'} busy={busy}
       onConfirm={() => { run(ask.path, ask.ok); setAsk(null); }} onClose={() => setAsk(null)}><p>{ask.body}</p></ConfirmDialog> : null}
   </section>;
+}
+
+
+function GoodsAuditEvent({ event: e }: { event: PurchaseEvent }) {
+  const short = ADMIN_AUDIT_SHORT[e.action];
+  if (short) {
+    const reason = typeof parseEventDetail(e.detail)?.reason === 'string' ? String(parseEventDetail(e.detail)?.reason) : '';
+    const line = [short, e.actorName || 'سیستم', formatDateTime(e.createdAt), reason].filter(Boolean).join(' · ');
+    return <li className="dr-audit" data-testid={`audit-${e.action}`}><span>{line}</span></li>;
+  }
+  return <li><strong>{eventLabel(e.action)}</strong><span>{formatDateTime(e.createdAt)}</span></li>;
 }
 
 type Ask = { title: string; body: string; label: string; path: string; ok: string; tone?: 'primary' | 'green' | 'danger' };

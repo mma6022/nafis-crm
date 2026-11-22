@@ -8,12 +8,17 @@ export class ApiError extends Error {
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const isForm = typeof FormData !== 'undefined' && body instanceof FormData;
-  const res = await fetch(`/api${path}`, {
-    method,
-    credentials: 'include',
-    headers: body && !isForm ? { 'Content-Type': 'application/json' } : undefined,
-    body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      method,
+      credentials: 'include',
+      headers: body && !isForm ? { 'Content-Type': 'application/json' } : undefined,
+      body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError('ارتباط برقرار نشد. دوباره تلاش کنید.', 0, 'network_error');
+  }
   const text = await res.text();
   let data: unknown = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
@@ -87,6 +92,9 @@ const ERRORS: Record<string, string> = {
   invoice_items_required: 'برای صدور فاکتور تازه، اول اقلام فاکتور را ذخیره کنید.',
   invoice_document_locked: 'این فاکتور برای ویرایش قفل است. مدیر یا مدیر فروش می‌تواند با بازگشت مرحله یا ارسال دوباره، نسخهٔ تازه بسازد.',
   payment_revert_conflict: 'برگرداندن «پرداخت‌شده» با تغییر هم‌زمان برخورد کرد؛ صفحه را تازه کنید.',
+  provider_cancel_failed: 'لغو درخواست امضای قبلی ممکن نشد. دوباره تلاش کنید.',
+  network_error: 'ارتباط برقرار نشد. دوباره تلاش کنید.',
+  doc_resend_failed: 'انجام این کار ممکن نشد. دوباره تلاش کنید.',
   payout_exceeds_principal: 'درصد واریزی باید بین ۰ و ۱۰۰ باشد (مبلغ واریزی بیشتر از اصل تسهیلات نمی‌شود).',
   verified_customer_bank_account_required: 'یک حساب تأییدشدهٔ مشتری انتخاب کنید.',
 };
@@ -94,8 +102,9 @@ export function translateError(code?: string) {
   if (!code) return '';
   if (code.startsWith('template_value_required:')) return `مقدار «${code.split(':')[1]}» برای قالب الزامی است.`;
   if (ERRORS[code]) return ERRORS[code];
-  if (code.startsWith('provider_')) return `خطای سرویس امضامی (${code}).`;
-  if (code.startsWith('invoice_')) return `خطای فاکتور (${code}).`;
+  if (code.startsWith('provider_')) return 'ارتباط با سرویس امضا برقرار نشد. دوباره تلاش کنید.';
+  if (code.startsWith('invoice_')) return 'انجام این کار روی فاکتور ممکن نشد. دوباره تلاش کنید.';
+  if (/^[a-z][a-z0-9_]*$/.test(code)) return 'این کار الان انجام نشد. دوباره تلاش کنید.';
   return code;
 }
 export const rawCode = (e: unknown) => (e instanceof ApiError ? e.code : '');
@@ -132,8 +141,15 @@ export async function openAuthedFile(path: string, print = false) {
 // Money: decimal integer toman strings
 export const digitsOnly = (v: string) => v.replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[^0-9]/g, '');
 export const toBig = (v?: string | number | null) => { try { return BigInt(String(v ?? '0').split('.')[0] || '0'); } catch { return 0n; } };
-export const toman = (v?: string | number | null) => `${toBig(v).toLocaleString('fa-IR')} تومان`;
-export const faNum = (v?: string | number | null) => (v === null || v === undefined || v === '' ? '—' : Number(v).toLocaleString('fa-IR', { maximumFractionDigits: 2 }));
+/** Persian digits, no grouping — for record IDs like «خرید کالا ۱۰۰۱». */
+export const faId = (v?: string | number | null) => String(v ?? '').replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
+/** Grouped Persian amount using ٬ (not a Latin comma). */
+export const faGrouped = (v?: string | number | bigint | null) => {
+  const n = typeof v === 'bigint' ? v : toBig(v as string | number | null);
+  return n.toLocaleString('fa-IR').replace(/,/g, '٬').replace(/\u060C/g, '٬');
+};
+export const toman = (v?: string | number | null) => `${faGrouped(v)} تومان`;
+export const faNum = (v?: string | number | null) => (v === null || v === undefined || v === '' ? '—' : Number(v).toLocaleString('fa-IR', { maximumFractionDigits: 2 }).replace(/,/g, '٬').replace(/\u060C/g, '٬'));
 
 export type Me = { id: number; role: string; permissions: string[]; salespersonId?: number | null; fullName?: string | null };
 export function useMe() {
@@ -146,7 +162,7 @@ export function useMe() {
 // ---------- types ----------
 export type EligibleWallet = { customerId: number; customerName: string; customerSalespersonName?: string | null; planId: number; planName: string; balanceToman: string };
 export type PurchaseItem = { id?: number; title: string; quantity: number | string; unitPriceToman: string; totalToman?: string };
-export type PurchaseEvent = { action: string; actorUserId?: number | null; detail?: string | null; createdAt: string };
+export type PurchaseEvent = { action: string; actorUserId?: number | null; actorName?: string | null; detail?: string | Record<string, unknown> | null; createdAt: string };
 export type CommissionRow = { id: number; kind: string; amountToman: string; month?: string | null; createdAt: string; neutralized: boolean; salespersonId?: number; salespersonName?: string | null };
 export type OrderCommission = {
   scope: 'all' | 'own' | 'status'; model: 'team' | 'legacy';
@@ -205,7 +221,7 @@ export const PO_STAGES = [
 ];
 export const poStageLabel = (s?: string) => PO_STAGES.find((x) => x.key === s)?.label ?? s ?? '—';
 
-export const docStatusLabel = (s?: string | null) => ({ generated: 'تولیدشده', generating: 'در حال تولید', sending: 'در حال ارسال', sent: 'ارسال‌شده، در انتظار امضا', signed: 'امضاشده', rejected: 'ردشده', delivery_unknown: 'وضعیت ارسال نامشخص', failed: 'خطا', superseded: 'جایگزین‌شده' } as Record<string, string>)[s ?? ''] ?? (s || 'تولیدنشده');
+export const docStatusLabel = (s?: string | null) => ({ generated: 'تولیدشده', generating: 'در حال تولید', sending: 'در حال ارسال', sent: 'ارسال‌شده، در انتظار امضا', signed: 'امضاشده', rejected: 'ردشده', delivery_unknown: 'وضعیت ارسال نامشخص', failed: 'خطا', superseded: 'جایگزین‌شده', cancelled: 'لغوشده' } as Record<string, string>)[s ?? ''] ?? (s || 'تولیدنشده');
 export const ownerTypeLabel = (s?: string) => ({ company: 'شرکت', person: 'شخص', customer: 'مشتری' } as Record<string, string>)[s ?? ''] ?? s ?? '—';
 
 const EVENT_LABELS: Record<string, string> = {

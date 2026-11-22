@@ -12,14 +12,14 @@ import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { ErrorState, SkeletonPanel, formatDateTime } from '@/components/CrmShell';
 import { ConfirmDialog, SectionTabs, Stepper, Toast, Wizard, type ListSection } from '@/components/goods/GpKit';
 import { DocResendButton } from '@/features/doc-resend/DocResendWizard';
-import { useDocResendMe } from '@/features/doc-resend/api';
+import { useDocResendMe, ADMIN_AUDIT_SHORT } from '@/features/doc-resend/api';
 import { KIND_LABELS } from '@/features/team-commission/api';
 import { parseJalaliValue, jalaliToIso } from '@/lib/jalali';
 import { usePaymentOrderCount, usePaymentOrderList, type PoListParams } from '@/lib/payment-order-queries';
 import { CustomerIdBadge, CustomerName, customerNameText } from '@/components/customer/CustomerName';
 import '@/features/gl/ledger.css';
 import {
-  api, ApiError, digitsOnly, errText, faPercent, listOf, monthLabel, openAuthedFile, percentOf, poEventLabel, poStageLabel, PO_STAGES, shortFaDate,
+  api, ApiError, digitsOnly, errText, faGrouped, faId, faPercent, listOf, monthLabel, openAuthedFile, percentOf, poEventLabel, poStageLabel, PO_STAGES, shortFaDate,
   tehranJalaliValue, tehranTimeNow, toBig, toman, useMe, type BankAccount, type OrderCommission, type PaymentOrder, type PreOpening,
 } from '@/lib/goods-api';
 
@@ -172,11 +172,11 @@ function OrderDetail({ id }: { id: number }) {
     <Link href="/payment-orders" className="text-link gp-back"><ArrowRight size={14} />بازگشت به دستورهای پرداخت</Link>
     <div className="gp-hero2" data-testid="po-hero">
       <div className="gp-hero2-main">
-        <div className="eyebrow">دستور پرداخت #{o.id.toLocaleString('fa-IR')} · خرید کالا <Link href={`/goods-purchases/${o.purchaseId}`}>#{o.purchaseId.toLocaleString('fa-IR')}</Link></div>
+        <div className="eyebrow">دستور پرداخت {faId(o.id)} · خرید کالا <Link href={`/goods-purchases/${o.purchaseId}`}>{faId(o.purchaseId)}</Link></div>
         <h2><CustomerName id={o.customerId} name={o.customerName ?? 'مشتری'} /></h2>
         <p>کارشناس فروش: {o.customerSalespersonName || 'بدون تخصیص'}{o.planName ? ` · ${o.planName}` : ''}</p>
       </div>
-      <div className="gp-hero2-amount"><span>مبلغ واریزی به مشتری</span><strong>{toBig(o.amountToman).toLocaleString('fa-IR')} <small>تومان</small></strong><em className={`gp-chip ${o.stage === 'paid' ? 'green' : 'light'}`}><i />{poStageLabel(o.stage)}</em>{pre ? <PreOpeningBadge id={o.id} /> : null}</div>
+      <div className="gp-hero2-amount"><span>مبلغ واریزی به مشتری</span><strong>{faGrouped(o.amountToman)} <small>تومان</small></strong><em className={`gp-chip ${o.stage === 'paid' ? 'green' : 'light'}`}><i />{poStageLabel(o.stage)}</em>{pre ? <PreOpeningBadge id={o.id} /> : null}</div>
     </div>
     <Stepper steps={PO_STAGES.map((s) => s.step)} current={idx} done={o.stage === 'paid'} testId="po-stepper" />
     {canResend ? <div className="gp-resend-actions" style={{ margin: '12px 0' }}><DocResendButton kind="payment" id={id} onDone={(t) => setToast(t)} /></div> : null}
@@ -317,10 +317,11 @@ function History({ order: o }: { order: PaymentOrder }) {
   };
   return <aside className="panel gp-history" data-testid="po-history"><h3><HistoryIcon size={16} /> تاریخچه</h3>
     {events.length ? <ul>{events.map((e, i) => <li key={i} className={e.action === 'payment_recorded' ? 'ok' : e.action === 'payment_reverted' ? 'bad' : ''}>
-      <span className="secondary-cell">{e.actorName || 'سیستم'} · {shortFaDate(e.createdAt, true)}</span>
+      {ADMIN_AUDIT_SHORT[e.action] ? <span className="dr-audit" data-testid={`audit-${e.action}`}>{[ADMIN_AUDIT_SHORT[e.action], e.actorName || 'سیستم', formatDateTime(e.createdAt), typeof e.detail?.reason === 'string' ? e.detail.reason : ''].filter(Boolean).join(' · ')}</span> : <>
+      <span className="secondary-cell">{e.actorName || 'سیستم'} · {formatDateTime(e.createdAt)}</span>
       <strong>{poEventLabel(e.action)}</strong>
       {e.action === 'payment_recorded' && o.trackingNumber && o.stage === 'paid' && i === events.findIndex((x) => x.action === 'payment_recorded') ? <span className="secondary-cell">کد پیگیری <bdi className="mono">{o.trackingNumber}</bdi></span> : null}
-      {detailText(e.detail) ? <span className="secondary-cell">{detailText(e.detail)}</span> : null}
+      {detailText(e.detail) ? <span className="secondary-cell">{detailText(e.detail)}</span> : null}</>}
     </li>)}</ul> : <p className="secondary-cell">سابقه‌ای ثبت نشده.</p>}
   </aside>;
 }

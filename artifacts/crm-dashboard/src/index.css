@@ -4713,7 +4713,7 @@ button.gp-chip { cursor: pointer; font-family: inherit; }
 .gp-stepper li.done .gp-step-dot { background: var(--teal); border-color: var(--teal); color: #fff; }
 .gp-stepper li.current .gp-step-dot { border-color: #c69a3c; color: #8a5a00; box-shadow: 0 0 0 4px #fbefd2; }
 .gp-stepper li.done, .gp-stepper li.current { color: var(--ink-deep); }
-.gp-stepper strong { font-size: 12px; line-height: 1.5; max-width: 100%; overflow-wrap: anywhere; }
+.gp-stepper strong { font-size: 12px; line-height: 1.5; max-width: 100%; overflow-wrap: normal; word-break: keep-all; }
 
 .gp-detail2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); gap: 16px; align-items: start; min-width: 0; }
 .gp-detail2 > * { min-width: 0; }

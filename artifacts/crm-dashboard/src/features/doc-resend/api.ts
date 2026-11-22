@@ -6,6 +6,8 @@ export const DOC_RESEND_FLAG = 'flag.doc_resend_v1';
 export type DocResendMe = {
   enabled: boolean;
   flag: string;
+  baleNotify?: boolean;
+  baleNotifyFlag?: string;
   canAct: boolean;
   salesManager?: boolean;
   stageLabels?: { goods: Record<string, string>; payment: Record<string, string> };
@@ -27,6 +29,7 @@ export type GoodsAdminControls = {
   invoiceVersion: number;
   invoiceSignedVersion: number | null;
   acknowledgementSigned: boolean;
+  baleNotify?: boolean;
 };
 
 export type PaymentAdminControls = {
@@ -61,6 +64,7 @@ export function useAdminControls(kind: 'goods' | 'payment', id: number, enabled:
     queryKey: ['doc-resend', 'controls', kind, id],
     queryFn: () => api.get<AdminControls>(path),
     enabled: enabled && id > 0,
+    retry: false,
   });
 }
 
@@ -82,3 +86,42 @@ export const BLOCK_REASON: Record<string, string> = {
   settlement_financial_lock: 'پس از تسویه با شرکت، بازگشت به مراحل قبل از تسویه ممکن نیست؛ اعتبار مشتری مصرف شده است.',
   pre_opening_unpay_forbidden: 'این دستور در ماندهٔ افتتاحیه است و بازگشت مرحله ندارد.',
 };
+
+/** Mohammad: two signed acknowledgements both stay valid — same display as invoices. Leave false. */
+export const ACK_SUPERSEDE_OLDER_SIGNED = false;
+
+/** Mohammad: the previous unsigned Emzami request is cancelled when a new document is issued. */
+export const PREVIOUS_UNSIGNED_EMZAMI_CANCELLED = true;
+export const PREVIOUS_EMZAMI_CANCEL_TEXT = 'درخواست امضای قبلی لغو می‌شود';
+export const BALE_NOTIFY_CONFIRM_TEXT = 'یک پیام اطلاع در بله برای مشتری فرستاده می‌شود. پیامک فرستاده نمی‌شود.';
+
+export const BLOCK_REASON_SHORT: Record<string, string> = {
+  completed_financial_lock: 'پس از تکمیل نمی‌شود برگشت',
+  settlement_financial_lock: 'پس از تسویه نمی‌شود به مرحلهٔ قبل از تسویه برگشت',
+  pre_opening_unpay_forbidden: 'در ماندهٔ افتتاحیه است',
+};
+
+export const ADMIN_AUDIT_SHORT: Record<string, string> = {
+  admin_stage_back: 'بازگشت مرحله',
+  admin_document_resend: 'ارسال دوباره سند',
+  admin_invoice_revised: 'ویرایش فاکتور',
+};
+
+export function parseEventDetail(detail?: string | Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!detail) return null;
+  if (typeof detail === 'object') return detail;
+  try { return JSON.parse(detail) as Record<string, unknown>; } catch { return null; }
+}
+
+export type HistoryDoc = DocHistory;
+
+/** Invoice and acknowledgement versions keep their own status; the newest is marked «نسخه‌ی تازه». ACK_SUPERSEDE_OLDER_SIGNED stays false (Mohammad: both signed acks remain valid). */
+export function historyBadges(kind: 'invoice' | 'acknowledgement', docs: HistoryDoc[], doc: HistoryDoc, statusLabel: (s: string) => string): string[] {
+  const maxV = Math.max(0, ...docs.map((d) => d.version));
+  const newest = doc.version === maxV;
+  const badges: string[] = [];
+  const supersedeAck = kind === 'acknowledgement' && ACK_SUPERSEDE_OLDER_SIGNED && !newest && (doc.status === 'signed' || doc.status === 'superseded');
+  badges.push(supersedeAck ? 'جایگزین‌شده' : statusLabel(doc.status));
+  if (newest) badges.push('نسخه‌ی تازه');
+  return badges;
+}
