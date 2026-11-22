@@ -1,9 +1,18 @@
 /* t886 grid-v1 symmetric KPI board. Scoped under .skpi / html.skpi-page. */
 html.skpi-page, html.skpi-page body { background: #F7F8FC; }
 html.skpi-page .app-main { background: #F7F8FC; }
+/* Own the page gutters so 390 is 16+16 (content 358, cards 175) and 1280 stays 32. */
+html.skpi-page .app-main,
+html.skpi-page .app-shell.ssv2 .app-main { padding-inline: 32px; }
+@media (max-width: 1023px) {
+  html.skpi-page .app-main,
+  html.skpi-page .app-shell.ssv2 .app-main { padding-inline: 16px; }
+  html.skpi-page .app-shell.ssv2 .topbar.ss-top { margin-inline: -16px; }
+}
 .skpi { --navy: rgb(41,54,155); --navy-d: #0B1450; --ink: rgb(31,41,55); --mut: #6B7280; --line: #E5E7EB; --bg: #F7F8FC; --tint: #EEF0FA; --amber-bg: #FFF7E6; --amber: #8A5A00; --r: 16px;
-  direction: rtl; color: var(--ink); width: 100%; max-width: 1200px; margin: 0 auto; padding: 32px 0 48px; font-size: 14px; line-height: 24px; }
-.skpi * { box-sizing: border-box; }
+  direction: rtl; color: var(--ink); box-sizing: border-box; width: 100%; max-width: 1200px; margin-inline: auto; padding: 32px 0 48px; font-size: 14px; line-height: 24px;
+  container-type: inline-size; container-name: skpi; }
+.skpi, .skpi * { box-sizing: border-box; }
 .skpi .ph { display: flex; justify-content: space-between; align-items: flex-start; min-height: 64px; }
 .skpi h1 { margin: 0; font-size: 28px; line-height: 36px; font-weight: 700; color: var(--navy-d); }
 .skpi .ph p { margin: 4px 0 0; font-size: 14px; line-height: 24px; color: var(--mut); }
@@ -52,7 +61,13 @@ html.skpi-page .app-main { background: #F7F8FC; }
 .skpi .bh .pill { background: #fff; }
 .skpi .sub { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--ink); margin: 0 0 16px; }
 .skpi .cards + .sub { margin-top: 32px; }
-.skpi .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.skpi .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; justify-content: start; }
+@container skpi (min-width: 944px) {
+  .skpi .cards { grid-template-columns: repeat(4, 224px); }
+}
+@container skpi (min-width: 1200px) {
+  .skpi .cards { grid-template-columns: repeat(4, 288px); }
+}
 .skpi .kc { height: 248px; background: #fff; border: 1px solid var(--line); border-radius: var(--r); padding: 16px; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 44px 40px 24px 40px 44px; row-gap: 8px; grid-template-areas: "a" "b" "c" "d" "e"; align-content: start; }
 .skpi .kc .s-a { grid-area: a; display: flex; justify-content: space-between; align-items: center; gap: 8px; height: 44px; min-width: 0; }
 .skpi .kc h3 { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; max-height: 40px; overflow: hidden; color: var(--ink); }
@@ -99,12 +114,8 @@ html.skpi-page .app-main { background: #F7F8FC; }
 .skpi-wiz-actions { display: flex; gap: 8px; justify-content: flex-start; flex-wrap: wrap; margin-top: 4px; }
 .skpi-success { margin: 0; padding: 10px 12px; border-radius: 12px; background: #ECFDF5; color: #065F46; font-size: 13px; font-weight: 700; line-height: 1.6; }
 
-@media (max-width: 1279px) {
-  .skpi { max-width: none; margin: 0 32px; }
-  .skpi .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
 @media (max-width: 1023px) {
-  .skpi { margin: 0 16px; padding: 24px 0 200px; }
+  .skpi { margin-inline: 0; max-width: none; padding: 24px 0 200px; }
   .skpi h1 { font-size: 20px; line-height: 28px; }
   .skpi .ph { min-height: 56px; gap: 8px; }
   .skpi .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 12px; margin-top: 16px; }

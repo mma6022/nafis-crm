@@ -78,7 +78,7 @@ function splitValue(kpi: KpiCell): { num: string; unit: string; muted: boolean }
   const d = kpi.display;
   if (kpi.unit === "count" && d.endsWith(" فروش")) return { num: d.slice(0, -" فروش".length).trim(), unit: "فروش", muted: false };
   if (kpi.unit === "amount" && d.endsWith(" تومان")) return { num: d.slice(0, -" تومان".length).trim(), unit: "تومان", muted: false };
-  if (kpi.unit === "percent" && d.endsWith("٪")) return { num: d.slice(0, -1), unit: "٪", muted: false };
+  if (kpi.unit === "percent" && d.endsWith("٪")) return { num: d, unit: "", muted: false };
   if (kpi.unit === "pp" && d.endsWith(" واحد درصد")) return { num: d.slice(0, -" واحد درصد".length).trim(), unit: "واحد درصد", muted: false };
   return { num: d, unit: "", muted: false };
 }
