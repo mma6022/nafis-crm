@@ -1,7 +1,7 @@
 /** t878 «گزارش مشتریان»: 4-step Persian wizard. flag.customer_segments_v1 off → «فعال نیست». */
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'wouter';
-import { Check, Lock } from 'lucide-react';
+import { Check, Lock, Trash2 } from 'lucide-react';
 import { faDigits } from '@/lib/credit-grade';
 import { gregorianToJalaliValue, jalaliValueToGregorian } from '@/lib/jalali';
 import {
@@ -11,10 +11,10 @@ import {
 import './customer-segments.css';
 
 const STEPS = [
-  { id: 1, title: 'منبع و ستون‌ها' },
-  { id: 2, title: 'فیلترها' },
-  { id: 3, title: 'پیش‌نمایش' },
-  { id: 4, title: 'خروجی اکسل' },
+  { id: 1, title: 'منبع و ستون‌ها', short: 'منبع' },
+  { id: 2, title: 'فیلترها', short: 'فیلترها' },
+  { id: 3, title: 'پیش‌نمایش', short: 'پیش‌نمایش' },
+  { id: 4, title: 'خروجی اکسل', short: 'اکسل' },
 ] as const;
 
 const OP_LABEL: Record<string, string> = {
@@ -23,7 +23,7 @@ const OP_LABEL: Record<string, string> = {
 };
 
 const FILE_SOURCES = new Set(['dossier', 'customer']);
-const CARD_PRIMARY = ['phone', 'job', 'canReferRetiree', 'bounced', 'bouncedAny', 'city', 'status'];
+const CARD_PRIMARY = ['phone', 'job', 'status', 'city'];
 
 const defaultOps = (f: FieldCat) => (f.ops.includes('in') ? 'in' : f.ops[0]);
 const isPii = (f: FieldCat) => f.sensitive === 'phone' || f.sensitive === 'national';
@@ -41,8 +41,10 @@ export default function CustomerSegmentsPage() {
   if (me && !me.enabled) {
     return (
       <div className="cses cses-off" dir="rtl" data-testid="cses-flag-off">
-        <h1>گزارش مشتریان فعال نیست</h1>
-        <p>این بخش پشت سوییچ خاموش است و هنوز منتشر نشده.</p>
+        <div className="cses-card">
+          <h1>گزارش مشتریان فعال نیست</h1>
+          <p>این گزارش هنوز فعال نیست.</p>
+        </div>
       </div>
     );
   }
@@ -117,17 +119,18 @@ function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
       <header className="cses-h">
         <p className="cses-lead">مشتری‌ها را بر اساس دادهٔ پرونده و فرم‌های سایت جدا کنید و خروجی اکسل بگیرید. فیلترها با «و» ترکیب می‌شوند.{scope === 'own' ? ' شما فقط مشتری‌هایی را می‌بینید که الان مالک‌شان هستید.' : ''}</p>
       </header>
+      <p className="cses-step-now">مرحله {faDigits(step)} از {faDigits(4)}</p>
       <ol className="cses-steps">
         {STEPS.map((s) => {
           const cls = step === s.id ? 'on' : s.id < maxStep ? 'done' : 'todo';
           return (
             <li key={s.id}>
-              <button type="button" className={cls} onClick={() => s.id <= maxStep && go(s.id)} disabled={s.id > maxStep}>
+              <button type="button" className={cls} onClick={() => s.id <= maxStep && go(s.id)} disabled={s.id > maxStep} aria-label={`مرحله ${faDigits(s.id)} از ${faDigits(4)}: ${s.title}`}>
                 <span className="n">
                   {s.id < maxStep ? <Check className="tick" aria-hidden="true" /> : null}
-                  مرحله {faDigits(s.id)} از {faDigits(4)}
+                  {faDigits(s.id)}
                 </span>
-                <span className="t">{s.title}</span>
+                <span className="t">{s.short}</span>
               </button>
             </li>
           );
@@ -214,18 +217,18 @@ function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
                   <CustomerCard key={row.leadKey} row={row} columns={preview.columns} byKey={byKey} />
                 ))}
               </div>
-              <p className="cses-table-hint">برای دیدن بقیه ستون‌ها به سمت چپ بکشید.</p>
+              <p className="cses-table-hint">برای دیدن بقیه ستون‌ها از نوار پایین جدول استفاده کنید.</p>
               <div className="cses-table-fade">
               <div className="cses-tablewrap" data-testid="cses-preview-table">
                 <table className="cses-table">
                   <thead>
-                    <tr>{preview.columns.map((k) => <th key={k}>{byKey.get(k)?.label ?? k}</th>)}</tr>
+                    <tr>{preview.columns.map((k) => <th key={k} className={k === 'name' ? 'sticky' : undefined}>{byKey.get(k)?.label ?? k}</th>)}</tr>
                   </thead>
                   <tbody>
                     {preview.rows.map((row) => (
                       <tr key={row.leadKey}>
                         {preview.columns.map((k) => (
-                          <td key={k}>
+                          <td key={k} className={k === 'name' ? 'sticky' : undefined}>
                             {k === 'name' && row.customerId ? <Link href={`/customers/${row.customerId}`}>{uiText(row.values[k] || '—')}</Link> : uiText(row.values[k] || '—')}
                             {row.sources[k] && !FILE_SOURCES.has(row.sources[k]) ? (
                               <i className={`cses-src-dot ${row.sources[k]}`} title={row.sourceLabels[k]} aria-label={row.sourceLabels[k]} />
@@ -298,7 +301,7 @@ function CustomerCard({ row, columns, byKey }: { row: PublicRow; columns: string
   const name = uiText(row.values.name || '—');
   const id = row.values.customerId ? uiText(row.values.customerId) : '';
   const rest = columns.filter((k) => k !== 'name' && k !== 'customerId');
-  const primary = rest.filter((k) => CARD_PRIMARY.includes(k)).slice(0, 4);
+  const primary = rest.filter((k) => CARD_PRIMARY.includes(k)).slice(0, 2);
   const extra = rest.filter((k) => !primary.includes(k));
   const shown = open ? [...primary, ...extra] : primary;
   return (
@@ -319,7 +322,7 @@ function CustomerCard({ row, columns, byKey }: { row: PublicRow; columns: string
         ))}
       </dl>
       {extra.length ? (
-        <button type="button" className="cses-more" onClick={() => setOpen((v) => !v)}>
+        <button type="button" className="cses-more" data-testid="cses-card-more" onClick={() => setOpen((v) => !v)}>
           {open ? 'نمایش کمتر' : 'نمایش بیشتر'}
         </button>
       ) : null}
@@ -340,8 +343,14 @@ function JalaliRange({ min, max, onChange }: { min?: string; max?: string; onCha
   };
   return (
     <div className="row">
-      <input type="text" inputMode="numeric" placeholder="از ۱۴۰۱/۰۱/۰۱" aria-label="از تاریخ جلالی" value={from} onChange={(e) => commit(e.target.value, to)} />
-      <input type="text" inputMode="numeric" placeholder="تا ۱۴۰۵/۱۲/۲۹" aria-label="تا تاریخ جلالی" value={to} onChange={(e) => commit(from, e.target.value)} />
+      <label className="cses-date">
+        <span>از</span>
+        <input type="text" inputMode="numeric" placeholder="۱۴۰۱/۰۱/۰۱" aria-label="از تاریخ جلالی" value={from} onChange={(e) => commit(e.target.value, to)} />
+      </label>
+      <label className="cses-date">
+        <span>تا</span>
+        <input type="text" inputMode="numeric" placeholder="۱۴۰۵/۱۲/۲۹" aria-label="تا تاریخ جلالی" value={to} onChange={(e) => commit(from, e.target.value)} />
+      </label>
     </div>
   );
 }
@@ -356,6 +365,7 @@ function FiltersStep({ fields, conditions, setConditions, onBack, onNext, loadin
     const f = fields.find((x) => x.key === field);
     if (!f || isPii(f)) return;
     setConditions([...conditions, { field, op: defaultOps(f), values: [] }]);
+    setQ('');
   };
   const quick = [
     { field: 'job', values: ['retired'], label: 'بازنشسته' },
@@ -379,7 +389,7 @@ function FiltersStep({ fields, conditions, setConditions, onBack, onNext, loadin
             return (
               <div className="cses-f" key={`${c.field}-${i}`} data-testid="cses-condition">
                 <div className="row">
-                  <select value={c.field} onChange={(e) => {
+                  <select value={c.field} title={f?.label} onChange={(e) => {
                     const nf = fields.find((x) => x.key === e.target.value);
                     const next = conditions.slice();
                     next[i] = { field: e.target.value, op: nf ? defaultOps(nf) : 'in', values: [] };
@@ -392,7 +402,7 @@ function FiltersStep({ fields, conditions, setConditions, onBack, onNext, loadin
                   }}>
                     {(f?.ops ?? ['in']).map((op) => <option key={op} value={op}>{OP_LABEL[op] ?? op}</option>)}
                   </select>
-                  <button type="button" className="cses-btn ghost" onClick={() => setConditions(conditions.filter((_, j) => j !== i))}>حذف</button>
+                  <button type="button" className="cses-btn ghost cses-del" aria-label="حذف" title="حذف" onClick={() => setConditions(conditions.filter((_, j) => j !== i))}><Trash2 size={18} aria-hidden="true" /></button>
                 </div>
                 {f?.description ? <p className="cses-hint">{f.description}</p> : null}
                 {c.op === 'in' && f?.options ? (

@@ -3,6 +3,7 @@
 .cses * { box-sizing:border-box; }
 .cses-h { display:flex; flex-direction:column; gap:6px; margin:0 0 16px; }
 .cses-h .cses-lead { margin:0; color:var(--muted); font-size:13px; line-height:1.7; }
+.cses-step-now { margin:0 0 8px; font-size:13px; font-weight:800; color:var(--ink); white-space:nowrap; }
 .cses-steps { display:flex; gap:8px; margin:0 0 18px; padding:0; list-style:none; }
 .cses-steps li { flex:1; display:flex; flex-direction:column; gap:4px; min-width:0; }
 .cses-steps button { appearance:none; border:1px solid var(--line); background:var(--card); border-radius:12px; padding:8px 10px; text-align:right; cursor:pointer; color:var(--ink); font:inherit; min-height:52px; display:flex; flex-direction:column; align-items:flex-start; gap:2px; width:100%; }
@@ -10,7 +11,7 @@
 .cses-steps .on { border-color:var(--navy); background:#EEF0FA; }
 .cses-steps .done { border-color:#BFE3CF; background:#F5FBF8; }
 .cses-steps .todo, .cses-steps button:disabled { opacity:.45; background:#F3F4F6; color:#6B7280; cursor:not-allowed; }
-.cses-steps .n { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; display:inline-flex; align-items:center; gap:4px; }
+.cses-steps .n { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
 .cses-steps .t { font-size:13px; font-weight:700; }
 .cses-steps .tick { width:14px; height:14px; color:#15803D; flex:0 0 auto; }
 .cses-card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; }
@@ -44,6 +45,11 @@
 .cses-filters { display:grid; gap:10px; }
 .cses-f { border:1px solid var(--line); border-radius:12px; padding:12px; display:grid; gap:8px; background:#FAFAFB; }
 .cses-f .row { display:grid; gap:8px; grid-template-columns:1fr; }
+.cses-f .row-actions { display:flex; justify-content:flex-end; }
+.cses-del { width:44px; min-width:44px; height:44px; min-height:44px; padding:0; display:inline-flex; align-items:center; justify-content:center; }
+.cses-date { display:flex; align-items:center; gap:8px; min-height:44px; }
+.cses-date > span { font-size:13px; font-weight:700; color:var(--ink); flex:0 0 auto; }
+.cses-date input { flex:1; min-width:0; }
 .cses-f select, .cses-f input[type=text], .cses-f input[type=number], .cses-f input[type=date] {
   width:100%; border:1px solid var(--line); border-radius:10px; padding:8px 10px; font:inherit; font-size:13px; min-height:44px; background:#fff;
 }
@@ -55,12 +61,22 @@
 .cses-count { font-size:20px; font-weight:800; margin:0 0 12px; color:var(--ink); }
 .cses-count span { color:var(--navy); }
 .cses-table-fade { position:relative; }
-.cses-table-fade::after { content:""; position:absolute; top:0; bottom:0; left:0; width:32px; pointer-events:none; background:linear-gradient(to left, transparent, var(--card)); border-radius:12px 0 0 12px; }
 .cses-table-hint { margin:0 0 8px; font-size:12px; color:var(--muted); }
-.cses-tablewrap { overflow:auto; border:1px solid var(--line); border-radius:12px; position:relative; }
-.cses-table { width:100%; border-collapse:collapse; font-size:13px; min-width:640px; }
-.cses-table th, .cses-table td { border-bottom:1px solid var(--line); padding:8px 10px; text-align:right; white-space:nowrap; }
-.cses-table th { background:#F4F5F7; font-weight:800; position:sticky; top:0; }
+.cses-tablewrap { overflow:auto; border:1px solid var(--line); border-radius:12px; position:relative;
+  scrollbar-width:thin; scrollbar-color:#9CA3AF #EEF0FA; }
+.cses-tablewrap::-webkit-scrollbar { height:12px; }
+.cses-tablewrap::-webkit-scrollbar-thumb { background:#9CA3AF; border-radius:8px; }
+.cses-tablewrap::-webkit-scrollbar-track { background:#EEF0FA; border-radius:8px; }
+.cses-table { width:100%; border-collapse:separate; border-spacing:0; font-size:13px; min-width:640px; }
+.cses-table th, .cses-table td { border-bottom:1px solid var(--line); padding:8px 10px; text-align:right; white-space:nowrap; background:#fff; }
+.cses-table th { background:#F4F5F7; font-weight:800; position:sticky; top:0; z-index:1; }
+.cses-table th.sticky, .cses-table td.sticky {
+  position:sticky; right:0; z-index:2; background:#fff;
+  min-width:8.5rem;
+  border-left:1px solid var(--line);
+  box-shadow:-6px 0 10px -8px rgba(15,23,42,.2);
+}
+.cses-table th.sticky { z-index:3; background:#F4F5F7; top:0; }
 .cses-table a { color:var(--navy); font-weight:700; text-decoration:none; }
 .cses-src { display:inline-block; margin-inline-start:4px; font-size:11px; color:var(--muted); font-weight:600; }
 .cses-src-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-inline-start:6px; vertical-align:middle; background:#6B7280; }
@@ -69,7 +85,7 @@
 .cses-legend { display:flex; flex-wrap:wrap; gap:10px 14px; margin:0 0 10px; font-size:12px; color:var(--muted); }
 .cses-legend i { display:inline-block; width:8px; height:8px; border-radius:50%; margin-left:4px; vertical-align:middle; }
 .cses-cards { display:none; gap:10px; }
-.cses-pcard { border:1px solid var(--line); border-radius:12px; padding:12px 14px; background:#fff; display:grid; gap:8px; }
+.cses-pcard { border:1px solid var(--line); border-radius:12px; padding:10px 12px; background:#fff; display:grid; gap:6px; }
 .cses-pcard .hd { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
 .cses-pcard .hd a, .cses-pcard .hd .nm { color:var(--navy); font-weight:800; font-size:15px; text-decoration:none; }
 .cses-pcard .id { font-size:12px; color:var(--muted); font-weight:700; }
@@ -77,16 +93,20 @@
 .cses-pcard .kv div { display:flex; justify-content:space-between; gap:8px; font-size:13px; line-height:1.5; }
 .cses-pcard .kv dt { color:var(--muted); }
 .cses-pcard .kv dd { margin:0; font-weight:700; text-align:left; }
-.cses-more { appearance:none; border:0; background:none; color:var(--navy); font:inherit; font-weight:700; font-size:13px; cursor:pointer; min-height:44px; padding:0; text-align:right; }
+.cses-more { appearance:none; border:1px solid #DDE1F5; background:#EEF0FA; color:var(--navy);
+  border-radius:12px; min-height:44px; padding:8px 12px; width:100%;
+  font:inherit; font-weight:700; font-size:13px; cursor:pointer; text-align:center; }
 .cses-pager { display:flex; gap:8px; align-items:center; justify-content:space-between; margin-top:12px; font-size:13px; }
 .cses-err { color:#9B1C1C; background:#FDEEEE; border:1px solid #F5C6C6; border-radius:12px; padding:10px 12px; font-size:13px; }
 .cses-warn { margin:0; color:#9A3412; background:#FFF7ED; border:1px solid #FDBA74; border-radius:12px; padding:10px 12px; font-size:13px; font-weight:700; }
 .cses-empty { margin:0; font-size:15px; font-weight:700; padding:24px 8px; text-align:center; }
 .cses-off { padding:24px 8px; text-align:center; }
-.cses-off h1 { font-size:20px; }
+.cses-off .cses-card { max-width:420px; margin:24px auto; text-align:center; }
+.cses-off h1 { font-size:20px; font-weight:800; margin:0 0 8px; }
+.cses-off p { margin:0; color:var(--muted); font-size:14px; line-height:1.7; }
 @media (min-width: 800px) {
   .cses { padding:24px 24px 180px; }
-  .cses-f .row { grid-template-columns: 160px 140px 1fr; align-items:center; }
+  .cses-f .row { grid-template-columns: minmax(240px, 2fr) minmax(120px, 1fr) 44px; align-items:center; }
   .cses-cols { grid-template-columns: 1fr 1fr; }
   .cses-radios { grid-template-columns: 1fr 1fr 1fr; }
   .cses-cards { display:none; }
@@ -97,10 +117,12 @@
   .cses-tablewrap, .cses-table-fade, .cses-table-hint { display:none; }
 }
 @media (max-width: 430px) {
-  .cses { padding:12px 10px 220px 72px; }
+  .cses { padding:12px 10px 200px; }
   .cses-steps { gap:4px; }
-  .cses-steps button { padding:8px 6px; min-height:64px; }
-  .cses-steps .t { font-size:12px; }
+  .cses-steps button { padding:8px 6px; min-height:56px; }
+  .cses-steps .n { font-size:12px; }
+  .cses-steps .t { font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+  .cses-step-now { font-size:13px; }
   .cses-card { padding:12px; border-radius:12px; }
   .cses-pager { flex-direction:column; align-items:stretch; }
 }
@@ -112,5 +134,5 @@
 html.cses-page .ss-ttl h1 { white-space:normal; line-height:1.35; overflow:visible; text-overflow:unset; }
 html.cses-page .ss-ttl p { display:none; }
 @media (min-width: 1024px) {
-  html.cses-page .cses { padding-right: 132px; padding-bottom: 200px; }
+  html.cses-page .cses { padding-bottom: 200px; }
 }
