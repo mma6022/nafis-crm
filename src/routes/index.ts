@@ -78,6 +78,8 @@ import { ensureReminderFollowSchema } from "../lib/reminder-follow";
 import linkPageRouter from "./link-page";
 import salesTeamsRouter from "./sales-teams";
 import salesPerformanceRouter from "./sales-performance";
+import attendanceRouter from "./attendance";
+import { ensureAttendanceSchema, startAttendanceJobs } from "../lib/attendance";
 import baleBotRouter from "./bale-bot";
 import baleWorkspaceRouter from "./bale-workspace";
 import voipTaskHoldRouter from "./voip-task-hold";
@@ -104,6 +106,8 @@ ensureCustomerPhonesSchema();
 // REMINDERS-FOLLOW: columns/tables, one-time data step (backed up), then the follow / one-open triggers.
 ensureReminderFollowSchema();
 startDailyPlanJobs();
+ensureAttendanceSchema();
+startAttendanceJobs();
 startInstagramWorker();
 
 router.use(healthRouter);
@@ -179,6 +183,7 @@ router.use(salesManagerConsoleRouter); // «مدیریت تیم فروش» v1.1 
 router.use(smcValidityRouter);
 router.use(salesTeamsRouter); // multi-team v1 (flag.multi_team_v1, OFF → falls through)
 router.use(salesPerformanceRouter); // sales-performance v1 (flag.sales_performance_v1, OFF → 404)
+router.use(attendanceRouter); // attendance v1 (flag.attendance_v1, absent = OFF → /me enabled:false, other routes 404)
 router.use(baleBotRouter); // Bale bot inbox v1.0 (flag.bale_bot, OFF → falls through, no network)
 router.use(baleWorkspaceRouter); // «فضای کار بله» v1.0 (flag.bale_workspace_v1, OFF → falls through, no schema, no sends)
 
