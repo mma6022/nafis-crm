@@ -199,8 +199,11 @@ await ok("goods stage-back invoice_signature → invoice_draft keeps the invoice
   assert.equal(after[0].invoice_number, before[0].invoice_number);
   assert.equal(after[0].pdf_sha256, before[0].pdf_sha256);
   assert.deepEqual(cancelCalls, [providerId]);
-  const ev = queryRow("SELECT action, detail FROM goods_purchase_events WHERE purchase_id=? ORDER BY id DESC LIMIT 1", [54]);
+  const ev = queryRow("SELECT action, detail FROM goods_purchase_events WHERE purchase_id=? AND action='admin_stage_back' ORDER BY id DESC LIMIT 1", [54]);
   assert.equal(ev.action, "admin_stage_back");
+  const trailing = queryRows("SELECT action FROM goods_purchase_events WHERE purchase_id=? ORDER BY id DESC LIMIT 3", [54]);
+  assert.ok(trailing.some((e) => e.action === resend.ADMIN_SIGNATURE_REQUEST_CANCELLED));
+  assert.ok(trailing.some((e) => e.action === resend.ADMIN_BALE_NOTIFY_FAILED));
   const listed = (await import("../src/lib/goods-finance.ts")).getGoodsPurchase(54).events;
   const named = [...listed].reverse().find((e) => e.action === "admin_stage_back");
   assert.ok(named?.actorName, "actorName must be present on goods events");
@@ -638,6 +641,14 @@ await ok("stage-back from invoice_signature notifies on Bale only when an unsign
     assert.equal(off.stage, "invoice_draft");
     assert.equal(snapDocs(target.purchaseId).find((d) => d.id === target.docId).status, "cancelled");
     assert.equal(deliveries.length, 0);
+    const evOff = queryRows("SELECT action, detail FROM goods_purchase_events WHERE purchase_id=? ORDER BY id DESC LIMIT 8", [target.purchaseId]);
+    assert.ok(evOff.some((e) => e.action === resend.ADMIN_SIGNATURE_REQUEST_CANCELLED), "cancel is audited when the unsigned request was cancelled");
+    const failed = evOff.find((e) => e.action === resend.ADMIN_BALE_NOTIFY_FAILED);
+    assert.ok(failed, "Bale-off is audited as failed, not sent");
+    assert.equal(evOff.some((e) => e.action === resend.ADMIN_BALE_NOTIFY_SENT), false);
+    const failedDetail = typeof failed.detail === "string" ? JSON.parse(failed.detail) : failed.detail;
+    assert.match(String(failedDetail.reason || ""), /سوییچ پیام بله خاموش بود/);
+    assert.doesNotMatch(JSON.stringify(failedDetail.reason), /flag_off/);
 
     // Restore the unsigned request and turn the sub-flag on.
     executeChanges("UPDATE goods_purchases SET stage='invoice_signature' WHERE id=?", [target.purchaseId]);
@@ -676,6 +687,17 @@ await ok("stage-back from invoice_signature notifies on Bale only when an unsign
     assert.match(deliveries[0].text, /درخواست امضای قبلی لغو شد/);
     assert.match(deliveries[0].text, /سند تازه‌ای به‌زودی برایتان ارسال می‌شود/);
     assert.doesNotMatch(deliveries[0].text, /پیامک|sms/i);
+    const evOn = queryRows("SELECT action, detail FROM goods_purchase_events WHERE purchase_id=? ORDER BY id DESC LIMIT 8", [target.purchaseId]);
+    assert.ok(evOn.some((e) => e.action === resend.ADMIN_SIGNATURE_REQUEST_CANCELLED));
+    const sentEv = evOn.find((e) => e.action === resend.ADMIN_BALE_NOTIFY_SENT);
+    assert.ok(sentEv, "successful Bale notify is audited");
+    const sentDetail = typeof sentEv.detail === "string" ? JSON.parse(sentEv.detail) : sentEv.detail;
+    assert.match(String(sentDetail.reason || ""), /پیام بله به مشتری ارسال شد/);
+    // No cancel/Bale events when nothing was cancelled (48 was already restored to invoice_draft).
+    const ev48 = queryRows("SELECT action FROM goods_purchase_events WHERE purchase_id=48 AND action IN (?,?,?)", [
+      resend.ADMIN_SIGNATURE_REQUEST_CANCELLED, resend.ADMIN_BALE_NOTIFY_SENT, resend.ADMIN_BALE_NOTIFY_FAILED,
+    ]);
+    assert.equal(ev48.length, 0);
   } finally {
     setNotifyFlag(null);
     resend.resetDocResendHooksForTests();

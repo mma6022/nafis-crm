@@ -74,6 +74,40 @@ export type NotifyDocResendFn = (opts: {
 /** Bale text when an unsigned signing request is cancelled on stage-back. `{name}` is the customer's first name. */
 export const BALE_STAGE_BACK_CANCEL_TEXT = "سلام {name}، درخواست امضای قبلی لغو شد. سند تازه‌ای به‌زودی برایتان ارسال می‌شود.";
 
+export const ADMIN_SIGNATURE_REQUEST_CANCELLED = "admin_signature_request_cancelled";
+export const ADMIN_BALE_NOTIFY_SENT = "admin_bale_notify_sent";
+export const ADMIN_BALE_NOTIFY_FAILED = "admin_bale_notify_failed";
+
+function baleNotifyReasonFa(bale: { sent: boolean; reason?: string }): string {
+  if (bale.sent) return "پیام بله به مشتری ارسال شد";
+  if (bale.reason === "flag_off") return "سوییچ پیام بله خاموش بود";
+  if (bale.reason === "bot_not_started") return "گفتگوی بله با مشتری شروع نشده بود";
+  if (bale.reason === "no_token") return "رمز ربات بله در دسترس نبود";
+  return "ارسال پیام بله انجام نشد";
+}
+
+function recordCancelAndBaleEvents(
+  purchaseId: number,
+  actor: AuthUser,
+  kind: GoodsDocumentKind,
+  cancelledDocumentIds: number[],
+  bale: { sent: boolean; reason?: string } | null,
+) {
+  if (cancelledDocumentIds.length) {
+    goodsEvent(purchaseId, ADMIN_SIGNATURE_REQUEST_CANCELLED, actor.id, {
+      documentIds: cancelledDocumentIds, kind, actorUserId: actor.id,
+      reason: "درخواست امضای امضانشده لغو شد",
+    });
+  }
+  if (bale) {
+    goodsEvent(purchaseId, bale.sent ? ADMIN_BALE_NOTIFY_SENT : ADMIN_BALE_NOTIFY_FAILED, actor.id, {
+      kind, actorUserId: actor.id, baleNotify: bale,
+      reason: baleNotifyReasonFa(bale),
+    });
+  }
+}
+
+
 let cancelEmzameFn: CancelEmzameFn | null = null;
 let generateGoodsDocumentFn: GenerateGoodsDocumentFn | null = null;
 let notifyDocResendFn: NotifyDocResendFn | null = null;
@@ -319,12 +353,13 @@ export async function goodsStageBack(purchaseId: number, toStage: string, actor:
   // Only when an unsigned request was actually cancelled. Same path and sub-flag as document resend.
   if (cancelledDocumentIds.length) {
     const name = firstNameOfCustomer(Number(purchase.customerId));
-    await notifyDocResendViaBale({
+    const bale = await notifyDocResendViaBale({
       purchaseId,
       kind: "invoice",
       actor,
       text: BALE_STAGE_BACK_CANCEL_TEXT.replace("{name}", name),
     });
+    recordCancelAndBaleEvents(purchaseId, actor, "invoice", cancelledDocumentIds, bale);
   }
   return purchase;
 }
