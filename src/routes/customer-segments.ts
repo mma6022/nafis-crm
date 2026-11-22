@@ -1,11 +1,13 @@
 /**
  * t878 customer segments. flag.customer_segments_v1 absent/≠'1' → /me returns enabled:false, other routes 404.
- * View + Excel export: admin and sales_manager only. Read-only customer queries; export is audit-logged.
+ * View + Excel: admin and sales_manager see all; salesperson/trainee see only their current-owner customers.
+ * Phone and national ID in Excel only when includePhones === true (default off). Read-only queries; export is audit-logged.
  */
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { requireAuth, getAuthenticatedUser, type AuthUser } from "../lib/auth";
 import {
-  SEGMENTS_FLAG, segmentsOn, isSegmentsViewer, fieldCatalog, parseQuery, preview, exportXlsx,
+  SEGMENTS_FLAG, segmentsOn, isSegmentsViewer, actorScope, fieldCatalog, parseQuery, preview, exportXlsx,
+  SegmentScopeError,
 } from "../lib/customer-segments";
 
 const router: IRouter = Router();
@@ -17,7 +19,7 @@ function fail(res: Response, status: number, error: string, message?: string) {
 function requireViewer(req: Request, res: Response, next: NextFunction): void {
   const user = (res.locals.authUser as AuthUser | undefined) ?? getAuthenticatedUser(req);
   if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
-  if (!isSegmentsViewer(user)) { res.status(403).json({ error: "Forbidden", message: "این گزارش فقط برای مدیر و مدیر فروش است." }); return; }
+  if (!isSegmentsViewer(user)) { res.status(403).json({ error: "Forbidden", message: "این گزارش فقط برای مدیر، مدیر فروش و کارشناس است." }); return; }
   res.locals.authUser = user;
   next();
 }
@@ -30,44 +32,62 @@ function guarded(_req: Request, res: Response, next: NextFunction): void {
 router.get("/customer-segments/me", requireAuth, (req, res) => {
   const u = res.locals.authUser as AuthUser;
   const enabled = segmentsOn();
-  const canView = enabled && isSegmentsViewer(u);
+  const scope = actorScope(u);
+  const canView = enabled && scope != null;
   res.json({
     enabled,
     flag: SEGMENTS_FLAG,
     canView,
     canExport: canView,
+    scope: scope?.kind ?? null,
+    salespersonId: scope?.kind === "own" ? scope.salespersonId : (u.salespersonId ?? null),
   });
 });
 
 router.get("/customer-segments/meta", requireAuth, requireViewer, guarded, (_req, res) => {
+  const u = res.locals.authUser as AuthUser;
+  const scope = actorScope(u)!;
   const cat = fieldCatalog();
+  const fields = scope.kind === "own" ? cat.fields.filter((f) => f.key !== "ownerId") : cat.fields;
   res.json({
     groups: cat.groups,
-    fields: cat.fields,
-    owners: cat.owners,
+    fields,
+    owners: scope.kind === "all" ? cat.owners : cat.owners.filter((o) => Number(o.value) === scope.salespersonId),
     tags: cat.tags,
+    scope: scope.kind,
   });
 });
 
 router.post("/customer-segments/preview", requireAuth, requireViewer, guarded, (req, res) => {
+  const user = res.locals.authUser as AuthUser;
   const q = parseQuery(req.body);
   const page = Number((req.body as { page?: unknown })?.page ?? req.query.page ?? 1);
   const pageSize = Number((req.body as { pageSize?: unknown })?.pageSize ?? req.query.pageSize ?? 20);
-  const result = preview(q, page, pageSize);
-  res.json(result);
+  try {
+    res.json(preview(q, user, page, pageSize));
+  } catch (e) {
+    if (e instanceof SegmentScopeError) { fail(res, e.status, e.error, e.publicMessage); return; }
+    throw e;
+  }
 });
 
 router.post("/customer-segments/export", requireAuth, requireViewer, guarded, (req, res) => {
   const user = res.locals.authUser as AuthUser;
   const body = (req.body || {}) as Record<string, unknown>;
   const q = parseQuery(body);
-  const includePhones = body.includePhones !== false;
-  const { buffer, filename, rowCount } = exportXlsx(q, user, includePhones);
-  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-  res.setHeader("Cache-Control", "no-store");
-  res.setHeader("X-Row-Count", String(rowCount));
-  res.send(buffer);
+  const includePhones = body.includePhones === true;
+  try {
+    const { buffer, filename, rowCount } = exportXlsx(q, user, includePhones);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Row-Count", String(rowCount));
+    res.setHeader("X-Include-Phones", includePhones ? "1" : "0");
+    res.send(buffer);
+  } catch (e) {
+    if (e instanceof SegmentScopeError) { fail(res, e.status, e.error, e.publicMessage); return; }
+    throw e;
+  }
 });
 
 export default router;

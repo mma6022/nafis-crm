@@ -70,13 +70,28 @@ await ok("flag '0' / 'true' / 'on' are OFF (only exact '1')", async () => {
   assert.equal(seg.segmentsOn(), true);
 });
 
-await ok("viewer is admin and sales_manager only", async () => {
-  assert.equal(seg.isSegmentsViewer(actor({ role: "admin", id: 1 })), true);
-  assert.equal(seg.isSegmentsViewer(actor({ id: 5, role: "admin", salesManager: true, baseRole: "sales_manager" })), true);
-  assert.equal(seg.isSegmentsViewer(actor({ id: 5, role: "sales_manager", salesManager: true, baseRole: "sales_manager" })), true);
-  assert.equal(seg.isSegmentsViewer(actor({ id: 2, role: "salesperson", salesManager: false, baseRole: "salesperson" })), false);
+const admin = actor({ id: 1 });
+const salesManager = actor({ id: 5, role: "admin", salesManager: true, baseRole: "sales_manager", username: "mhmab" });
+const expert = actor({
+  id: 2, username: "s.hasani", fullName: "خانم حسنی", role: "salesperson", roleName: "salesperson",
+  customerScope: "assigned", salespersonId: 3, salespersonName: "خانم حسنی", salesManager: false, baseRole: "salesperson",
+});
+const trainee = actor({
+  id: 31, username: "milad", fullName: "میلاد", role: "salesperson", roleName: "salesperson",
+  customerScope: "assigned", salespersonId: 22, salesManager: false, baseRole: "salesperson",
+});
+
+await ok("viewer is admin, sales_manager, or salesperson with an owner id", async () => {
+  assert.equal(seg.isSegmentsViewer(admin), true);
+  assert.equal(seg.isSegmentsViewer(salesManager), true);
+  assert.equal(seg.isSegmentsViewer(expert), true);
+  assert.equal(seg.isSegmentsViewer(trainee), true);
+  assert.equal(seg.isSegmentsViewer(actor({ id: 2, role: "salesperson", salespersonId: null, salesManager: false, baseRole: "salesperson" })), false);
   assert.equal(seg.isSegmentsViewer(actor({ id: 7, role: "registrar", salesManager: false, baseRole: "registrar" })), false);
   assert.equal(seg.isSegmentsViewer(null), false);
+  assert.equal(seg.actorScope(expert).kind, "own");
+  assert.equal(seg.actorScope(expert).salespersonId, 3);
+  assert.equal(seg.actorScope(admin).kind, "all");
 });
 
 const before = customerFingerprint();
@@ -147,21 +162,29 @@ await ok("text contains city, exists filters, date range", async () => {
   assert.equal(none.length, 0);
 });
 
-await ok("unlinked leads stay out unless asked", async () => {
-  const off = seg.filterProfiles(all, { source: "both", conditions: [] });
-  assert.ok(off.every((p) => p.kind === "customer"));
+await ok("unlinked leads included by default; excluded when explicitly off", async () => {
+  const parsed = seg.parseQuery({ source: "both" });
+  assert.equal(parsed.includeUnlinkedLeads, true);
+  assert.equal(seg.parseQuery({ includeUnlinkedLeads: false }).includeUnlinkedLeads, false);
+  const def = seg.filterProfiles(all, { source: "both", conditions: [] });
   const on = seg.filterProfiles(all, { source: "both", includeUnlinkedLeads: true, conditions: [] });
+  const off = seg.filterProfiles(all, { source: "both", includeUnlinkedLeads: false, conditions: [] });
+  assert.equal(def.length, on.length);
+  assert.ok(off.every((p) => p.kind === "customer"));
   assert.ok(on.length >= off.length);
   if (all.some((p) => p.kind === "unlinked_lead")) {
     assert.ok(on.some((p) => p.kind === "unlinked_lead"));
     const file = seg.filterProfiles(all, { source: "file", includeUnlinkedLeads: true, conditions: [] });
     assert.ok(file.every((p) => p.kind === "customer"));
   }
+  // experts never see unlinked leads (no owner), even when the tick is on
+  const expertOn = seg.filterProfiles(all, { source: "both", includeUnlinkedLeads: true, conditions: [] }, seg.actorScope(expert));
+  assert.ok(expertOn.every((p) => p.kind === "customer"));
 });
 
 await ok("preview masks phones and never includes national id by default", async () => {
   const q = { source: "both", conditions: [{ field: "job", op: "in", values: ["retired"] }] };
-  const prev = seg.preview(q, 1, 10);
+  const prev = seg.preview(q, admin, 1, 10);
   assert.ok(prev.total >= 180);
   assert.equal(prev.rows.length, Math.min(10, prev.total));
   assert.ok(!prev.columns.includes("nationalCode"));
@@ -202,6 +225,61 @@ await ok("xlsx export is a real zip, includes phones when asked, writes audit on
   assert.equal(Number(queryRow(`SELECT COUNT(*) AS n FROM ${seg.EXPORT_AUDIT_TABLE}`).n), 2);
   assert.equal(Number(queryRow(`SELECT include_phones AS p FROM ${seg.EXPORT_AUDIT_TABLE} ORDER BY id DESC LIMIT 1`).p), 0);
   assert.equal(customerFingerprint(), before2);
+});
+
+
+await ok("expert sees only own customers; unlinked and other owners stay out", async () => {
+  const ownN = Number(queryRow("SELECT COUNT(*) AS n FROM customers WHERE merged_into_customer_id IS NULL AND salesperson_id=3").n);
+  assert.ok(ownN >= 300, `hasani own ${ownN}`);
+  const q = { source: "both", includeUnlinkedLeads: true, conditions: [] };
+  const prev = seg.preview(q, expert, 1, 20);
+  assert.equal(prev.total, ownN);
+  assert.equal(prev.scope, "own");
+  for (const row of prev.rows) {
+    assert.equal(row.kind, "customer");
+    const rec = queryRow("SELECT salesperson_id AS sp FROM customers WHERE id=?", [row.customerId]);
+    assert.equal(Number(rec.sp), 3);
+  }
+  const adminAll = seg.preview(q, admin, 1, 1);
+  assert.ok(adminAll.total > prev.total);
+});
+
+await ok("expert export 403 when asking for another owner's customers", async () => {
+  const q = { source: "both", conditions: [{ field: "ownerId", op: "in", values: ["6"] }] };
+  assert.throws(() => seg.preview(q, expert, 1, 5), (e) => e instanceof seg.SegmentScopeError && e.status === 403);
+  assert.throws(() => seg.exportXlsx(q, expert, false), (e) => e instanceof seg.SegmentScopeError && e.status === 403);
+  const other = queryRow("SELECT id AS id FROM customers WHERE merged_into_customer_id IS NULL AND salesperson_id=6 LIMIT 1");
+  assert.ok(other && other.id);
+  assert.throws(
+    () => seg.exportXlsx({ source: "both", conditions: [{ field: "customerId", op: "eq", values: [String(other.id)] }] }, expert, false),
+    (e) => e instanceof seg.SegmentScopeError && e.status === 403,
+  );
+  // own-owner filter is allowed and still scoped
+  const own = seg.preview({ source: "both", conditions: [{ field: "ownerId", op: "in", values: ["3"] }] }, expert, 1, 5);
+  assert.ok(own.total >= 300);
+});
+
+await ok("PII columns absent from Excel without the tick; present and audit-logged when ticked", async () => {
+  const q = { source: "both", conditions: [{ field: "job", op: "in", values: ["retired"] }], columns: ["customerId", "name", "phone", "nationalCode", "job"] };
+  const off = seg.exportXlsx(q, admin, false);
+  assert.ok(!off.columns.includes("phone"));
+  assert.ok(!off.columns.includes("nationalCode"));
+  assert.ok(off.columns.includes("name"));
+  assert.equal(Number(queryRow(`SELECT include_phones AS p FROM ${seg.EXPORT_AUDIT_TABLE} ORDER BY id DESC LIMIT 1`).p), 0);
+  const on = seg.exportXlsx(q, admin, true);
+  assert.ok(on.columns.includes("phone"));
+  assert.ok(on.columns.includes("nationalCode"));
+  assert.equal(Number(queryRow(`SELECT include_phones AS p FROM ${seg.EXPORT_AUDIT_TABLE} ORDER BY id DESC LIMIT 1`).p), 1);
+  // parseQuery itself does not default includePhones — the route requires === true. Expert export of own rows also strips PII without the tick.
+  const expertOff = seg.exportXlsx({ ...q, conditions: [] }, expert, false);
+  assert.ok(!expertOff.columns.includes("phone") && !expertOff.columns.includes("nationalCode"));
+  assert.ok(expertOff.rowCount >= 300);
+});
+
+await ok("expert_lockdown allowlist includes this report (own-only, same pattern as sales-performance)", async () => {
+  const el = await import("../src/lib/expert-lockdown.ts");
+  assert.ok(el.EL_ALLOWED_PAGES.includes("/customer-segments"));
+  assert.ok(el.elAllowedPages().includes("/customer-segments"));
 });
 
 await ok("customer data fingerprint unchanged from the start (plus export-only audit table)", async () => {

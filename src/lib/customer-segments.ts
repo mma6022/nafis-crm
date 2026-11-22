@@ -21,10 +21,74 @@ export function segmentsOn(): boolean {
   }
 }
 
-/** Admin (including «مدیر فروش», whose effective role is admin) may view and export. */
+/**
+ * «مشتری خود» = customers.salesperson_id of the current owner equals the viewer's users.salesperson_id.
+ * Same rule as the rest of the CRM when customerScope === "assigned" (customer list, consult report, loan files, …).
+ * Not registered_by, not the first-call author. Merged customers are excluded.
+ * Unlinked site leads (callback without customer_id) have no owner and are visible only to admin / sales_manager.
+ * Admin and sales_manager (effective role admin) see everyone. Salespersons and trainees (salesperson role) see only their own.
+ * Registrar and other roles cannot use this report.
+ */
+export type ActorScope = { kind: "all" } | { kind: "own"; salespersonId: number };
+
+export class SegmentScopeError extends Error {
+  status = 403;
+  error = "Forbidden";
+  publicMessage: string;
+  constructor(message: string) {
+    super(message);
+    this.publicMessage = message;
+  }
+}
+
+export function actorScope(u: AuthUser | null | undefined): ActorScope | null {
+  if (!u) return null;
+  if (u.role === "admin" || isSalesManagerUser(u)) return { kind: "all" };
+  if (u.role === "salesperson" && u.salespersonId != null) return { kind: "own", salespersonId: Number(u.salespersonId) };
+  return null;
+}
+
 export function isSegmentsViewer(u: AuthUser | null | undefined): boolean {
-  if (!u) return false;
-  return u.role === "admin" || isSalesManagerUser(u);
+  return actorScope(u) != null;
+}
+
+/** 403 if an assigned viewer asks for another owner's customers or another customer's id. */
+export function assertQueryScope(q: SegmentQuery, scope: ActorScope): void {
+  if (scope.kind !== "own") return;
+  const own = String(scope.salespersonId);
+  for (const c of q.conditions) {
+    if (c.field === "ownerId") {
+      const vals = (c.values ?? []).map(String).filter(Boolean);
+      if (c.op === "exists" || c.op === "not_exists") continue;
+      if (vals.length && vals.some((v) => v !== own)) {
+        throw new SegmentScopeError("فقط مشتری‌های خودتان را می‌توانید ببینید یا خروجی بگیرید.");
+      }
+    }
+    if (c.field === "customerId") {
+      const ids: number[] = [];
+      for (const v of c.values ?? []) { const n = Number(v); if (Number.isFinite(n)) ids.push(n); }
+      const min = c.min == null || c.min === "" ? null : Number(c.min);
+      const max = c.max == null || c.max === "" ? null : Number(c.max);
+      if (c.op === "eq" || c.op === "in") {
+        for (const id of ids) {
+          const row = queryRow<{ salesperson_id: number | null }>("SELECT salesperson_id FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [id]);
+          if (!row || Number(row.salesperson_id) !== scope.salespersonId) {
+            throw new SegmentScopeError("فقط مشتری‌های خودتان را می‌توانید ببینید یا خروجی بگیرید.");
+          }
+        }
+      }
+      if (c.op === "range" && (min != null || max != null)) {
+        // Range of ids could include others; refuse rather than silently widen.
+        throw new SegmentScopeError("فقط مشتری‌های خودتان را می‌توانید ببینید یا خروجی بگیرید.");
+      }
+    }
+  }
+}
+
+export function applyActorScope(rows: Profile[], scope: ActorScope): Profile[] {
+  if (scope.kind === "all") return rows;
+  const own = String(scope.salespersonId);
+  return rows.filter((p) => p.kind === "customer" && p.ownerId === own);
 }
 
 const tableOk = (name: string): boolean => {
@@ -844,13 +908,13 @@ export function parseQuery(body: unknown): SegmentQuery {
     });
   }
   const columns = Array.isArray(b.columns) ? (b.columns as unknown[]).map(String).filter((k) => FIELDS.some((f) => f.key === k)) : undefined;
-  return { source, includeUnlinkedLeads: b.includeUnlinkedLeads === true, conditions, columns };
+  return { source, includeUnlinkedLeads: b.includeUnlinkedLeads !== false, conditions, columns };
 }
 
-export function filterProfiles(all: Profile[], q: SegmentQuery): Profile[] {
-  const includeUnlinked = q.includeUnlinkedLeads === true;
+export function filterProfiles(all: Profile[], q: SegmentQuery, scope: ActorScope = { kind: "all" }): Profile[] {
+  const includeUnlinked = q.includeUnlinkedLeads !== false && scope.kind === "all";
   const out: Profile[] = [];
-  for (const raw of all) {
+  for (const raw of applyActorScope(all, scope)) {
     if (!sourceEligible(raw, q.source, includeUnlinked)) continue;
     const p = profileForSource(raw, q.source);
     let ok = true;
@@ -926,19 +990,25 @@ export function toPublicRow(p: Profile, columns: string[], opts?: { phones?: boo
   return { kind: p.kind, customerId: p.customerId, leadKey: p.leadKey, values, sources, sourceLabels };
 }
 
-export function preview(q: SegmentQuery, page = 1, pageSize = 20): { total: number; page: number; pageSize: number; columns: string[]; rows: PublicRow[] } {
+export function preview(q: SegmentQuery, actor: AuthUser, page = 1, pageSize = 20): { total: number; page: number; pageSize: number; columns: string[]; rows: PublicRow[]; scope: ActorScope["kind"] } {
+  const scope = actorScope(actor);
+  if (!scope) throw new SegmentScopeError("این گزارش فقط برای مدیر، مدیر فروش و کارشناس است.");
+  assertQueryScope(q, scope);
   const columns = (q.columns && q.columns.length ? q.columns : DEFAULT_COLUMNS).filter((k) => k !== "nationalCode");
   const cols = columns.includes("phone") ? columns : ["phone", ...columns.filter((c) => c !== "phone")];
   const unique = [...new Set(cols.length ? cols : DEFAULT_COLUMNS)];
-  const all = filterProfiles(loadProfiles(), q);
+  const all = filterProfiles(loadProfiles(), q, scope);
   const safePage = Math.max(1, page);
   const size = Math.min(100, Math.max(1, pageSize));
   const start = (safePage - 1) * size;
   const rows = all.slice(start, start + size).map((p) => toPublicRow(p, unique, { phones: false, national: false }));
-  return { total: all.length, page: safePage, pageSize: size, columns: unique, rows };
+  return { total: all.length, page: safePage, pageSize: size, columns: unique, rows, scope: scope.kind };
 }
 
-export function exportXlsx(q: SegmentQuery, actor: AuthUser, includePhones: boolean): { buffer: Buffer; filename: string; rowCount: number } {
+export function exportXlsx(q: SegmentQuery, actor: AuthUser, includePhones: boolean): { buffer: Buffer; filename: string; rowCount: number; columns: string[] } {
+  const scope = actorScope(actor);
+  if (!scope) throw new SegmentScopeError("این گزارش فقط برای مدیر، مدیر فروش و کارشناس است.");
+  assertQueryScope(q, scope);
   const wanted = q.columns && q.columns.length ? q.columns : [...DEFAULT_COLUMNS, "canReferRetiree", "creditRank", "amountRange"];
   const columns = wanted.filter((k) => {
     const f = FIELDS.find((x) => x.key === k);
@@ -948,7 +1018,7 @@ export function exportXlsx(q: SegmentQuery, actor: AuthUser, includePhones: bool
     return true;
   });
   const unique = [...new Set(columns.length ? columns : DEFAULT_COLUMNS)];
-  const all = filterProfiles(loadProfiles(), q);
+  const all = filterProfiles(loadProfiles(), q, scope);
   const headers = unique.map((k) => FIELDS.find((f) => f.key === k)?.label ?? k);
   // Add a source column after fields that have sources, as a single «منبع مقدار» summary? Keep one «منبع شغل» etc. for key fields.
   const sourceCols = ["job", "bounced", "canReferRetiree", "creditRank"];
@@ -975,12 +1045,12 @@ export function exportXlsx(q: SegmentQuery, actor: AuthUser, includePhones: bool
       actor.id,
       actor.fullName || actor.username,
       actor.baseRole || actor.role,
-      JSON.stringify({ source: q.source, includeUnlinkedLeads: q.includeUnlinkedLeads === true, conditions: q.conditions }),
+      JSON.stringify({ source: q.source, includeUnlinkedLeads: q.includeUnlinkedLeads !== false, conditions: q.conditions, scope: scope.kind }),
       JSON.stringify(unique),
       all.length,
       includePhones ? 1 : 0,
       new Date().toISOString(),
     ],
   );
-  return { buffer, filename, rowCount: all.length };
+  return { buffer, filename, rowCount: all.length, columns: unique };
 }
