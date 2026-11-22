@@ -1,5 +1,5 @@
-/** t886 «شاخص‌های فروش»: چهار گروه KPI + ویزارد تنظیمات. flag.sales_kpi_v1 off → «فعال نیست». */
-import { useEffect, useMemo, useRef, useState } from "react";
+/** t886 «شاخص‌های فروش»: شبکهٔ متقارن grid-v1 + ویزارد تنظیمات. flag.sales_kpi_v1 off → «فعال نیست». */
+import { useEffect, useMemo, useState } from "react";
 import { faDigits } from "@/lib/credit-grade";
 import { PersianDatePicker } from "@/components/PersianDatePicker";
 import { formatJalaliValue, jalaliValueToGregorian, tehranPersianParts } from "@/lib/jalali";
@@ -14,8 +14,9 @@ const TABS = [
   { id: "discipline", label: "پیگیری و نظم" },
   { id: "growth", label: "رشد فردی" },
   { id: "team", label: "عملکرد تیم" },
-  { id: "settings", label: "تنظیمات" },
 ] as const;
+
+type TabId = (typeof TABS)[number]["id"];
 
 const FA = "۰۱۲۳۴۵۶۷۸۹";
 const ui = (v: string | number) => faDigits(String(v));
@@ -38,6 +39,12 @@ function recentJalaliMonths(count = 6): { anchor: string; label: string }[] {
     out.push({ anchor: g, label: `${MONTH_NAMES[m - 1] ?? ""} ${toFa(String(y))}`.trim() });
   }
   return out;
+}
+
+function compactFaRange(s: string): string {
+  const m = String(s).trim().match(/^(\S+)\s+(\S+)\s+تا\s+(\S+)\s+(\S+)\s+(\S+)$/);
+  if (m && m[2] === m[4]) return `${m[1]} تا ${m[3]} ${m[4]} ${m[5]}`;
+  return s;
 }
 
 function groupExperts(experts: SalesKpiReport["experts"], teams: { teamId: number; name: string }[]) {
@@ -66,6 +73,33 @@ function groupExperts(experts: SalesKpiReport["experts"], teams: { teamId: numbe
   return groups;
 }
 
+function splitValue(kpi: KpiCell): { num: string; unit: string; muted: boolean } {
+  if (kpi.status !== "ok" || kpi.value == null) return { num: "—", unit: "", muted: true };
+  const d = kpi.display;
+  if (kpi.unit === "count" && d.endsWith(" فروش")) return { num: d.slice(0, -" فروش".length).trim(), unit: "فروش", muted: false };
+  if (kpi.unit === "amount" && d.endsWith(" تومان")) return { num: d.slice(0, -" تومان".length).trim(), unit: "تومان", muted: false };
+  if (kpi.unit === "percent" && d.endsWith("٪")) return { num: d.slice(0, -1), unit: "٪", muted: false };
+  if (kpi.unit === "pp" && d.endsWith(" واحد درصد")) return { num: d.slice(0, -" واحد درصد".length).trim(), unit: "واحد درصد", muted: false };
+  return { num: d, unit: "", muted: false };
+}
+
+function splitDelta(kpi: KpiCell): { value: string } | null {
+  if (kpi.status !== "ok" || !kpi.deltaDisplay) return null;
+  const p = "نسبت به دورهٔ قبل: ";
+  const value = kpi.deltaDisplay.startsWith(p) ? kpi.deltaDisplay.slice(p.length) : kpi.deltaDisplay;
+  return { value };
+}
+
+function statusKind(kpi: KpiCell): "source" | "setting" | "nobase" | "empty" | "partial" | "lower" | null {
+  if (kpi.status === "missing" && kpi.missingKind === "source") return "source";
+  if (kpi.status === "missing") return "setting";
+  if (kpi.status === "no_baseline") return "nobase";
+  if (kpi.status === "empty_denom") return "empty";
+  if (kpi.incomplete) return "partial";
+  if (kpi.direction === "lower_better" && kpi.status === "ok") return "lower";
+  return null;
+}
+
 function FaNumberInput({ value, onChange, placeholder, testId, label }: { value: string; onChange: (en: string) => void; placeholder?: string; testId?: string; label: string }) {
   return (
     <label>{label}
@@ -80,30 +114,45 @@ function FaNumberInput({ value, onChange, placeholder, testId, label }: { value:
   );
 }
 
-function Card({ kpi, canEdit, onOpenSettings }: { kpi: KpiCell; canEdit: boolean; onOpenSettings?: () => void }) {
-  const cls = [
-    kpi.status === "missing" ? "missing" : kpi.status === "empty_denom" ? "empty" : kpi.status === "no_baseline" ? "baseline" : "ok",
-    kpi.direction === "lower_better" ? "lower" : "",
-  ].filter(Boolean).join(" ");
+function Card({ kpi, canEdit, onOpenSettings, onOpenFormula }: {
+  kpi: KpiCell; canEdit: boolean; onOpenSettings?: () => void; onOpenFormula: (kpi: KpiCell) => void;
+}) {
+  const { num, unit, muted } = splitValue(kpi);
+  const delta = splitDelta(kpi);
+  const kind = statusKind(kpi);
   return (
-    <article className={`skpi-card ${cls}`} data-testid={`skpi-card-${kpi.key}`} data-status={kpi.status} data-direction={kpi.direction ?? ""}>
-      <h3>{kpi.label}</h3>
-      <div className="skpi-val">{ui(kpi.display)}</div>
-      {kpi.fractionLabel && kpi.status === "ok" && <p className="skpi-frac">{ui(kpi.fractionLabel)}</p>}
-      {kpi.deltaDisplay && kpi.status === "ok" && (
-        <p className={`skpi-delta${kpi.deltaDisplay.includes("−") ? " is-down" : kpi.deltaDisplay.includes("+") ? " is-up" : ""}`}>{ui(kpi.deltaDisplay)}</p>
-      )}
-      {kpi.direction === "lower_better" && kpi.status === "ok" && <p className="skpi-dir">کمتر بهتر است</p>}
-      {kpi.incomplete && <p className="skpi-frac">داده‌ی ناقص</p>}
-      {kpi.status === "missing" && kpi.missingKind === "setting" && canEdit && onOpenSettings && (
-        <button type="button" className="skpi-link" data-testid="skpi-define-settings" onClick={onOpenSettings}>تعریف در تنظیمات</button>
-      )}
-      <details className="skpi-tip">
-        <summary data-testid="skpi-formula">فرمول</summary>
-        <p>{kpi.formula}</p>
-        {kpi.assumption && <p>{kpi.assumption}</p>}
-        {kpi.missingReason && <p>{kpi.missingReason}</p>}
-      </details>
+    <article className="kc" data-testid={`skpi-card-${kpi.key}`} data-status={kpi.status} data-direction={kpi.direction ?? ""}>
+      <header className="s-a">
+        <h3>{kpi.label}</h3>
+        <button type="button" className="fbtn" data-testid="skpi-formula" onClick={() => onOpenFormula(kpi)}>فرمول</button>
+      </header>
+      <div className="s-b">
+        <span className={`num${muted ? " mute" : ""}`}>{ui(num)}</span>
+        {unit ? <span className="unit">{unit}</span> : null}
+      </div>
+      <div className="s-c">{kpi.status === "ok" && kpi.fractionLabel ? ui(kpi.fractionLabel) : null}</div>
+      <div className="s-d">
+        {delta ? (
+          <>
+            <span className="cl">نسبت به دورهٔ قبل</span>
+            <span className="dv">{ui(delta.value)}</span>
+          </>
+        ) : null}
+      </div>
+      <div className="s-e">
+        {kind === "setting" && canEdit && onOpenSettings ? (
+          <button type="button" className="chipbtn" data-testid="skpi-define-settings" onClick={onOpenSettings}>تعریف در تنظیمات</button>
+        ) : kind === "setting" ? <span className="chip tint">نیاز به تنظیم</span>
+        : kind === "source" ? <span className="chip neutral">منبع داده ندارد</span>
+        : kind === "nobase" ? <span className="chip neutral">مبنا تعریف نشده</span>
+        : kind === "empty" ? <span className="chip neutral">بدون مورد در این دوره</span>
+        : kind === "partial" ? <span className="chip amber">داده‌ی ناقص</span>
+        : kind === "lower" ? <span className="chip neutral">کمتر بهتر است</span>
+        : null}
+      </div>
+      <footer className="s-f">
+        <button type="button" className="fbtn" data-testid="skpi-formula" onClick={() => onOpenFormula(kpi)}>فرمول</button>
+      </footer>
     </article>
   );
 }
@@ -115,12 +164,12 @@ export default function SalesKpiPage() {
     return () => { document.documentElement.classList.remove("skpi-page"); };
   }, []);
   if (!me) {
-    return <div className="skpi skpi-load" dir="rtl" data-testid="page-sales-kpi-loading"><p>در حال بارگذاری…</p></div>;
+    return <div className="skpi skpi-off" dir="rtl" data-testid="page-sales-kpi-loading"><p>در حال بارگذاری…</p></div>;
   }
   if (!me.enabled) {
     return (
       <div className="skpi skpi-off" dir="rtl" data-testid="skpi-flag-off">
-        <div className="skpi-card"><h1>شاخص‌های فروش فعال نیست</h1><p>این گزارش هنوز فعال نیست.</p></div>
+        <div className="kc" style={{ height: "auto", minHeight: 112 }}><h3>شاخص‌های فروش فعال نیست</h3><p className="s-c" style={{ height: "auto" }}>این گزارش هنوز فعال نیست.</p></div>
       </div>
     );
   }
@@ -140,7 +189,8 @@ function Board({ canEdit, access, selfId }: { canEdit: boolean; access: string |
   const qs = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
   const monthOptions = useMemo(() => recentJalaliMonths(6), []);
   const initialPeriod = qs.get("period") === "custom" ? "custom" : (qs.get("anchor") || (qs.get("period") === "month" || !qs.get("period") ? "month" : qs.get("period") || "month"));
-  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("sales");
+  const [tab, setTab] = useState<TabId>("sales");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [period, setPeriod] = useState(initialPeriod);
   const [fromJ, setFromJ] = useState(qs.get("from") || "");
   const [toJ, setToJ] = useState(qs.get("to") || "");
@@ -149,7 +199,7 @@ function Board({ canEdit, access, selfId }: { canEdit: boolean; access: string |
   const [report, setReport] = useState<SalesKpiReport | null>(null);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
-  const tabsRef = useRef<HTMLUListElement>(null);
+  const [formula, setFormula] = useState<KpiCell | null>(null);
 
   const load = async (over?: { teamId?: number | "" }) => {
     setLoading(true); setErr("");
@@ -173,139 +223,205 @@ function Board({ canEdit, access, selfId }: { canEdit: boolean; access: string |
 
   useEffect(() => { void load(); }, []);
 
+  useEffect(() => {
+    if (!isManager || !report) return;
+    const ids = new Set(report.experts.map((e) => e.salespersonId));
+    if (expertId !== "" && ids.has(Number(expertId))) return;
+    if (report.experts[0]) setExpertId(report.experts[0].salespersonId);
+  }, [report, isManager]);
+
   const expert = useMemo(() => {
     if (!report) return null;
     if (expertId !== "") return report.experts.find((e) => e.salespersonId === expertId) ?? report.experts[0] ?? null;
     return report.experts[0] ?? null;
   }, [report, expertId]);
   const groupKpis = useMemo(() => (expert?.kpis ?? []).filter((k) => k.group === tab), [expert, tab]);
+  const groups = useMemo(() => report ? groupExperts(report.experts, report.filters.teams) : [], [report]);
 
-  const goTab = (id: (typeof TABS)[number]["id"]) => {
-    setTab(id);
-    requestAnimationFrame(() => {
-      const el = tabsRef.current?.querySelector<HTMLElement>(`[data-testid=skpi-tab-${id}]`);
-      el?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
-    });
-  };
+  const goTab = (id: TabId) => { setSettingsOpen(false); setTab(id); };
+  const openSettings = () => { setSettingsOpen(true); };
 
-  const showFilters = tab !== "settings";
-  const showExpertFilter = isManager && tab !== "settings" && tab !== "team";
-  const showRank = tab !== "settings" && tab !== "team";
+  const showFilters = !settingsOpen;
+  const showExpertFilter = isManager && !settingsOpen && tab !== "team";
   const showButtonLabel = loading && !report ? "در حال محاسبه…" : "نمایش";
+  const periodText = report ? `دوره: ${ui(compactFaRange(report.label))}، ${ui(report.workingDays)} روز کاری` : "";
+  const compareText = report ? `مقایسه با ${ui(compactFaRange(report.previousLabel))}` : "";
+
+  const maxRows = Math.max(0, ...groups.map((g) => g.members.length));
 
   return (
     <div className="skpi" dir="rtl" lang="fa" data-testid="page-sales-kpi">
-      <header className="skpi-h">
-        <h1>شاخص‌های فروش</h1>
-        <p className="skpi-lead">
-          {isManager ? "عملکرد تیم و کارشناسان در یک دوره." : "عملکرد شما و جمع تیم."}
-        </p>
+      <header className="ph">
+        <div>
+          <h1>شاخص‌های فروش</h1>
+          <p>{isManager ? "عملکرد تیم و کارشناسان در یک دوره." : "عملکرد شما و جمع تیم."}</p>
+        </div>
+        {canEdit && (
+          <button type="button" className={`setbtn${settingsOpen ? " on" : ""}`} data-testid="skpi-settings-btn" onClick={openSettings}>تنظیمات</button>
+        )}
       </header>
+
       {showFilters && (
-        <div className="skpi-period">
-          <label>بازه
-            <select value={period} onChange={(e) => setPeriod(e.target.value)} data-testid="skpi-period">
+        <div className="filters">
+          <div className="fc">
+            <label>بازه</label>
+            <select className="fld sel" value={period} onChange={(e) => setPeriod(e.target.value)} data-testid="skpi-period">
               <option value="month">ماه جاری شمسی</option>
               {monthOptions.map((m) => <option key={m.anchor} value={m.anchor}>{m.label}</option>)}
               <option value="custom">بازه دلخواه</option>
             </select>
-          </label>
+          </div>
           {period === "custom" && (
             <>
-              <label className="skpi-date">از
-                <PersianDatePicker value={fromJ} onChange={setFromJ} displayDigits testId="skpi-from" />
-              </label>
-              <label className="skpi-date">تا
-                <PersianDatePicker value={toJ} onChange={setToJ} displayDigits testId="skpi-to" />
-              </label>
+              <div className="fc">
+                <label>از</label>
+                <div className="skpi-date">
+                  <PersianDatePicker value={fromJ} onChange={setFromJ} displayDigits testId="skpi-from" />
+                </div>
+              </div>
+              <div className="fc">
+                <label>تا</label>
+                <div className="skpi-date">
+                  <PersianDatePicker value={toJ} onChange={setToJ} displayDigits testId="skpi-to" />
+                </div>
+              </div>
             </>
           )}
           {isManager && (
-            <label>تیم
-              <select value={teamId} onChange={(e) => setTeamId(e.target.value ? Number(e.target.value) : "")} data-testid="skpi-team">
-                <option value="">همه تیم‌ها</option>
+            <div className="fc">
+              <label>تیم</label>
+              <select className="fld sel" value={teamId} onChange={(e) => setTeamId(e.target.value ? Number(e.target.value) : "")} data-testid="skpi-team">
+                <option value="">همهٔ تیم‌ها</option>
                 {(report?.filters.teams ?? []).map((t) => <option key={t.teamId} value={t.teamId}>{t.name}</option>)}
               </select>
-            </label>
+            </div>
           )}
           {showExpertFilter && (
-            <label>کارشناس
-              <select value={expertId} onChange={(e) => setExpertId(e.target.value ? Number(e.target.value) : "")} data-testid="skpi-expert">
+            <div className="fc">
+              <label>کارشناس</label>
+              <select className="fld sel" value={expertId} onChange={(e) => setExpertId(e.target.value ? Number(e.target.value) : "")} data-testid="skpi-expert">
                 <option value="">انتخاب کارشناس</option>
                 {(report?.filters.experts ?? []).map((x) => <option key={x.salespersonId} value={x.salespersonId}>{x.name}</option>)}
               </select>
-            </label>
+            </div>
           )}
-          <button type="button" data-testid="skpi-show" data-loading={loading ? "1" : "0"} onClick={() => void load()} disabled={loading}>{showButtonLabel}</button>
+          <div className="fc fc-show">
+            <label className="ghost">&nbsp;</label>
+            <button type="button" className="show" data-testid="skpi-show" data-loading={loading ? "1" : "0"} onClick={() => void load()} disabled={loading}>{showButtonLabel}</button>
+          </div>
         </div>
       )}
+
       {err && <p className="skpi-err">{err}</p>}
       {showFilters && report && (
-        <p className="skpi-lead" style={{ marginBottom: 12 }}>
-          دوره: {ui(report.label)}، مقایسه با {ui(report.previousLabel)}، {ui(report.workingDays)} روز کاری
-        </p>
+        <p className="period"><span>{periodText}</span><span>{compareText}</span></p>
       )}
-      <ul className="skpi-tabs" ref={tabsRef} data-testid="skpi-tabs">
-        {TABS.map((t) => {
-          if (t.id === "settings" && !canEdit) return null;
-          return (
-            <li key={t.id}>
-              <button type="button" className={tab === t.id ? "on" : ""} onClick={() => goTab(t.id)} data-testid={`skpi-tab-${t.id}`}>{t.label}</button>
-            </li>
-          );
-        })}
-      </ul>
-      {showRank && expert && (
-        <div className="skpi-rank">
-          {expert.name && <span className="skpi-chip">{expert.name}</span>}
-          {expert.teamName && <span className="skpi-chip">{expert.teamName}</span>}
-          <span className="skpi-chip">{expert.rankInTeam != null ? `رتبه در تیم: ${ui(expert.rankInTeam)}` : "بدون رتبه"}</span>
-          {isManager && <span className="skpi-chip">{expert.rankOverall != null ? `رتبه کلی: ${ui(expert.rankOverall)}` : "بدون رتبه"}</span>}
-        </div>
+
+      <nav className="tabs" data-testid="skpi-tabs">
+        {TABS.map((t) => (
+          <button type="button" key={t.id} className={`tab${!settingsOpen && tab === t.id ? " on" : ""}`} onClick={() => goTab(t.id)} data-testid={`skpi-tab-${t.id}`}>{t.label}</button>
+        ))}
+      </nav>
+
+      {settingsOpen && canEdit && report && (
+        <section className="sec">
+          <SettingsForm
+            periodKey={report.periodKey}
+            periodTitle={report.periodTitle || ""}
+            teams={report.filters.teams}
+            experts={report.filters.experts}
+            onSaved={() => void load()}
+          />
+        </section>
       )}
-      {tab === "sales" && isManager && report && report.experts.length > 0 && (
-        <div className="skpi-experts" data-testid="skpi-expert-list">
-          {groupExperts(report.experts, report.filters.teams).map((g) => (
-            <section key={g.teamId} className="skpi-expert-group">
-              <h2 className="skpi-expert-team">{g.name}</h2>
-              {g.members.map((e) => {
-                const sales = e.kpis.find((k) => k.key === "successful_sales");
-                const rank = e.rankInTeam != null ? `، رتبه ${ui(e.rankInTeam)}` : "، بدون رتبه";
-                return (
-                  <button key={e.salespersonId} type="button" className={expertId === e.salespersonId ? "on" : ""} onClick={() => setExpertId(e.salespersonId)}>
-                    <span>{e.name}</span>
-                    <span>{sales ? ui(sales.display) : "—"}{rank}</span>
-                  </button>
-                );
-              })}
-            </section>
-          ))}
-        </div>
+
+      {!settingsOpen && tab === "sales" && isManager && report && groups.length > 0 && (
+        <section className="sec">
+          <div className="sh"><h2>کارشناسان</h2><div className="shm" /></div>
+          <div className="tables" data-testid="skpi-expert-list">
+            {groups.map((g) => {
+              const pad = Math.max(0, maxRows - g.members.length);
+              return (
+                <div key={g.teamId} className="tt">
+                  <div className="tth"><b>{g.name}</b><span>{ui(g.members.length)} کارشناس</span></div>
+                  <div className="thead"><span className="c-rank">رتبه در تیم</span><span className="c-name">کارشناس</span><span className="c-val">فروش موفق</span></div>
+                  {g.members.map((e) => {
+                    const sales = e.kpis.find((k) => k.key === "successful_sales");
+                    const salesNum = sales && sales.status === "ok" && sales.value != null ? splitValue(sales).num : "۰";
+                    return (
+                      <button key={e.salespersonId} type="button" className={`tr${expertId === e.salespersonId ? " sel" : ""}`} onClick={() => setExpertId(e.salespersonId)}>
+                        <span className="c-rank">{e.rankInTeam != null ? `رتبه ${ui(e.rankInTeam)}` : "بدون رتبه"}</span>
+                        <span className="c-name">{e.name}</span>
+                        <span className="c-val">{ui(salesNum)} <small>فروش</small></span>
+                      </button>
+                    );
+                  })}
+                  {Array.from({ length: pad }, (_, i) => <div key={`pad-${i}`} className="tr pad" aria-hidden="true" />)}
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
-      {tab === "settings" && canEdit && report && (
-        <SettingsForm
-          periodKey={report.periodKey}
-          periodTitle={report.periodTitle || ""}
-          teams={report.filters.teams}
-          experts={report.filters.experts}
-          onSaved={() => void load()}
-        />
+
+      {!settingsOpen && tab !== "team" && (
+        <section className="sec">
+          {expert && (
+            <div className="sh">
+              <h2>{isManager ? `شاخص‌های ${expert.name || "کارشناس"}` : "شاخص‌های شما"}</h2>
+              <div className="shm">
+                {isManager ? null : (expert.name && <span className="pill">{expert.name}</span>)}
+                {expert.teamName && <span className="pill">{expert.teamName}</span>}
+                <span className="pill">{`رتبه در تیم: ${expert.rankInTeam != null ? ui(expert.rankInTeam) : "بدون رتبه"}`}</span>
+                {isManager && <span className="pill">{`رتبه‌ی کلی: ${expert.rankOverall != null ? ui(expert.rankOverall) : "بدون رتبه"}`}</span>}
+              </div>
+            </div>
+          )}
+          <div className="cards" data-testid={`skpi-grid-${tab}`}>
+            {groupKpis.map((k) => <Card key={k.key} kpi={k} canEdit={canEdit} onOpenSettings={openSettings} onOpenFormula={setFormula} />)}
+            {!expert && <p>برای دیدن شاخص‌های فردی، یک کارشناس را انتخاب کنید.</p>}
+          </div>
+        </section>
       )}
-      {tab === "team" && (
+
+      {!settingsOpen && tab === "team" && (
         <div className="skpi-teams" data-testid="skpi-grid-team">
-          {report?.teams.map((tm) => (
-            <section key={tm.teamId} className="skpi-team-block">
-              <h2 className="skpi-team-title">{tm.name}، {ui(tm.memberCount)} کارشناس فعال</h2>
-              <div className="skpi-grid">{tm.kpis.filter((k) => k.group === "team" || k.group === "sales").map((k) => <Card key={k.key} kpi={k} canEdit={canEdit} onOpenSettings={() => goTab("settings")} />)}</div>
-            </section>
-          ))}
+          {report?.teams.map((tm, i) => {
+            const sales = tm.kpis.filter((k) => k.group === "sales");
+            const rest = tm.kpis.filter((k) => k.group === "team");
+            const self = report.experts.find((e) => e.salespersonId === selfId && e.teamId === tm.teamId);
+            return (
+              <section key={tm.teamId} className={`block${i === 0 ? " first" : ""}`}>
+                <div className="bh">
+                  <h2 className="bh-title">{tm.name}</h2>
+                  <div className="shm">
+                    <span className="pill">{ui(tm.memberCount)} کارشناس فعال</span>
+                    {!isManager && self && (
+                      <span className="pill">{`رتبهٔ شما در تیم: ${self.rankInTeam != null ? ui(self.rankInTeam) : "بدون رتبه"}`}</span>
+                    )}
+                  </div>
+                </div>
+                <h3 className="sub">فروش تیم</h3>
+                <div className="cards">{sales.map((k) => <Card key={k.key} kpi={k} canEdit={canEdit} onOpenSettings={openSettings} onOpenFormula={setFormula} />)}</div>
+                <h3 className="sub">نظم و رشد تیم</h3>
+                <div className="cards">{rest.map((k) => <Card key={k.key} kpi={k} canEdit={canEdit} onOpenSettings={openSettings} onOpenFormula={setFormula} />)}</div>
+              </section>
+            );
+          })}
           {report && report.teams.length === 0 && <p>تیمی برای نمایش نیست.</p>}
         </div>
       )}
-      {tab !== "team" && tab !== "settings" && (
-        <div className="skpi-grid" data-testid={`skpi-grid-${tab}`}>
-          {groupKpis.map((k) => <Card key={k.key} kpi={k} canEdit={canEdit} onOpenSettings={() => goTab("settings")} />)}
-          {!expert && <p>برای دیدن شاخص‌های فردی، یک کارشناس را انتخاب کنید.</p>}
+
+      {formula && (
+        <div className="fsheet" data-testid="skpi-formula-sheet" role="presentation">
+          <div className="fback" onClick={() => setFormula(null)} />
+          <div className="fbox" role="dialog" aria-modal="true" aria-labelledby="skpi-formula-title">
+            <h3 id="skpi-formula-title">{formula.label}</h3>
+            <p>{formula.formula}</p>
+            {formula.assumption && <p>{formula.assumption}</p>}
+            {formula.missingReason && <p>{formula.missingReason}</p>}
+            <button type="button" className="fclose" data-testid="skpi-formula-close" onClick={() => setFormula(null)}>بستن</button>
+          </div>
         </div>
       )}
     </div>
@@ -395,7 +511,7 @@ function SettingsForm({ periodKey, periodTitle, teams, experts, onSaved }: {
     : experts.map((x) => ({ id: x.salespersonId, name: x.name || `کارشناس ${x.salespersonId}` }));
 
   return (
-    <div className="skpi-settings skpi-card" data-testid="skpi-settings" data-step={step}>
+    <div className="skpi-settings" data-testid="skpi-settings" data-step={step}>
       <div className="skpi-progress" data-testid="skpi-settings-progress" role="progressbar" aria-valuemin={1} aria-valuemax={3} aria-valuenow={step} aria-label={`گام ${ui(step)} از ۳`}>
         <div className="skpi-progress-head"><strong>{step === 1 ? "روزها" : step === 2 ? "مهلت‌ها" : `هدف فروش${periodTitle ? `، دورهٔ ${periodTitle}` : ""}`}</strong><span>گام {ui(step)} از ۳</span></div>
         <div className="skpi-progress-bar">{[1, 2, 3].map((i) => <span key={i} className={i <= step ? "is-on" : ""} />)}</div>
