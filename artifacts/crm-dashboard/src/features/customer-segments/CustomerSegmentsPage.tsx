@@ -1,10 +1,12 @@
 /** t878 «گزارش مشتریان»: 4-step Persian wizard. flag.customer_segments_v1 off → «فعال نیست». */
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'wouter';
+import { Check, Lock } from 'lucide-react';
 import { faDigits } from '@/lib/credit-grade';
+import { gregorianToJalaliValue, jalaliValueToGregorian } from '@/lib/jalali';
 import {
   downloadExport, fetchMeta, fetchPreview, useSegmentsMe,
-  type Condition, type FieldCat, type Meta, type Preview, type SegmentQuery,
+  type Condition, type FieldCat, type Meta, type Preview, type PublicRow, type SegmentQuery,
 } from './api';
 import './customer-segments.css';
 
@@ -20,16 +22,25 @@ const OP_LABEL: Record<string, string> = {
   date_range: 'بازه تاریخ', exists: 'پر شده', not_exists: 'خالی است',
 };
 
+const FILE_SOURCES = new Set(['dossier', 'customer']);
+const CARD_PRIMARY = ['phone', 'job', 'canReferRetiree', 'bounced', 'bouncedAny', 'city', 'status'];
+
 const defaultOps = (f: FieldCat) => (f.ops.includes('in') ? 'in' : f.ops[0]);
+const isPii = (f: FieldCat) => f.sensitive === 'phone' || f.sensitive === 'national';
+const uiText = (v: string) => faDigits(v);
 
 export default function CustomerSegmentsPage() {
   const me = useSegmentsMe(true).data;
+  useEffect(() => {
+    document.documentElement.classList.add('cses-page');
+    return () => { document.documentElement.classList.remove('cses-page'); };
+  }, []);
   if (!me) {
     return <div className="cses" dir="rtl" data-testid="page-customer-segments-loading"><p>در حال بارگذاری…</p></div>;
   }
   if (me && !me.enabled) {
     return (
-      <div className="cses cses-off" dir="rtl">
+      <div className="cses cses-off" dir="rtl" data-testid="cses-flag-off">
         <h1>گزارش مشتریان فعال نیست</h1>
         <p>این بخش پشت سوییچ خاموش است و هنوز منتشر نشده.</p>
       </div>
@@ -37,7 +48,7 @@ export default function CustomerSegmentsPage() {
   }
   if (me && !me.canView) {
     return (
-      <div className="cses cses-off" dir="rtl">
+      <div className="cses cses-off" dir="rtl" data-testid="cses-no-access">
         <h1>دسترسی ندارید</h1>
         <p>این گزارش فقط برای مدیر، مدیر فروش و کارشناس است.</p>
       </div>
@@ -54,6 +65,7 @@ function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
   const [source, setSource] = useState<SegmentQuery['source']>('both');
   const [includeUnlinked, setIncludeUnlinked] = useState(true);
   const [columns, setColumns] = useState<string[]>([]);
+  const [openGroups, setOpenGroups] = useState<string[]>(['profile', 'job']);
   const [conditions, setConditions] = useState<Condition[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [loading, setLoading] = useState(false);
@@ -66,7 +78,7 @@ function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
     fetchMeta().then((m) => {
       if (cancel) return;
       setMeta(m);
-      setColumns(m.fields.filter((f) => f.defaultColumn && f.sensitive !== 'national').map((f) => f.key));
+      setColumns(m.fields.filter((f) => f.defaultColumn && !isPii(f)).map((f) => f.key));
     }).catch((e) => { if (!cancel) setErr(e instanceof Error ? e.message : 'خطا'); });
     return () => { cancel = true; };
   }, [ready]);
@@ -75,7 +87,7 @@ function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
   const byKey = useMemo(() => new Map(fields.map((f) => [f.key, f])), [fields]);
   const query = useMemo<SegmentQuery>(() => ({
     source, includeUnlinkedLeads: scope === 'all' && includeUnlinked, conditions: conditions.filter((c) => byKey.has(c.field)), columns,
-  }), [source, includeUnlinked, conditions, columns, byKey]);
+  }), [source, includeUnlinked, conditions, columns, byKey, scope]);
 
   const go = (n: number) => { setStep(n); setMaxStep((m) => Math.max(m, n)); setErr(''); };
 
@@ -98,21 +110,28 @@ function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
     finally { setLoading(false); }
   };
 
+  const exportColCount = columns.filter((k) => k !== 'phone' && k !== 'nationalCode').length + (includePhones ? 2 : 0);
+
   return (
     <div className="cses" dir="rtl" data-testid="page-customer-segments">
       <header className="cses-h">
-        <h1>گزارش مشتریان</h1>
-        <p>مشتری‌ها را بر اساس دادهٔ پرونده و فرم‌های سایت جدا کنید و خروجی اکسل بگیرید. فیلترها با «و» ترکیب می‌شوند.{scope === 'own' ? ' شما فقط مشتری‌هایی را می‌بینید که الان مالک‌شان هستید.' : ''}</p>
+        <p className="cses-lead">مشتری‌ها را بر اساس دادهٔ پرونده و فرم‌های سایت جدا کنید و خروجی اکسل بگیرید. فیلترها با «و» ترکیب می‌شوند.{scope === 'own' ? ' شما فقط مشتری‌هایی را می‌بینید که الان مالک‌شان هستید.' : ''}</p>
       </header>
       <ol className="cses-steps">
-        {STEPS.map((s) => (
-          <li key={s.id}>
-            <button type="button" className={step === s.id ? 'on' : s.id < maxStep ? 'done' : ''} onClick={() => s.id <= maxStep && go(s.id)} disabled={s.id > maxStep}>
-              <span className="n">مرحله {faDigits(s.id)} از {faDigits(4)}</span>
-              <span className="t">{s.title}</span>
-            </button>
-          </li>
-        ))}
+        {STEPS.map((s) => {
+          const cls = step === s.id ? 'on' : s.id < maxStep ? 'done' : 'todo';
+          return (
+            <li key={s.id}>
+              <button type="button" className={cls} onClick={() => s.id <= maxStep && go(s.id)} disabled={s.id > maxStep}>
+                <span className="n">
+                  {s.id < maxStep ? <Check className="tick" aria-hidden="true" /> : null}
+                  مرحله {faDigits(s.id)} از {faDigits(4)}
+                </span>
+                <span className="t">{s.title}</span>
+              </button>
+            </li>
+          );
+        })}
       </ol>
       {err ? <div className="cses-err" role="alert">{err}</div> : null}
       {step === 1 && meta ? (
@@ -131,19 +150,38 @@ function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
           </div>
           <div className="cses-sec">
             <h2>کدام ستون‌ها در جدول و اکسل باشد؟</h2>
-            <p className="cses-hint">چند فیلد در هر گروه. شماره تماس در پیش‌نمایش همیشه پوشیده است؛ در خروجی اکسل اختیاری است.</p>
+            <p className="cses-hint">چند فیلد در هر گروه. شماره تماس در پیش‌نمایش همیشه پوشیده است؛ بودن شماره و کد ملی در اکسل در مرحلهٔ ۴ تعیین می‌شود.</p>
             <div className="cses-cols">
-              {meta.groups.map((g) => (
-                <div className="cses-g" key={g.id}>
-                  <h3>{g.label}</h3>
-                  {fields.filter((f) => f.group === g.id).map((f) => (
-                    <label key={f.key}>
-                      <input type="checkbox" checked={columns.includes(f.key)} onChange={(e) => setColumns((c) => e.target.checked ? [...c, f.key] : c.filter((x) => x !== f.key))} />
-                      {f.label}
-                    </label>
-                  ))}
-                </div>
-              ))}
+              {meta.groups.map((g) => {
+                const groupFields = fields.filter((f) => f.group === g.id);
+                const choosable = groupFields.filter((f) => !isPii(f));
+                const selected = choosable.filter((f) => columns.includes(f.key)).length;
+                const open = openGroups.includes(g.id);
+                return (
+                  <div className="cses-g" key={g.id}>
+                    <button type="button" className="cses-g-toggle" aria-expanded={open} onClick={() => setOpenGroups((cur) => cur.includes(g.id) ? cur.filter((x) => x !== g.id) : [...cur, g.id])}>
+                      <h3>{g.label}</h3>
+                      <span className="cses-g-count">{faDigits(selected)} از {faDigits(choosable.length)}</span>
+                    </button>
+                    {open ? (
+                      <div className="cses-g-body">
+                        {groupFields.map((f) => isPii(f) ? (
+                          <div className="cses-locked" key={f.key}>
+                            <Lock className="lock" aria-hidden="true" />
+                            <span>{f.label}</span>
+                            <span className="why">در مرحلهٔ ۴ تعیین می‌شود</span>
+                          </div>
+                        ) : (
+                          <label key={f.key}>
+                            <input type="checkbox" checked={columns.includes(f.key)} onChange={(e) => setColumns((c) => e.target.checked ? [...c, f.key] : c.filter((x) => x !== f.key))} />
+                            {f.label}
+                          </label>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </div>
           <div className="cses-actions">
@@ -162,12 +200,23 @@ function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
         />
       ) : null}
       {step === 3 ? (
-        <section className="cses-card">
+        <section className="cses-card" data-testid="cses-step3">
           {loading && !preview ? <p className="cses-hint">در حال شمارش…</p> : null}
-          {preview ? (
+          {preview && preview.total === 0 ? (
+            <p className="cses-empty" data-testid="cses-empty">موردی با این فیلتر پیدا نشد.</p>
+          ) : null}
+          {preview && preview.total > 0 ? (
             <>
               <p className="cses-count"><span>{faDigits(preview.total)}</span> مورد پیدا شد</p>
-              <div className="cses-tablewrap">
+              <SourceLegend rows={preview.rows} />
+              <div className="cses-cards" data-testid="cses-preview-cards">
+                {preview.rows.map((row) => (
+                  <CustomerCard key={row.leadKey} row={row} columns={preview.columns} byKey={byKey} />
+                ))}
+              </div>
+              <p className="cses-table-hint">برای دیدن بقیه ستون‌ها به سمت چپ بکشید.</p>
+              <div className="cses-table-fade">
+              <div className="cses-tablewrap" data-testid="cses-preview-table">
                 <table className="cses-table">
                   <thead>
                     <tr>{preview.columns.map((k) => <th key={k}>{byKey.get(k)?.label ?? k}</th>)}</tr>
@@ -177,14 +226,17 @@ function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
                       <tr key={row.leadKey}>
                         {preview.columns.map((k) => (
                           <td key={k}>
-                            {k === 'name' && row.customerId ? <Link href={`/customers/${row.customerId}`}>{row.values[k] || '—'}</Link> : (row.values[k] || '—')}
-                            {row.sourceLabels[k] ? <span className="cses-src">{row.sourceLabels[k]}</span> : null}
+                            {k === 'name' && row.customerId ? <Link href={`/customers/${row.customerId}`}>{uiText(row.values[k] || '—')}</Link> : uiText(row.values[k] || '—')}
+                            {row.sources[k] && !FILE_SOURCES.has(row.sources[k]) ? (
+                              <i className={`cses-src-dot ${row.sources[k]}`} title={row.sourceLabels[k]} aria-label={row.sourceLabels[k]} />
+                            ) : null}
                           </td>
                         ))}
                       </tr>
                     ))}
                   </tbody>
                 </table>
+              </div>
               </div>
               <div className="cses-pager">
                 <button type="button" className="cses-btn ghost" disabled={preview.page <= 1 || loading} onClick={() => runPreview(preview.page - 1)}>صفحه قبل</button>
@@ -195,21 +247,21 @@ function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
           ) : null}
           <div className="cses-actions">
             <button type="button" className="cses-btn ghost" onClick={() => go(2)}>بازگشت</button>
-            <button type="button" className="cses-btn primary" onClick={() => go(4)} disabled={!preview}>ادامه: خروجی اکسل</button>
+            <button type="button" className="cses-btn primary" onClick={() => go(4)} disabled={!preview || preview.total === 0}>ادامه: خروجی اکسل</button>
           </div>
         </section>
       ) : null}
       {step === 4 ? (
-        <section className="cses-card">
+        <section className="cses-card" data-testid="cses-step4">
           <div className="cses-sec">
             <h2>خروجی اکسل</h2>
-            <p className="cses-hint">
-              {preview ? <>{faDigits(preview.total)} ردیف با {faDigits(columns.length)} ستون دانلود می‌شود. این کار در گزارش ممیزی ثبت می‌شود.</> : 'ابتدا پیش‌نمایش را ببینید.'}
-            </p>
+            {preview ? <p className="cses-count"><span>{faDigits(preview.total)}</span> ردیف با {faDigits(exportColCount)} ستون</p> : <p className="cses-hint">ابتدا پیش‌نمایش را ببینید.</p>}
+            <p className="cses-hint">این کار در گزارش ممیزی ثبت می‌شود.</p>
             <label className="cses-opt">
               <input type="checkbox" checked={includePhones} onChange={(e) => setIncludePhones(e.target.checked)} />
-              <span><b>شماره تماس و کد ملی در فایل باشد</b><span>پیش‌فرض خاموش است. فقط اگر این تیک را بزنید، این دو ستون در اکسل می‌آیند و در گزارش ثبت می‌شود که آمده‌اند.</span></span>
+              <span><b>شماره تماس و کد ملی هم در فایل باشد</b><span>ثبت در ممیزی</span></span>
             </label>
+            {includePhones ? <p className="cses-warn" role="status" data-testid="cses-pii-warn">در فایل، شماره تماس و کد ملی کامل نوشته می‌شود.</p> : null}
             {exported ? <p className="cses-hint">فایل دانلود شد. اگر مرورگر جلوی دانلود را گرفت، اجازه بدهید و دوباره بزنید.</p> : null}
           </div>
           <div className="cses-actions">
@@ -222,15 +274,87 @@ function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
   );
 }
 
+function SourceLegend({ rows }: { rows: PublicRow[] }) {
+  const used = new Set<string>();
+  const labels: Record<string, string> = {};
+  for (const row of rows) {
+    for (const [k, src] of Object.entries(row.sources || {})) {
+      if (!FILE_SOURCES.has(src)) { used.add(src); labels[src] = row.sourceLabels[k] || src; }
+    }
+  }
+  if (!used.size) return null;
+  return (
+    <p className="cses-legend">
+      منبع، وقتی با پرونده فرق دارد:
+      {[...used].map((s) => (
+        <span key={s}><i className={`cses-src-dot ${s}`} />{labels[s]}</span>
+      ))}
+    </p>
+  );
+}
+
+function CustomerCard({ row, columns, byKey }: { row: PublicRow; columns: string[]; byKey: Map<string, FieldCat> }) {
+  const [open, setOpen] = useState(false);
+  const name = uiText(row.values.name || '—');
+  const id = row.values.customerId ? uiText(row.values.customerId) : '';
+  const rest = columns.filter((k) => k !== 'name' && k !== 'customerId');
+  const primary = rest.filter((k) => CARD_PRIMARY.includes(k)).slice(0, 4);
+  const extra = rest.filter((k) => !primary.includes(k));
+  const shown = open ? [...primary, ...extra] : primary;
+  return (
+    <article className="cses-pcard">
+      <div className="hd">
+        {row.customerId ? <Link className="nm" href={`/customers/${row.customerId}`}>{name}</Link> : <span className="nm">{name}</span>}
+        {id ? <span className="id">شناسه {id}</span> : null}
+      </div>
+      <dl className="kv">
+        {shown.map((k) => (
+          <div key={k}>
+            <dt>{k === 'phone' ? 'تلفن پوشیده' : (byKey.get(k)?.label ?? k)}</dt>
+            <dd>
+              {uiText(row.values[k] || '—')}
+              {row.sources[k] && !FILE_SOURCES.has(row.sources[k]) ? <i className={`cses-src-dot ${row.sources[k]}`} title={row.sourceLabels[k]} /> : null}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {extra.length ? (
+        <button type="button" className="cses-more" onClick={() => setOpen((v) => !v)}>
+          {open ? 'نمایش کمتر' : 'نمایش بیشتر'}
+        </button>
+      ) : null}
+    </article>
+  );
+}
+
+function JalaliRange({ min, max, onChange }: { min?: string; max?: string; onChange: (min: string, max: string) => void }) {
+  const show = (g?: string) => {
+    const j = gregorianToJalaliValue(g || '');
+    return j ? faDigits(j) : '';
+  };
+  const [from, setFrom] = useState(show(typeof min === 'string' ? min : ''));
+  const [to, setTo] = useState(show(typeof max === 'string' ? max : ''));
+  const commit = (a: string, b: string) => {
+    setFrom(a); setTo(b);
+    onChange(jalaliValueToGregorian(a) || '', jalaliValueToGregorian(b) || '');
+  };
+  return (
+    <div className="row">
+      <input type="text" inputMode="numeric" placeholder="از ۱۴۰۱/۰۱/۰۱" aria-label="از تاریخ جلالی" value={from} onChange={(e) => commit(e.target.value, to)} />
+      <input type="text" inputMode="numeric" placeholder="تا ۱۴۰۵/۱۲/۲۹" aria-label="تا تاریخ جلالی" value={to} onChange={(e) => commit(from, e.target.value)} />
+    </div>
+  );
+}
+
 function FiltersStep({ fields, conditions, setConditions, onBack, onNext, loading }: {
   fields: FieldCat[]; conditions: Condition[]; setConditions: (c: Condition[]) => void;
   onBack: () => void; onNext: () => void; loading: boolean;
 }) {
   const [q, setQ] = useState('');
-  const found = fields.filter((f) => !q.trim() || f.label.includes(q.trim()) || f.key.includes(q.trim()));
+  const found = fields.filter((f) => !isPii(f) && (!q.trim() || f.label.includes(q.trim()) || f.key.includes(q.trim())));
   const add = (field: string) => {
     const f = fields.find((x) => x.key === field);
-    if (!f) return;
+    if (!f || isPii(f)) return;
     setConditions([...conditions, { field, op: defaultOps(f), values: [] }]);
   };
   const quick = [
@@ -240,7 +364,7 @@ function FiltersStep({ fields, conditions, setConditions, onBack, onNext, loadin
     { field: 'hasSiteApply', values: ['yes'], label: 'فرم سایت دارد' },
   ];
   return (
-    <section className="cses-card">
+    <section className="cses-card" data-testid="cses-step2">
       <div className="cses-sec">
         <h2>فیلترها</h2>
         <p className="cses-hint">همهٔ شرط‌ها با هم اعمال می‌شوند (و). داخل هر شرط، چند گزینه با «یا» هستند. اگر فیلتری نگذارید، همهٔ مشتری‌های همان منبع می‌آیند.</p>
@@ -253,7 +377,7 @@ function FiltersStep({ fields, conditions, setConditions, onBack, onNext, loadin
           {conditions.map((c, i) => {
             const f = fields.find((x) => x.key === c.field);
             return (
-              <div className="cses-f" key={`${c.field}-${i}`}>
+              <div className="cses-f" key={`${c.field}-${i}`} data-testid="cses-condition">
                 <div className="row">
                   <select value={c.field} onChange={(e) => {
                     const nf = fields.find((x) => x.key === e.target.value);
@@ -261,7 +385,7 @@ function FiltersStep({ fields, conditions, setConditions, onBack, onNext, loadin
                     next[i] = { field: e.target.value, op: nf ? defaultOps(nf) : 'in', values: [] };
                     setConditions(next);
                   }}>
-                    {fields.map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
+                    {fields.filter((x) => !isPii(x)).map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
                   </select>
                   <select value={c.op} onChange={(e) => {
                     const next = conditions.slice(); next[i] = { ...c, op: e.target.value }; setConditions(next);
@@ -277,18 +401,15 @@ function FiltersStep({ fields, conditions, setConditions, onBack, onNext, loadin
                       const on = (c.values ?? []).includes(o.value);
                       return (
                         <button type="button" key={o.value} className={`cses-chip${on ? ' on' : ''}`} onClick={() => {
-                          const cur = new Set(c.values ?? []);
-                          if (on) cur.delete(o.value); else cur.add(o.value);
-                          const next = conditions.slice(); next[i] = { ...c, values: [...cur] }; setConditions(next);
+                          const values = on ? (c.values ?? []).filter((v) => v !== o.value) : [...(c.values ?? []), o.value];
+                          const next = conditions.slice(); next[i] = { ...c, values }; setConditions(next);
                         }}>{o.label}</button>
                       );
                     })}
                   </div>
                 ) : null}
-                {c.op === 'contains' || c.op === 'eq' ? (
-                  <input type="text" value={c.values?.[0] ?? ''} onChange={(e) => {
-                    const next = conditions.slice(); next[i] = { ...c, values: [e.target.value] }; setConditions(next);
-                  }} placeholder="متن جستجو" />
+                {(c.op === 'eq' || c.op === 'contains') && !(c.op === 'in' && f?.options) ? (
+                  <input type="text" value={c.values?.[0] ?? ''} onChange={(e) => { const next = conditions.slice(); next[i] = { ...c, values: [e.target.value] }; setConditions(next); }} />
                 ) : null}
                 {c.op === 'range' ? (
                   <div className="row">
@@ -297,10 +418,11 @@ function FiltersStep({ fields, conditions, setConditions, onBack, onNext, loadin
                   </div>
                 ) : null}
                 {c.op === 'date_range' ? (
-                  <div className="row">
-                    <input type="date" value={c.min ?? ''} onChange={(e) => { const next = conditions.slice(); next[i] = { ...c, min: e.target.value }; setConditions(next); }} />
-                    <input type="date" value={c.max ?? ''} onChange={(e) => { const next = conditions.slice(); next[i] = { ...c, max: e.target.value }; setConditions(next); }} />
-                  </div>
+                  <JalaliRange
+                    min={c.min != null ? String(c.min) : ''}
+                    max={c.max != null ? String(c.max) : ''}
+                    onChange={(min, max) => { const next = conditions.slice(); next[i] = { ...c, min, max }; setConditions(next); }}
+                  />
                 ) : null}
               </div>
             );
