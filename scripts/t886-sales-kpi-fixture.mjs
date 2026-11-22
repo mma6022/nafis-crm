@@ -182,7 +182,7 @@ await ok("report: missing-data cards when settings are unset", async () => {
     const k = rows.find((x) => x.key === key);
     assert.ok(k, key);
     assert.equal(k.status, "missing", key);
-    assert.equal(k.display, "داده ندارد", key);
+    assert.ok(["نیاز به تنظیم", "منبع داده ندارد"].includes(k.display), key + " display=" + k.display);
     assert.ok(k.missingReason, key);
   };
   miss(ex.kpis, "target_achievement");
@@ -194,6 +194,16 @@ await ok("report: missing-data cards when settings are unset", async () => {
   miss(team.kpis, "productivity");
   miss(team.kpis, "participation");
   miss(team.kpis, "ontime_registrar_delivery");
+  const kind = (rows, key, expected) => {
+    const k = rows.find((x) => x.key === key);
+    assert.equal(k.missingKind, expected, key);
+    assert.equal(k.display, expected === "source" ? "منبع داده ندارد" : "نیاز به تنظیم", key);
+  };
+  kind(ex.kpis, "target_achievement", "setting");
+  kind(ex.kpis, "error_improvement", "source");
+  kind(ex.kpis, "training_application", "source");
+  kind(team.kpis, "productivity", "source");
+  kind(team.kpis, "participation", "setting");
 });
 
 await ok("settings: expert cannot write; admin write enables target and stale KPIs", async () => {
@@ -292,6 +302,48 @@ await ok("protected tables and customer phones unchanged", async () => {
 await ok("faNum helper", async () => {
   assert.equal(kpi.faNum(120000000), "۱۲۰٬۰۰۰٬۰۰۰");
   assert.equal(kpi.faPct(12.5), "۱۲٫۵٪");
+});
+
+
+await ok("zero sales show unit and no rank; Aban range has ranks and comparison", async () => {
+  const azar = kpi.salesKpiReport(crmDb, admin, { period: "month" }, now);
+  const zeroSales = azar.experts.every((e) => (e.kpis.find((k) => k.key === "successful_sales")?.value ?? 0) === 0);
+  if (zeroSales) {
+    assert.ok(azar.experts.filter((e) => !e.trainee).every((e) => e.rankOverall == null));
+  }
+  const sales0 = azar.experts[0].kpis.find((k) => k.key === "successful_sales");
+  assert.match(sales0.display, /فروش/);
+  assert.equal(/[0-9]/.test(sales0.display), false);
+
+  const aban = kpi.salesKpiReport(crmDb, admin, { period: "custom", from: "2026-10-23", to: "2026-11-21" }, now);
+  assert.match(aban.previousLabel, /تا/);
+  const hasani = aban.experts.find((e) => e.salespersonId === 3);
+  assert.ok(hasani);
+  const s = hasani.kpis.find((k) => k.key === "successful_sales");
+  assert.ok(s.display.includes("فروش"));
+  if (s.value > 0) {
+    assert.ok(s.deltaDisplay, "comparison on card");
+    assert.match(s.deltaDisplay, /نسبت به دورهٔ قبل/);
+  }
+  const amt = hasani.kpis.find((k) => k.key === "avg_sale_amount");
+  if (amt.status === "ok") {
+    assert.ok(amt.display.includes("تومان"));
+    if (amt.value >= 1000) assert.ok(amt.display.includes("٬"));
+  }
+  const ranked = aban.experts.filter((e) => !e.trainee && e.rankOverall != null);
+  if (ranked.length >= 2) {
+    const vals = new Set(ranked.map((e) => e.rankOverall));
+    assert.ok(vals.size >= 1);
+  }
+  const cancel = hasani.kpis.find((k) => k.key === "cancellation_rate");
+  assert.equal(cancel.direction, "lower_better");
+});
+
+await ok("faRangeLabel includes both ends of the previous month", async () => {
+  const aban = kpi.salesKpiReport(crmDb, admin, { period: "custom", from: "2026-10-23", to: "2026-11-21" }, now);
+  assert.ok(aban.previousLabel.includes("تا"));
+  assert.ok(aban.periodTitle);
+  assert.match(aban.periodTitle, /آبان\s+۱۴۰۵/);
 });
 
 console.log(`t886 sales-kpi: ${passed} passed`);

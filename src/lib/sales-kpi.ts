@@ -53,6 +53,11 @@ export type KpiCell = {
   assumption: string | null;
   missingReason: string | null;
   incomplete: boolean;
+  missingKind: "setting" | "source" | null;
+  direction: "higher_better" | "lower_better" | null;
+  fractionLabel: string | null;
+  previousValue: number | null;
+  deltaDisplay: string | null;
 };
 
 const DAY = 86_400_000;
@@ -109,26 +114,42 @@ export function faPct(n: number): string { return faNum(n, 1) + "٪"; }
 export function faToman(n: number): string { return faNum(Math.round(n)) + " تومان"; }
 
 
-const MISSING = "داده ندارد";
+const NEED_SETTING = "نیاز به تنظیم";
+const NO_SOURCE = "منبع داده ندارد";
 const NO_BASE = "مبنا تعریف نشده";
 const EMPTY = "بدون مورد در این دوره";
+const LOWER_KEYS = new Set(["cancellation_rate", "stale_file_rate", "team_error_rate"]);
 
-function cell(partial: Omit<KpiCell, "display" | "assumption" | "missingReason" | "incomplete" | "numerator" | "denominator"> & Partial<KpiCell>): KpiCell {
+function fractionOf(key: string, n: number, d: number): string {
+  if (key === "avg_daily_sales") return `${faNum(n)} فروش در ${faNum(d)} روز کاری`;
+  if (key === "target_achievement") return `${faNum(n)} فروش از هدف ${faNum(d)}`;
+  if (key === "avg_sales_per_person") return `${faNum(n)} فروش برای ${faNum(d)} کارشناس`;
+  return `${faNum(n)} از ${faNum(d)}`;
+}
+
+function cell(partial: Omit<KpiCell, "display" | "assumption" | "missingReason" | "incomplete" | "numerator" | "denominator" | "missingKind" | "direction" | "fractionLabel" | "previousValue" | "deltaDisplay"> & Partial<KpiCell>): KpiCell {
   const status = partial.status;
   let display = partial.display ?? "";
   if (!display) {
-    if (status === "missing") display = MISSING;
+    if (status === "missing") display = partial.missingKind === "source" ? NO_SOURCE : NEED_SETTING;
     else if (status === "no_baseline") display = NO_BASE;
     else if (status === "empty_denom") display = EMPTY;
     else if (partial.value == null) display = "—";
     else if (partial.unit === "percent") display = faPct(partial.value);
-    else if (partial.unit === "pp") display = (partial.value > 0 ? "+" : partial.value < 0 ? "" : "") + faNum(partial.value, 1) + " واحد درصد";
+    else if (partial.unit === "pp") display = (partial.value > 0 ? "+" : partial.value < 0 ? "−" : "") + faNum(Math.abs(partial.value), 1) + " واحد درصد";
     else if (partial.unit === "amount") display = faToman(partial.value);
+    else if (partial.unit === "count") display = faNum(partial.value, Number.isInteger(partial.value) ? 0 : 1) + " فروش";
     else display = faNum(partial.value, Number.isInteger(partial.value) ? 0 : 1);
+  }
+  let fractionLabel = partial.fractionLabel ?? null;
+  if (fractionLabel == null && partial.numerator != null && partial.denominator != null && status === "ok") {
+    fractionLabel = fractionOf(partial.key, partial.numerator, partial.denominator);
   }
   return {
     numerator: null, denominator: null, assumption: null, missingReason: null, incomplete: false,
-    ...partial, status, display,
+    missingKind: null, direction: LOWER_KEYS.has(partial.key) ? "lower_better" : (status === "ok" ? "higher_better" : null),
+    previousValue: null, deltaDisplay: null,
+    ...partial, status, display, fractionLabel,
   };
 }
 
@@ -138,8 +159,39 @@ function ratioCell(base: { key: string; group: KpiGroup; label: string; formula:
   return cell({ ...base, unit, status: "ok", value, numerator: n, denominator: d, assumption: base.assumption ?? null, incomplete: base.incomplete ?? false });
 }
 
-function missingCell(base: { key: string; group: KpiGroup; label: string; formula: string }, reason: string, unit: KpiUnit = "percent"): KpiCell {
-  return cell({ ...base, unit, status: "missing", value: null, missingReason: reason });
+function missingCell(base: { key: string; group: KpiGroup; label: string; formula: string }, reason: string, unit: KpiUnit = "percent", kind: "setting" | "source" = "setting"): KpiCell {
+  return cell({ ...base, unit, status: "missing", value: null, missingReason: reason, missingKind: kind });
+}
+
+function attachDeltas(current: KpiCell[], previous: KpiCell[]): KpiCell[] {
+  const map = new Map(previous.map((k) => [k.key, k]));
+  return current.map((k) => {
+    const p = map.get(k.key);
+    if (k.status !== "ok" || !p || p.status !== "ok" || k.value == null || p.value == null) return k;
+    const d = k.value - p.value;
+    const abs = Math.abs(d);
+    let body: string;
+    if (k.unit === "percent" || k.unit === "pp") body = faNum(abs, 1) + " واحد درصد";
+    else if (k.unit === "amount") body = faToman(abs);
+    else body = faNum(abs, Number.isInteger(abs) ? 0 : 1) + " فروش";
+    const deltaDisplay = d === 0 ? "نسبت به دورهٔ قبل: بدون تغییر" : `نسبت به دورهٔ قبل: ${d < 0 ? "−" : "+"}${body}`;
+    return { ...k, previousValue: p.value, deltaDisplay };
+  });
+}
+
+export function faRangeLabel(fromDay: number, toDay: number): string {
+  const fmt = (d: number, withYear = true) => new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
+    timeZone: "UTC", day: "numeric", month: "long", ...(withYear ? { year: "numeric" } : {}),
+  }).format(new Date(d * DAY));
+  if (fromDay === toDay) return fmt(fromDay);
+  return `${fmt(fromDay, false)} تا ${fmt(toDay)}`;
+}
+
+export function jalaliMonthTitle(day: number): string {
+  const d = new Date(day * DAY);
+  const month = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { timeZone: "UTC", month: "long" }).format(d);
+  const year = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { timeZone: "UTC", year: "numeric" }).format(d);
+  return `${month} ${year}`;
 }
 
 function numSetting(db: TraineeQueryDb, key: string): number | null {
@@ -881,24 +933,24 @@ function kpisFor(
   }
 
   items.push(growthCell({ key: "followup_quality_growth", group: "growth", label: "رشد کیفیت پیگیری", formula: "نرخ پیگیری به‌موقع این دوره − نرخ پیگیری به‌موقع دورهٔ قبل" }, fuPct(c), prev ? fuPct(prev) : null, settings.zeroPrevBaseline, "diff"));
-  items.push(missingCell({ key: "error_improvement", group: "growth", label: "نرخ بهبود خطاها", formula: "(تعداد خطاهای اصلاح‌شده ÷ خطاهای شناسایی‌شده و قابل اصلاح) × ۱۰۰" }, "گردش کار جداگانه‌ای برای شناسایی و اصلاح خطاهای ثبت در سی‌آر‌ام وجود ندارد. بررسی صحت اولویت‌بندی فقط درست یا نادرست بودن را نگه می‌دارد، نه اصلاح را."));
-  items.push(missingCell({ key: "training_application", group: "growth", label: "نرخ اجرای آموزش", formula: "(مهارت‌های آموزش‌دیده که در عمل با موفقیت اجرا شده‌اند ÷ مهارت‌های ارزیابی‌شده) × ۱۰۰" }, "جدول یا گردش کار آموزش و ارزیابی مهارت در سی‌آر‌ام نیست."));
+  items.push(missingCell({ key: "error_improvement", group: "growth", label: "نرخ بهبود خطاها", formula: "(تعداد خطاهای اصلاح‌شده ÷ خطاهای شناسایی‌شده و قابل اصلاح) × ۱۰۰" }, "گردش کار جداگانه‌ای برای شناسایی و اصلاح خطاهای ثبت در سی‌آر‌ام وجود ندارد. بررسی صحت اولویت‌بندی فقط درست یا نادرست بودن را نگه می‌دارد، نه اصلاح را.", "percent", "source"));
+  items.push(missingCell({ key: "training_application", group: "growth", label: "نرخ اجرای آموزش", formula: "(مهارت‌های آموزش‌دیده که در عمل با موفقیت اجرا شده‌اند ÷ مهارت‌های ارزیابی‌شده) × ۱۰۰" }, "جدول یا گردش کار آموزش و ارزیابی مهارت در سی‌آر‌ام نیست.", "percent", "source"));
   items.push(ratioCell({ key: "retention", group: "growth", label: "نرخ حفظ مشتری", formula: "(مشتریان فعال ابتدای دوره که در پایان دوره همچنان فعال‌اند ÷ مشتریان فعال ابتدای دوره) × ۱۰۰", assumption: RETAIN_ASSUMPTION }, c.retKept, c.retStart));
 
   if (scope === "team") {
     const active = extras?.activeSellers ?? 0;
     items.push(active === 0
-      ? cell({ key: "avg_sales_per_person", group: "team", label: "میانگین فروش هر نفر", formula: "مجموع فروش تیم ÷ تعداد فروشندگان فعال", unit: "count", status: "empty_denom", value: null, numerator: c.sales, denominator: 0 })
-      : cell({ key: "avg_sales_per_person", group: "team", label: "میانگین فروش هر نفر", formula: "مجموع فروش تیم ÷ تعداد فروشندگان فعال", unit: "count", status: "ok", value: c.sales / active, numerator: c.sales, denominator: active, assumption: "فروشندهٔ فعال = عضو فعلی تیم با کاربر فعال، به‌جز کارآموز." }));
-    items.push(missingCell({ key: "productivity", group: "team", label: "بهره‌وری تیم", formula: "مجموع فروش موفق ÷ مجموع ساعات کاری فروشندگان" }, "ساعات کاری دستگاه حضور و غیاب در این نسخه از برنامه (پایهٔ t878) وجود ندارد. پس از استقرار حضور و غیاب، قاعدهٔ جمع ساعت باید جداگانه تأیید شود.", "count"));
+      ? cell({ key: "avg_sales_per_person", group: "team", label: "میانگین فروش هر کارشناس", formula: "مجموع فروش تیم ÷ تعداد کارشناسان فعال", unit: "count", status: "empty_denom", value: null, numerator: c.sales, denominator: 0 })
+      : cell({ key: "avg_sales_per_person", group: "team", label: "میانگین فروش هر کارشناس", formula: "مجموع فروش تیم ÷ تعداد کارشناسان فعال", unit: "count", status: "ok", value: c.sales / active, numerator: c.sales, denominator: active, assumption: "کارشناس فعال = عضو فعلی تیم با کاربر فعال، به‌جز کارآموز." }));
+    items.push(missingCell({ key: "productivity", group: "team", label: "بهره‌وری تیم", formula: "مجموع فروش موفق ÷ مجموع ساعات کاری کارشناسان" }, "ساعات کاری دستگاه حضور و غیاب در این نسخه از برنامه (پایهٔ t878) وجود ندارد. پس از استقرار حضور و غیاب، قاعدهٔ جمع ساعت باید جداگانه تأیید شود.", "count", "source"));
     items.push(ratioCell({ key: "team_task_completion", group: "team", label: "نرخ انجام وظایف تیم", formula: "(وظایف انجام‌شده در موعد ÷ کل وظایف سررسیدشده تیم) × ۱۰۰" }, c.taskDone, c.taskDue));
     const minT = extras?.minTarget ?? null;
     const salesList = extras?.salesList ?? [];
     if (minT == null) {
-      items.push(missingCell({ key: "participation", group: "team", label: "نرخ مشارکت فروشندگان", formula: "(فروشندگان محقق‌کننده حداقل هدف تعیین‌شده ÷ کل فروشندگان فعال) × ۱۰۰" }, "حداقل هدف فروش برای مشارکت هنوز تعیین نشده."));
+      items.push(missingCell({ key: "participation", group: "team", label: "نرخ مشارکت کارشناسان", formula: "(کارشناسان محقق‌کننده حداقل هدف تعیین‌شده ÷ کل کارشناسان فعال) × ۱۰۰" }, "حداقل هدف فروش برای مشارکت هنوز تعیین نشده."));
     } else {
       const met = salesList.filter((n) => n >= minT).length;
-      items.push(ratioCell({ key: "participation", group: "team", label: "نرخ مشارکت فروشندگان", formula: "(فروشندگان محقق‌کننده حداقل هدف تعیین‌شده ÷ کل فروشندگان فعال) × ۱۰۰" }, met, active));
+      items.push(ratioCell({ key: "participation", group: "team", label: "نرخ مشارکت کارشناسان", formula: "(کارشناسان محقق‌کننده حداقل هدف تعیین‌شده ÷ کل کارشناسان فعال) × ۱۰۰" }, met, active));
     }
     items.push(ratioCell({ key: "team_error_rate", group: "team", label: "نرخ خطای تیم", formula: "(پرونده‌های دارای خطای تأییدشده ÷ کل پرونده‌های بررسی‌شده) × ۱۰۰", assumption: ACC_ASSUMPTION }, Math.max(0, c.reviewed - c.correct), c.reviewed));
     if (settings.registrarDeliverySlaHours == null) {
@@ -907,7 +959,11 @@ function kpisFor(
       items.push(ratioCell({ key: "ontime_registrar_delivery", group: "team", label: "نرخ تحویل به‌موقع پرونده به واحد ثبت", formula: "(پرونده‌های تحویل‌شده در موعد به واحد ثبت ÷ کل پرونده‌های آمادهٔ تحویل) × ۱۰۰", assumption: REG_ASSUMPTION }, c.regOnTime, c.regDue));
     }
     const curAvg = active ? c.sales / active : null;
-    items.push(growthCell({ key: "team_avg_growth", group: "team", label: "رشد میانگین عملکرد تیم", formula: "((میانگین فروش هر نفر در دورهٔ جاری ÷ میانگین دورهٔ قبل) − ۱) × ۱۰۰" }, curAvg, extras?.prevAvg ?? null, settings.zeroPrevBaseline, "ratio"));
+    items.push(growthCell({ key: "team_avg_growth", group: "team", label: "رشد میانگین عملکرد تیم", formula: "((میانگین فروش هر کارشناس در دورهٔ جاری ÷ میانگین دورهٔ قبل) − ۱) × ۱۰۰" }, curAvg, extras?.prevAvg ?? null, settings.zeroPrevBaseline, "ratio"));
+  }
+  if (prev) {
+    const prevItems = kpisFor(prev, null, settings, workingDays, targetCount, false, scope, extras);
+    return attachDeltas(items, prevItems);
   }
   return items;
 }
@@ -937,9 +993,10 @@ function targetFor(targets: TargetRow[], kind: "expert" | "team", id: number): {
   return { targetCount: row?.targetCount ?? null, minTargetCount: row?.minTargetCount ?? null };
 }
 
-function rankDesc(values: number[]): number[] {
+function rankDesc(values: number[]): Array<number | null> {
+  if (values.length === 0 || values.every((v) => v === 0)) return values.map(() => null);
   const order = values.map((v, i) => ({ v, i })).sort((a, b) => b.v - a.v);
-  const ranks = Array(values.length).fill(null) as number[];
+  const ranks = Array(values.length).fill(null) as Array<number | null>;
   let r = 1;
   for (let k = 0; k < order.length; k++) {
     if (k > 0 && order[k].v !== order[k - 1].v) r = k + 1;
@@ -976,11 +1033,21 @@ export function salesKpiReport(db: DatabaseSync, actor: AuthUser, query: KpiQuer
   ensureSalesKpiSchema(db);
   const win = performanceWindow({ period: query.period ?? "month", from: query.from, to: query.to, anchor: query.anchor }, now);
   const periodKey = query.period === "custom" ? `custom:${win.current.startDay}:${win.current.endDay}` : jalaliMonthKey(win.current.startDay);
+  const periodTitle = jalaliMonthTitle(win.current.startDay);
+  const prevLen = win.current.endDay - win.current.startDay + 1;
+  const prevStart = win.current.startDay - prevLen;
+  const prevEnd = win.current.startDay - 1;
+  const prevWindow: Window = {
+    startDay: prevStart, endDay: prevEnd,
+    fromIso: new Date(prevStart * DAY - OFFSET).toISOString(),
+    toIso: new Date((prevEnd + 1) * DAY - OFFSET).toISOString(),
+  };
+  const previousLabel = faRangeLabel(prevStart, prevEnd);
   const settings = readSettings(db, periodKey);
   const excludeTest = excludeTestOn(db);
   const nowMs = now.getTime();
   const cur = gatherWindow(db, win.current, excludeTest, settings, nowMs);
-  const prev = gatherWindow(db, win.previous, excludeTest, settings, nowMs);
+  const prev = gatherWindow(db, prevWindow, excludeTest, settings, nowMs);
   const workingDays = workingDaysIn(db, win.current.startDay, win.current.endDay);
   const callIncomplete = periodOverlapsIncomplete(win.current);
   const experts = listExperts(db).filter((e) => !EXCLUDED_USER_IDS.includes(Number(e.userId)));
@@ -1095,8 +1162,9 @@ export function salesKpiReport(db: DatabaseSync, actor: AuthUser, query: KpiQuer
   return {
     period: win.period,
     periodKey,
+    periodTitle,
     label: win.label,
-    previousLabel: win.previousLabel,
+    previousLabel,
     from: ymdOfDay(win.current.startDay),
     to: ymdOfDay(win.current.endDay),
     workingDays,
