@@ -68,8 +68,11 @@ export function canDocResend(u: AuthUser | null | undefined): boolean {
 export type CancelEmzameFn = (providerContractId: string) => Promise<void>;
 export type GenerateGoodsDocumentFn = typeof generateGoodsDocument;
 export type NotifyDocResendFn = (opts: {
-  purchaseId: number; kind: GoodsDocumentKind; actor: AuthUser; version?: number;
+  purchaseId: number; kind: GoodsDocumentKind; actor: AuthUser; version?: number; text?: string;
 }) => Promise<{ sent: boolean; reason?: string }>;
+
+/** Bale text when an unsigned signing request is cancelled on stage-back. `{name}` is the customer's first name. */
+export const BALE_STAGE_BACK_CANCEL_TEXT = "سلام {name}، درخواست امضای قبلی لغو شد. سند تازه‌ای به‌زودی برایتان ارسال می‌شود.";
 
 let cancelEmzameFn: CancelEmzameFn | null = null;
 let generateGoodsDocumentFn: GenerateGoodsDocumentFn | null = null;
@@ -128,7 +131,7 @@ function firstNameOfCustomer(customerId: number): string {
 
 /** Notify the customer on Bale that a new document was issued. No SMS, no paid messages. Off unless both flags are '1'. */
 export async function notifyDocResendViaBale(opts: {
-  purchaseId: number; kind: GoodsDocumentKind; actor: AuthUser; version?: number;
+  purchaseId: number; kind: GoodsDocumentKind; actor: AuthUser; version?: number; text?: string;
 }): Promise<{ sent: boolean; reason?: string }> {
   if (notifyDocResendFn) return notifyDocResendFn(opts);
   if (!docResendBaleNotifyOn()) return { sent: false, reason: "flag_off" };
@@ -138,7 +141,7 @@ export async function notifyDocResendViaBale(opts: {
   const target = chats[0];
   if (!srBotHasToken(target.bot_id)) return { sent: false, reason: "no_token" };
   const kindLabel = opts.kind === "invoice" ? "فاکتور" : "اقرارنامه";
-  const text = `سلام ${firstNameOfCustomer(p.customerId)}، ${kindLabel} تازه‌ای برای درخواست خرید کالا صادر شد. در صورت نیاز از مسیر امضا اقدام کنید.`;
+  const text = opts.text ?? `سلام ${firstNameOfCustomer(p.customerId)}، ${kindLabel} تازه‌ای برای درخواست خرید کالا صادر شد. در صورت نیاز از مسیر امضا اقدام کنید.`;
   const keyboard = srKeyboard(srDefaultSignUrl());
   let delivered: { ok: true; messageId: number } | { ok: false; message: string };
   try {
@@ -303,7 +306,7 @@ export async function goodsStageBack(purchaseId: number, toStage: string, actor:
     const cancelled = await cancelPreviousUnsignedGoodsRequests(purchaseId, "invoice");
     cancelledDocumentIds = cancelled.cancelled;
   }
-  return runTransaction(() => {
+  const purchase = runTransaction(() => {
     const again = getGoodsPurchase(purchaseId);
     if (again.stage !== from || (expectedStage && again.stage !== expectedStage)) fail(409, "admin_case_revision_conflict");
     if (executeChanges("UPDATE goods_purchases SET stage=? WHERE id=? AND stage=?", [toStage, purchaseId, from]) !== 1) {
@@ -313,6 +316,17 @@ export async function goodsStageBack(purchaseId: number, toStage: string, actor:
     goodsEvent(purchaseId, "admin_stage_back", actor.id, { fromStage: from, toStage, reason, actorUserId: actor.id, cancelledDocumentIds });
     return getGoodsPurchase(purchaseId);
   });
+  // Only when an unsigned request was actually cancelled. Same path and sub-flag as document resend.
+  if (cancelledDocumentIds.length) {
+    const name = firstNameOfCustomer(Number(purchase.customerId));
+    await notifyDocResendViaBale({
+      purchaseId,
+      kind: "invoice",
+      actor,
+      text: BALE_STAGE_BACK_CANCEL_TEXT.replace("{name}", name),
+    });
+  }
+  return purchase;
 }
 
 export function paymentStageBack(orderId: number, toStage: string, actor: AuthUser, reason: string, expectedStage?: string) {

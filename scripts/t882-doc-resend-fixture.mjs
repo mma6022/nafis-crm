@@ -603,6 +603,87 @@ await ok("two signed acknowledgements both stay valid after a new version is iss
   }
 });
 
+await ok("stage-back from invoice_signature notifies on Bale only when an unsigned request was actually cancelled and the sub-flag is on", async () => {
+  setFlag("1");
+  setNotifyFlag(null);
+  const { setSrDeliverFn, _resetSrForTests } = await import("../src/lib/bale-sign-reminder.ts");
+  const deliveries = [];
+  setSrDeliverFn(async (opts) => {
+    deliveries.push(opts);
+    if (/sms|پیامک/i.test(opts.text || "")) throw new Error("SMS must not be used");
+    return { ok: true, messageId: 1 };
+  });
+  resend.setCancelEmzameContractForTests(async () => {});
+  try {
+    // No unsigned request cancelled (invoice_draft → discharge_pending): no Bale.
+    const p48 = queryRow("SELECT stage FROM goods_purchases WHERE id=48");
+    assert.equal(p48.stage, "invoice_draft");
+    await resend.goodsStageBack(48, "discharge_pending", admin, "بازگشت بدون لغو درخواست امضا", "invoice_draft");
+    assert.equal(deliveries.length, 0);
+    // Restore 48 so later checks and leftover assumptions stay intact.
+    executeChanges("UPDATE goods_purchases SET stage='invoice_draft' WHERE id=?", [48]);
+
+    const target = queryRow(
+      `SELECT p.id AS purchaseId, p.customer_id AS customerId, d.id AS docId, d.provider_contract_id AS contractId
+       FROM goods_purchases p
+       JOIN goods_purchase_documents d ON d.purchase_id=p.id AND d.kind='invoice' AND d.status='sent' AND d.provider_contract_id IS NOT NULL
+       WHERE p.stage='invoice_signature' AND p.id!=29
+       ORDER BY p.id LIMIT 1`,
+    );
+    assert.ok(target, "need a remaining unsigned invoice_signature purchase");
+    assert.notEqual(target.purchaseId, 29);
+
+    // Sub-flag off: cancel happens, no Bale.
+    const off = await resend.goodsStageBack(target.purchaseId, "invoice_draft", admin, "بازگشت بدون پیام بله", "invoice_signature");
+    assert.equal(off.stage, "invoice_draft");
+    assert.equal(snapDocs(target.purchaseId).find((d) => d.id === target.docId).status, "cancelled");
+    assert.equal(deliveries.length, 0);
+
+    // Restore the unsigned request and turn the sub-flag on.
+    executeChanges("UPDATE goods_purchases SET stage='invoice_signature' WHERE id=?", [target.purchaseId]);
+    executeChanges("UPDATE goods_purchase_documents SET status='sent', provider_status='readyForSign' WHERE id=?", [target.docId]);
+    setNotifyFlag("1");
+
+    const { ensureBaleBotSchema } = await import("../src/lib/bale-bot.ts");
+    const { ensureBaleContactSchema, BC_GHASEMI_USER_ID, BC_SEND_USER_IDS } = await import("../src/lib/bale-contact.ts");
+    ensureBaleBotSchema();
+    ensureBaleContactSchema();
+    const bot = queryRow(
+      `SELECT * FROM bale_bots WHERE user_id IN (${BC_SEND_USER_IDS.map(() => "?").join(",")}) AND user_id!=? AND user_id!=29 ORDER BY id LIMIT 1`,
+      [...BC_SEND_USER_IDS, BC_GHASEMI_USER_ID],
+    );
+    assert.ok(bot, "an allowed (non-Ghasemi) Bale bot must exist in the masked copy");
+    if (!String(bot.token_ct || "").trim()) {
+      executeChanges("UPDATE bale_bots SET token_ct=? WHERE id=?", ["fixture-token-ct-not-real", bot.id]);
+    }
+    const at = new Date().toISOString();
+    execute(
+      `INSERT INTO bale_bot_chats(bot_id,chat_id,first_name,customer_id,link_method,created_at,last_at)
+       VALUES(?,?,?,?, 'contact', ?, ?)`,
+      [bot.id, `t882-chat-stageback-${Date.now()}`, "آزمایشی", target.customerId, at, at],
+    );
+    const chat = queryRow("SELECT * FROM bale_bot_chats WHERE bot_id=? AND customer_id=? ORDER BY id DESC LIMIT 1", [bot.id, target.customerId]);
+    execute(`INSERT INTO bale_bot_messages(chat_row,dir,kind,text,status,created_at) VALUES(?,'in','text','/start','sent',?)`, [chat.id, at]);
+
+    const on = await resend.goodsStageBack(target.purchaseId, "invoice_draft", admin, "بازگشت با پیام بله پس از لغو درخواست امضا", "invoice_signature");
+    assert.equal(on.stage, "invoice_draft");
+    assert.equal(snapDocs(target.purchaseId).find((d) => d.id === target.docId).status, "cancelled");
+    assert.equal(deliveries.length, 1);
+    assert.equal(deliveries[0].chatRow, chat.id);
+    const cust = queryRow("SELECT name, first_name FROM customers WHERE id=?", [target.customerId]);
+    const name = String(cust?.first_name ?? "").trim() || String(cust?.name ?? "مشتری").trim().split(/\s+/)[0] || "مشتری";
+    assert.equal(deliveries[0].text, resend.BALE_STAGE_BACK_CANCEL_TEXT.replace("{name}", name));
+    assert.match(deliveries[0].text, /درخواست امضای قبلی لغو شد/);
+    assert.match(deliveries[0].text, /سند تازه‌ای به‌زودی برایتان ارسال می‌شود/);
+    assert.doesNotMatch(deliveries[0].text, /پیامک|sms/i);
+  } finally {
+    setNotifyFlag(null);
+    resend.resetDocResendHooksForTests();
+    resend.setCancelEmzameContractForTests(async () => {});
+    _resetSrForTests();
+  }
+});
+
 await ok("no goods_purchase_documents rows were deleted in this fixture copy", async () => {
   // Compared with the source masked file, the copy may have added generating/failed rows, never fewer signed/sent.
   const srcDbPath = src;
