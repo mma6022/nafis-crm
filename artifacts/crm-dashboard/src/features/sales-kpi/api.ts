@@ -57,11 +57,12 @@ export function useSalesKpiMe(enabled: boolean) {
   });
 }
 
-export async function fetchSalesKpi(q: { period?: string; from?: string; to?: string; teamId?: number | null; expertId?: number | null }): Promise<SalesKpiReport> {
+export async function fetchSalesKpi(q: { period?: string; from?: string; to?: string; anchor?: string; teamId?: number | null; expertId?: number | null }): Promise<SalesKpiReport> {
   const p = new URLSearchParams();
   if (q.period) p.set("period", q.period);
   if (q.from) p.set("from", q.from);
   if (q.to) p.set("to", q.to);
+  if (q.anchor) p.set("anchor", q.anchor);
   if (q.teamId) p.set("teamId", String(q.teamId));
   if (q.expertId) p.set("expertId", String(q.expertId));
   const r = await fetch(`${base()}/api/sales-kpi?${p.toString()}`, { credentials: "include" });

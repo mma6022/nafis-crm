@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { faDigits } from "@/lib/credit-grade";
 import { PersianDatePicker } from "@/components/PersianDatePicker";
-import { jalaliValueToGregorian } from "@/lib/jalali";
+import { formatJalaliValue, jalaliValueToGregorian, tehranPersianParts } from "@/lib/jalali";
 import {
   fetchKpiSettings, fetchSalesKpi, saveKpiSettings, useSalesKpiMe,
   type KpiCell, type SalesKpiReport,
@@ -24,6 +24,47 @@ const toEn = (s: string) => String(s)
   .replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
   .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
   .replace(/[^\d.]/g, "");
+
+const MONTH_NAMES = ["فروردین","اردیبهشت","خرداد","تیر","مرداد","شهریور","مهر","آبان","آذر","دی","بهمن","اسفند"];
+function recentJalaliMonths(count = 6): { anchor: string; label: string }[] {
+  const parts = tehranPersianParts(new Date());
+  const out: { anchor: string; label: string }[] = [];
+  for (let i = 0; i < count; i++) {
+    let m = parts.month - i;
+    let y = parts.year;
+    while (m < 1) { m += 12; y -= 1; }
+    const g = jalaliValueToGregorian(formatJalaliValue(y, m, 1));
+    if (!g) continue;
+    out.push({ anchor: g, label: `${MONTH_NAMES[m - 1] ?? ""} ${toFa(String(y))}`.trim() });
+  }
+  return out;
+}
+
+function groupExperts(experts: SalesKpiReport["experts"], teams: { teamId: number; name: string }[]) {
+  const byTeam = new Map<number, typeof experts>();
+  const noTeam: typeof experts = [];
+  for (const e of experts) {
+    if (e.teamId == null) noTeam.push(e);
+    else {
+      const list = byTeam.get(e.teamId) ?? [];
+      list.push(e);
+      byTeam.set(e.teamId, list);
+    }
+  }
+  const rankKey = (e: (typeof experts)[number]) => e.rankInTeam == null ? 1e9 : e.rankInTeam;
+  const sortMembers = (list: typeof experts) => [...list].sort((a, b) => rankKey(a) - rankKey(b) || (a.name || "").localeCompare(b.name || "", "fa"));
+  const groups: { teamId: number; name: string; members: typeof experts }[] = [];
+  for (const tm of teams) {
+    const members = byTeam.get(tm.teamId);
+    if (members?.length) groups.push({ teamId: tm.teamId, name: tm.name, members: sortMembers(members) });
+    byTeam.delete(tm.teamId);
+  }
+  for (const [teamId, members] of byTeam) {
+    groups.push({ teamId, name: members[0]?.teamName || "تیم", members: sortMembers(members) });
+  }
+  if (noTeam.length) groups.push({ teamId: 0, name: "بدون تیم", members: sortMembers(noTeam) });
+  return groups;
+}
 
 function FaNumberInput({ value, onChange, placeholder, testId, label }: { value: string; onChange: (en: string) => void; placeholder?: string; testId?: string; label: string }) {
   return (
@@ -49,11 +90,13 @@ function Card({ kpi, canEdit, onOpenSettings }: { kpi: KpiCell; canEdit: boolean
       <h3>{kpi.label}</h3>
       <div className="skpi-val">{ui(kpi.display)}</div>
       {kpi.fractionLabel && kpi.status === "ok" && <p className="skpi-frac">{ui(kpi.fractionLabel)}</p>}
-      {kpi.deltaDisplay && kpi.status === "ok" && <p className="skpi-delta">{ui(kpi.deltaDisplay)}</p>}
+      {kpi.deltaDisplay && kpi.status === "ok" && (
+        <p className={`skpi-delta${kpi.deltaDisplay.includes("−") ? " is-down" : kpi.deltaDisplay.includes("+") ? " is-up" : ""}`}>{ui(kpi.deltaDisplay)}</p>
+      )}
       {kpi.direction === "lower_better" && kpi.status === "ok" && <p className="skpi-dir">کمتر بهتر است</p>}
       {kpi.incomplete && <p className="skpi-frac">داده‌ی ناقص</p>}
       {kpi.status === "missing" && kpi.missingKind === "setting" && canEdit && onOpenSettings && (
-        <button type="button" className="skpi-link" onClick={onOpenSettings}>تعریف در تنظیمات</button>
+        <button type="button" className="skpi-link" data-testid="skpi-define-settings" onClick={onOpenSettings}>تعریف در تنظیمات</button>
       )}
       <details className="skpi-tip">
         <summary data-testid="skpi-formula">فرمول</summary>
@@ -95,8 +138,10 @@ export default function SalesKpiPage() {
 function Board({ canEdit, access, selfId }: { canEdit: boolean; access: string | null; selfId: number | null }) {
   const isManager = access === "manager";
   const qs = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
+  const monthOptions = useMemo(() => recentJalaliMonths(6), []);
+  const initialPeriod = qs.get("period") === "custom" ? "custom" : (qs.get("anchor") || (qs.get("period") === "month" || !qs.get("period") ? "month" : qs.get("period") || "month"));
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("sales");
-  const [period, setPeriod] = useState<"month" | "custom">(qs.get("period") === "custom" ? "custom" : "month");
+  const [period, setPeriod] = useState(initialPeriod);
   const [fromJ, setFromJ] = useState(qs.get("from") || "");
   const [toJ, setToJ] = useState(qs.get("to") || "");
   const [teamId, setTeamId] = useState<number | "">("");
@@ -110,12 +155,15 @@ function Board({ canEdit, access, selfId }: { canEdit: boolean; access: string |
     setLoading(true); setErr("");
     try {
       const t = over?.teamId !== undefined ? over.teamId : teamId;
-      const q: Parameters<typeof fetchSalesKpi>[0] = { period };
+      const q: Parameters<typeof fetchSalesKpi>[0] = {};
       if (period === "custom") {
         const from = jalaliValueToGregorian(fromJ);
         const to = jalaliValueToGregorian(toJ);
         if (!from || !to) throw new Error("شروع و پایان بازه را به شمسی انتخاب کنید.");
-        q.from = from; q.to = to;
+        q.period = "custom"; q.from = from; q.to = to;
+      } else {
+        q.period = "month";
+        if (period !== "month") q.anchor = period;
       }
       if (t !== "") q.teamId = Number(t);
       setReport(await fetchSalesKpi(q));
@@ -156,17 +204,18 @@ function Board({ canEdit, access, selfId }: { canEdit: boolean; access: string |
       {showFilters && (
         <div className="skpi-period">
           <label>بازه
-            <select value={period} onChange={(e) => setPeriod(e.target.value as "month" | "custom")} data-testid="skpi-period">
+            <select value={period} onChange={(e) => setPeriod(e.target.value)} data-testid="skpi-period">
               <option value="month">ماه جاری شمسی</option>
+              {monthOptions.map((m) => <option key={m.anchor} value={m.anchor}>{m.label}</option>)}
               <option value="custom">بازه دلخواه</option>
             </select>
           </label>
           {period === "custom" && (
             <>
-              <label>از
+              <label className="skpi-date">از
                 <PersianDatePicker value={fromJ} onChange={setFromJ} displayDigits testId="skpi-from" />
               </label>
-              <label>تا
+              <label className="skpi-date">تا
                 <PersianDatePicker value={toJ} onChange={setToJ} displayDigits testId="skpi-to" />
               </label>
             </>
@@ -191,7 +240,6 @@ function Board({ canEdit, access, selfId }: { canEdit: boolean; access: string |
         </div>
       )}
       {err && <p className="skpi-err">{err}</p>}
-      {showFilters && report?.callDataIncomplete && <p className="skpi-ban">بخشی از داده‌های تماس این بازه مربوط به قبل از ۳ آبان ۱۴۰۵ است و با برچسب «داده‌ی ناقص» مشخص شده.</p>}
       {showFilters && report && (
         <p className="skpi-lead" style={{ marginBottom: 12 }}>
           دوره: {ui(report.label)}، مقایسه با {ui(report.previousLabel)}، {ui(report.workingDays)} روز کاری
@@ -217,16 +265,21 @@ function Board({ canEdit, access, selfId }: { canEdit: boolean; access: string |
       )}
       {tab === "sales" && isManager && report && report.experts.length > 0 && (
         <div className="skpi-experts" data-testid="skpi-expert-list">
-          {report.experts.map((e) => {
-            const sales = e.kpis.find((k) => k.key === "successful_sales");
-            const rank = e.rankInTeam != null ? `، رتبه ${ui(e.rankInTeam)}` : "، بدون رتبه";
-            return (
-              <button key={e.salespersonId} type="button" className={expertId === e.salespersonId ? "on" : ""} onClick={() => setExpertId(e.salespersonId)}>
-                <span>{e.name}</span>
-                <span>{sales ? ui(sales.display) : "—"}{rank}</span>
-              </button>
-            );
-          })}
+          {groupExperts(report.experts, report.filters.teams).map((g) => (
+            <section key={g.teamId} className="skpi-expert-group">
+              <h2 className="skpi-expert-team">{g.name}</h2>
+              {g.members.map((e) => {
+                const sales = e.kpis.find((k) => k.key === "successful_sales");
+                const rank = e.rankInTeam != null ? `، رتبه ${ui(e.rankInTeam)}` : "، بدون رتبه";
+                return (
+                  <button key={e.salespersonId} type="button" className={expertId === e.salespersonId ? "on" : ""} onClick={() => setExpertId(e.salespersonId)}>
+                    <span>{e.name}</span>
+                    <span>{sales ? ui(sales.display) : "—"}{rank}</span>
+                  </button>
+                );
+              })}
+            </section>
+          ))}
         </div>
       )}
       {tab === "settings" && canEdit && report && (
@@ -239,7 +292,7 @@ function Board({ canEdit, access, selfId }: { canEdit: boolean; access: string |
         />
       )}
       {tab === "team" && (
-        <div className="skpi-grid" data-testid="skpi-grid-team">
+        <div className="skpi-teams" data-testid="skpi-grid-team">
           {report?.teams.map((tm) => (
             <section key={tm.teamId} className="skpi-team-block">
               <h2 className="skpi-team-title">{tm.name}، {ui(tm.memberCount)} کارشناس فعال</h2>
@@ -278,6 +331,7 @@ function SettingsForm({ periodKey, periodTitle, teams, experts, onSaved }: {
   const [minT, setMinT] = useState("");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+  const [scopeInvalid, setScopeInvalid] = useState(false);
 
   useEffect(() => {
     fetchKpiSettings(periodKey).then((s) => {
@@ -298,7 +352,7 @@ function SettingsForm({ periodKey, periodTitle, teams, experts, onSaved }: {
   };
 
   const save = async () => {
-    setErr(""); setMsg("");
+    setErr(""); setMsg(""); setScopeInvalid(false);
     const fields = [stale, oldD, prevD, inv, reg, base, target, minT];
     if (fields.some((v) => v.trim() && numOrNull(v) == null)) {
       setErr("فقط عدد وارد کنید.");
@@ -313,6 +367,7 @@ function SettingsForm({ periodKey, periodTitle, teams, experts, onSaved }: {
     }
     if ((target.trim() || minT.trim()) && !scopeId) {
       setErr("تیم یا کارشناس را از فهرست انتخاب کنید.");
+      setScopeInvalid(true);
       return;
     }
     try {
@@ -362,13 +417,13 @@ function SettingsForm({ periodKey, periodTitle, teams, experts, onSaved }: {
       {step === 3 && (
         <div className="row">
           <label>نوع
-            <select value={scopeKind} onChange={(e) => { setScopeKind(e.target.value as "expert" | "team"); setScopeId(""); }} data-testid="skpi-set-kind">
+            <select value={scopeKind} onChange={(e) => { setScopeKind(e.target.value as "expert" | "team"); setScopeId(""); setScopeInvalid(false); }} data-testid="skpi-set-kind">
               <option value="expert">کارشناس</option>
               <option value="team">تیم</option>
             </select>
           </label>
           <label>{scopeKind === "team" ? "تیم" : "کارشناس"}
-            <select value={scopeId} onChange={(e) => setScopeId(e.target.value)} data-testid="skpi-set-scope">
+            <select value={scopeId} className={scopeInvalid ? "is-invalid" : ""} onChange={(e) => { setScopeId(e.target.value); setScopeInvalid(false); }} data-testid="skpi-set-scope">
               <option value="">{scopeKind === "team" ? "انتخاب تیم" : "انتخاب کارشناس"}</option>
               {names.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}
             </select>
