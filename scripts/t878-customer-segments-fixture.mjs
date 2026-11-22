@@ -188,6 +188,8 @@ await ok("preview masks phones and never includes national id by default", async
   assert.ok(prev.total >= 180);
   assert.equal(prev.rows.length, Math.min(10, prev.total));
   assert.ok(!prev.columns.includes("nationalCode"));
+  assert.equal(prev.columns[0], "name");
+  assert.ok(prev.columns.includes("creditRank"), "credit-rank column must be in the preview");
   for (const row of prev.rows) {
     const ph = row.values.phone || "";
     if (ph) {
@@ -303,6 +305,16 @@ await ok("preview uses Persian labels for ranks, priority, and unknown; ids stay
   assert.match(seg.maskPhone("09121234567"), /پوشیده ۱۲۳۴|پوشیده 1234|پوشیده/);
   assert.doesNotMatch(seg.maskPhone("09121234567"), /•/);
   const q = { source: "both", conditions: [{ field: "job", op: "in", values: ["retired"] }], columns: ["customerId", "name", "phone", "priority", "creditRank"] };
+  const prevRank = seg.preview(q, admin, 1, 20);
+  assert.equal(prevRank.columns[0], "name");
+  assert.ok(prevRank.columns.includes("creditRank"));
+  const ranks = prevRank.rows.map((r) => r.values.creditRank || "").filter(Boolean);
+  assert.ok(ranks.length, "expected some credit-rank values");
+  for (const r of ranks) {
+    assert.doesNotMatch(r, /\bunknown\b/i);
+    assert.doesNotMatch(r, /\b[A-E]\d?\b/);
+    assert.ok(/نامشخص|رتبه /.test(r), r);
+  }
   const x = seg.exportXlsx(q, admin, false);
   assert.ok(x.columns.includes("customerId"));
   assert.ok(!x.columns.includes("phone"));

@@ -1014,13 +1014,24 @@ export function toPublicRow(p: Profile, columns: string[], opts?: { phones?: boo
   return { kind: p.kind, customerId: p.customerId, leadKey: p.leadKey, values, sources, sourceLabels };
 }
 
+
+/** Name first (sticky in the UI), then id and masked phone, then the rest in catalog order. */
+export function orderPreviewColumns(cols: string[]): string[] {
+  const set = new Set(cols.filter((k) => k && k !== "nationalCode"));
+  if (!set.has("name") && DEFAULT_COLUMNS.includes("name")) set.add("name");
+  if (!set.has("phone")) set.add("phone");
+  const head = ["name", "customerId", "phone"].filter((k) => set.has(k));
+  const rest = FIELDS.map((f) => f.key).filter((k) => set.has(k) && !head.includes(k));
+  const extra = [...set].filter((k) => !head.includes(k) && !rest.includes(k));
+  return [...head, ...rest, ...extra];
+}
+
 export function preview(q: SegmentQuery, actor: AuthUser, page = 1, pageSize = 20): { total: number; page: number; pageSize: number; columns: string[]; rows: PublicRow[]; scope: ActorScope["kind"] } {
   const scope = actorScope(actor);
   if (!scope) throw new SegmentScopeError("این گزارش فقط برای مدیر، مدیر فروش و کارشناس است.");
   assertQueryScope(q, scope);
-  const columns = (q.columns && q.columns.length ? q.columns : DEFAULT_COLUMNS).filter((k) => k !== "nationalCode");
-  const cols = columns.includes("phone") ? columns : ["phone", ...columns.filter((c) => c !== "phone")];
-  const unique = [...new Set(cols.length ? cols : DEFAULT_COLUMNS)];
+  const wanted = (q.columns && q.columns.length ? q.columns : DEFAULT_COLUMNS).filter((k) => k !== "nationalCode");
+  const unique = orderPreviewColumns(wanted);
   const all = filterProfiles(loadProfiles(), q, scope);
   const safePage = Math.max(1, page);
   const size = Math.min(100, Math.max(1, pageSize));
