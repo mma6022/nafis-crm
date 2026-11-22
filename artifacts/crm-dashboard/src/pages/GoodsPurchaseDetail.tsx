@@ -11,12 +11,17 @@ import { useListContractTemplates, getListContractTemplatesQueryKey, type Contra
 import { UpdatedContractBanner } from '@/components/UpdatedContractBanner';
 import { api, digitsOnly, errText, eventLabel, openAuthedFile, rawCode, stageIndex, stageLabel, STAGES, toBig, toman, docStatusLabel, useMe, type GoodsDocument, type Purchase, type PurchaseItem, type PaymentOrder } from '@/lib/goods-api';
 import { CustomerName } from '@/components/customer/CustomerName';
+import { DocResendButton, DocumentHistoryPanel } from '@/features/doc-resend/DocResendWizard';
+import { useDocResendMe, useAdminControls, postAdminInvoice } from '@/features/doc-resend/api';
 
 export default function GoodsPurchaseDetail() {
   const { id } = useParams<{ id: string }>();
   const pid = Number(id);
   const qc = useQueryClient();
   const { can, user } = useMe();
+  const resendMe = useDocResendMe();
+  const canResend = Boolean(resendMe.data?.canAct);
+  const adminControls = useAdminControls('goods', pid, canResend);
   const [, go] = useLocation();
   const [flash, setFlash] = useState<{ ok: boolean; text: string } | null>(null);
   const key = ['goods-purchase', pid];
@@ -58,6 +63,7 @@ export default function GoodsPurchaseDetail() {
     <Stepper steps={STAGES.map((st) => st.label)} current={idx} done={p.stage === 'completed'} testId="goods-stepper" />
 
     {flash ? <div className={`gp-alert ${flash.ok ? 'ok' : ''}`} role="status">{flash.text}</div> : null}
+    {canResend ? <div className="gp-resend-actions" style={{ margin: '12px 0' }}><DocResendButton kind="goods" id={pid} onDone={(t) => setFlash({ ok: true, text: t })} /></div> : null}
 
     <div className="gp-detail2">
       <div className="gp-main-col">
@@ -70,7 +76,7 @@ export default function GoodsPurchaseDetail() {
           <button className="btn btn-primary" disabled={!manage || busy} onClick={() => askRun({ title: 'تأیید تخلیه اعتبار', body: 'تخلیه اعتبار در پلتفرم بیرونی انجام شده است؟', label: 'بله، تخلیه انجام شد', path: '/discharge', ok: 'تخلیه اعتبار ثبت شد.' })} data-testid="button-discharge">تخلیه انجام شد</button>
         </div> : null}
 
-        {idx >= 1 ? <InvoicePanel p={p} editable={manage && p.stage === 'invoice_draft' && !['sending', 'sent', 'signed', 'delivery_unknown'].includes(p.invoiceDocument?.status ?? '')} onSaved={(t) => { setFlash({ ok: true, text: t }); qc.invalidateQueries({ queryKey: key }); }} /> : null}
+        {idx >= 1 ? <InvoicePanel p={p} editable={manage && p.stage === 'invoice_draft' && (canResend || !['sending', 'sent', 'signed', 'delivery_unknown'].includes(p.invoiceDocument?.status ?? ''))} adminRevise={canResend && p.stage === 'invoice_draft'} onSaved={(t) => { setFlash({ ok: true, text: t }); qc.invalidateQueries({ queryKey: key }); }} /> : null}
 
         {idx >= 1 && (p.items?.length ?? 0) > 0 ? <DocumentPanel title="فاکتور فروش کالا" kind="invoice" doc={p.invoiceDocument} pid={pid} active={['invoice_draft', 'invoice_signature', 'settlement_pending'].includes(p.stage) && Boolean(p.invoice_version)} canAct={manage} readOnlySignatureStatus={user?.role === 'salesperson'} busy={busy} run={run} askRun={askRun} setFlash={setFlash} /> : null}
 
@@ -83,6 +89,8 @@ export default function GoodsPurchaseDetail() {
           <div className="panel-head"><div><h3><ShieldCheck size={16} /> تأیید نهایی ثبت‌کننده</h3><p>با تأیید، خرید تکمیل و پورسانت کارشناس فروش یک‌بار ثبت می‌شود.</p></div></div>
           {p.stage === 'registrar_confirmation' ? <button className="btn btn-primary" disabled={!manage || busy} onClick={() => askRun({ title: 'تکمیل خرید', body: 'با تأیید، خرید تکمیل و پورسانت کارشناس فروش یک‌بار ثبت می‌شود. خرید تکمیل شود؟', label: 'تأیید و تکمیل', tone: 'green', path: '/complete', ok: 'خرید تکمیل شد.' })} data-testid="button-complete">تأیید و تکمیل</button> : <p className="secondary-cell">تکمیل‌شده در {formatDateTime(p.completedAt)}</p>}
         </div> : null}
+
+        {canResend && adminControls.data && adminControls.data.kind === 'goods' ? <DocumentHistoryPanel controls={adminControls.data} /> : null}
 
         {p.stage === 'completed' ? <div className="panel gp-stage-panel gp-finale">
           <div><h3>دستور پرداخت</h3><p>مبلغ {toman(p.payoutAmountToman)} از روی خرید تکمیل‌شده به کارتابل پرداخت می‌رود.</p></div>
@@ -108,14 +116,18 @@ function Fig({ label, v, tone }: { label: string; v?: string | null; tone?: stri
 }
 
 type Row = { title: string; quantity: string; unitPriceToman: string };
-function InvoicePanel({ p, editable, onSaved }: { p: Purchase; editable: boolean; onSaved: (t: string) => void }) {
+function InvoicePanel({ p, editable, adminRevise, onSaved }: { p: Purchase; editable: boolean; adminRevise?: boolean; onSaved: (t: string) => void }) {
+  const [askReason, setAskReason] = useState(false);
   const init = (): Row[] => (p.items?.length ? p.items.map((i: PurchaseItem) => ({ title: i.title, quantity: String(i.quantity), unitPriceToman: String(i.unitPriceToman) })) : [{ title: '', quantity: '1', unitPriceToman: '' }]);
   const [rows, setRows] = useState<Row[]>(init);
   const initFor = useRef(p.id);
   useEffect(() => { if (initFor.current !== p.id) { initFor.current = p.id; setRows(init()); } }, [p.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const itemsBody = () => rows.map((r) => ({ title: r.title.trim(), quantity: Number(r.quantity), unitPriceToman: digitsOnly(r.unitPriceToman) }));
   const save = useMutation({
-    mutationFn: () => api.put<Purchase>(`/goods-purchases/${p.id}/invoice`, { items: rows.map((r) => ({ title: r.title.trim(), quantity: Number(r.quantity), unitPriceToman: digitsOnly(r.unitPriceToman) })) }),
-    onSuccess: () => onSaved('اقلام فاکتور ذخیره شد.'),
+    mutationFn: (reason?: string) => adminRevise
+      ? postAdminInvoice(p.id, itemsBody(), reason || 'ویرایش اقلام فاکتور', p.stage)
+      : api.put<Purchase>(`/goods-purchases/${p.id}/invoice`, { items: itemsBody() }),
+    onSuccess: () => { setAskReason(false); onSaved('اقلام فاکتور ذخیره شد.'); },
   });
   const total = rows.reduce((s, r) => s + toBig(digitsOnly(r.unitPriceToman)) * BigInt(Math.max(0, Math.floor(Number(r.quantity) || 0))), 0n);
   const credit = toBig(p.creditAmountToman);
@@ -138,7 +150,10 @@ function InvoicePanel({ p, editable, onSaved }: { p: Purchase; editable: boolean
       <div className="gp-totals"><span>جمع فاکتور <b>{toman(total.toString())}</b></span><span>اعتبار <b>{toman(p.creditAmountToman)}</b></span><span className={diff === 0n ? 'ok' : 'bad'}>{diff === 0n ? 'برابر با کل اعتبار' : diff > 0n ? `${toman(diff.toString())} کمتر از اعتبار` : `${toman((-diff).toString())} بیشتر از اعتبار`}</span></div>
     </div>
     {save.isError ? <div className="gp-alert">{errText(save.error)}</div> : null}
-    {editable ? <div className="form-footer"><button className="btn btn-primary" disabled={save.isPending || diff !== 0n || rows.some((r) => !r.title.trim() || !(Number(r.quantity) > 0) || !digitsOnly(r.unitPriceToman))} onClick={() => save.mutate()} data-testid="button-save-invoice">{save.isPending ? 'در حال ذخیره…' : 'ذخیره فاکتور'}</button></div> : null}
+    {editable ? <div className="form-footer"><button className="btn btn-primary" disabled={save.isPending || diff !== 0n || rows.some((r) => !r.title.trim() || !(Number(r.quantity) > 0) || !digitsOnly(r.unitPriceToman))} onClick={() => adminRevise ? setAskReason(true) : save.mutate(undefined)} data-testid="button-save-invoice">{save.isPending ? 'در حال ذخیره…' : 'ذخیره فاکتور'}</button></div> : null}
+    {askReason ? <ConfirmDialog title="ذخیره اقلام فاکتور" testId="admin-invoice" confirmLabel="ذخیره فاکتور" tone="primary" busy={save.isPending} error={save.isError ? errText(save.error) : null}
+      reason={{ label: 'دلیل ویرایش', min: 5, placeholder: 'مثلاً اصلاح شرح کالا' }}
+      onConfirm={(reason) => save.mutate(reason)} onClose={() => setAskReason(false)}><p>نسخهٔ تازه از اقلام ذخیره می‌شود. فاکتورهای امضاشدهٔ قبلی در سابقه می‌مانند.</p></ConfirmDialog> : null}
   </div>;
 }
 

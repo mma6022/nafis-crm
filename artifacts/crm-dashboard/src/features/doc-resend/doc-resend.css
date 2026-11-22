@@ -1,0 +1,20 @@
+/* t882 wizard: 44px touch targets, Persian digits come from the shared stepper, full width on 390. */
+.dr-choices { display: flex; flex-direction: column; gap: 8px; }
+.dr-choice {
+  display: flex; align-items: flex-start; gap: 10px; min-height: 44px;
+  text-align: right; width: 100%; border: 1px solid var(--border, #d0d5dd);
+  background: #fff; border-radius: 10px; padding: 10px 12px; cursor: pointer;
+}
+.dr-choice:hover { border-color: #98a2b3; }
+.dr-choice[aria-pressed="true"], .dr-choice.on {
+  border-color: #1570ef; background: #eff8ff; box-shadow: inset 0 0 0 1px #1570ef;
+}
+.dr-choice strong { display: block; font-size: 14px; }
+.dr-choice small { display: block; color: var(--muted, #667085); font-size: 12px; margin-top: 2px; }
+.dr-history { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.dr-history li { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 13px; border-bottom: 1px dashed #eaecf0; padding-bottom: 6px; }
+.dr-locked { font-size: 13px; color: #b42318; margin: 8px 0 0; }
+.dr-open { min-height: 44px; }
+@media (max-width: 430px) {
+  .dr-choice { padding: 12px; }
+}

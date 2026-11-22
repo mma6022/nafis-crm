@@ -77,6 +77,15 @@ const ERRORS: Record<string, string> = {
   invalid_receipt_upload: 'بارگذاری رسید ناموفق بود (حداکثر ۱۰ مگابایت، تصویر یا PDF).',
   admin_required: 'این کار فقط با مدیر سیستم ممکن است.',
   unpay_reason_required: 'دلیل را بنویس (حداقل ۵ حرف).',
+  doc_resend_forbidden: 'این کار فقط برای مدیر سیستم و مدیر فروش است.',
+  admin_reason_required: 'دلیل را بنویسید (حداقل ۵ حرف).',
+  admin_confirmation_required: 'برای ادامه باید این کار را تأیید کنید.',
+  admin_case_revision_conflict: 'وضعیت پرونده هم‌زمان تغییر کرده؛ صفحه را تازه کنید و دوباره تلاش کنید.',
+  admin_case_no_changes: 'مرحله تغییر نکرد.',
+  completed_financial_lock: 'پس از تکمیل خرید، بازگشت مرحله ممکن نیست؛ پورسانت ثبت شده و ممکن است دستور پرداخت ساخته شده باشد.',
+  settlement_financial_lock: 'پس از تسویه با شرکت، بازگشت به مراحل قبل از تسویه ممکن نیست؛ اعتبار مشتری مصرف شده است.',
+  invoice_items_required: 'برای صدور فاکتور تازه، اول اقلام فاکتور را ذخیره کنید.',
+  invoice_document_locked: 'این فاکتور برای ویرایش قفل است. مدیر یا مدیر فروش می‌تواند با بازگشت مرحله یا ارسال دوباره، نسخهٔ تازه بسازد.',
   payment_revert_conflict: 'برگرداندن «پرداخت‌شده» با تغییر هم‌زمان برخورد کرد؛ صفحه را تازه کنید.',
   payout_exceeds_principal: 'درصد واریزی باید بین ۰ و ۱۰۰ باشد (مبلغ واریزی بیشتر از اصل تسهیلات نمی‌شود).',
   verified_customer_bank_account_required: 'یک حساب تأییدشدهٔ مشتری انتخاب کنید.',
@@ -205,11 +214,13 @@ const EVENT_LABELS: Record<string, string> = {
   sales_approved: 'تأیید فروش', admin_approved: 'تأیید مدیریت', paid: 'ثبت پرداخت', created_order: 'ایجاد دستور پرداخت',
   team_commission_posted: 'پورسانت ثبت شد', team_commission_reversed: 'برگشت پرونده · کسر پورسانت در ماه بعد', team_commission_unposted: '«پرداخت‌شده» برگشت · پورسانت خنثی شد',
   payment_recorded: '«پرداخت‌شده» ثبت شد', payment_reverted: '«پرداخت‌شده» برگشت (ثبت اشتباه)',
+  admin_stage_back: 'بازگشت مرحله توسط مدیر', admin_document_resend: 'تولید نسخهٔ تازهٔ سند توسط مدیر', admin_invoice_revised: 'ویرایش اقلام فاکتور توسط مدیر',
 };
 /** Payment-order history has its own vocabulary (its «created» is not the goods «reserve» event). */
 const PO_EVENT_LABELS: Record<string, string> = {
   created: 'دستور پرداخت ساخته شد', sales_approved: 'تأیید فروش · حساب مقصد انتخاب شد', admin_approved: 'تأیید مدیریت',
   payment_recorded: '«پرداخت‌شده» ثبت شد', payment_reverted: '«پرداخت‌شده» برگشت (ثبت اشتباه)',
+  admin_stage_back: 'بازگشت مرحله توسط مدیر', admin_document_resend: 'تولید نسخهٔ تازهٔ سند توسط مدیر', admin_invoice_revised: 'ویرایش اقلام فاکتور توسط مدیر',
 };
 export const poEventLabel = (a?: string) => (a && PO_EVENT_LABELS[a]) || eventLabel(a);
 export const eventLabel = (a?: string) => {

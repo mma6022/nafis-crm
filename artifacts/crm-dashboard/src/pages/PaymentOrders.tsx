@@ -11,6 +11,8 @@ import { forbidden, PENDING_INTRO, pendingAccess, pendingTabCount, usePendingQue
 import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { ErrorState, SkeletonPanel, formatDateTime } from '@/components/CrmShell';
 import { ConfirmDialog, SectionTabs, Stepper, Toast, Wizard, type ListSection } from '@/components/goods/GpKit';
+import { DocResendButton } from '@/features/doc-resend/DocResendWizard';
+import { useDocResendMe } from '@/features/doc-resend/api';
 import { KIND_LABELS } from '@/features/team-commission/api';
 import { parseJalaliValue, jalaliToIso } from '@/lib/jalali';
 import { usePaymentOrderCount, usePaymentOrderList, type PoListParams } from '@/lib/payment-order-queries';
@@ -154,6 +156,8 @@ function PayLoader({ id, onClose, onPaid }: { id: number; onClose: () => void; o
 function OrderDetail({ id }: { id: number }) {
   const qc = useQueryClient();
   const { can, isAdmin } = useMe();
+  const resendMe = useDocResendMe();
+  const canResend = Boolean(resendMe.data?.canAct);
   const q = useQuery({ queryKey: ['payment-order', id], queryFn: () => api.get<PaymentOrder>(`/payment-orders/${id}`), refetchInterval: 20_000 });
   const [toast, setToast] = useState('');
   const [dialog, setDialog] = useState<'' | 'pay' | 'sales' | 'admin' | 'unpay' | 'return'>('');
@@ -175,6 +179,7 @@ function OrderDetail({ id }: { id: number }) {
       <div className="gp-hero2-amount"><span>مبلغ واریزی به مشتری</span><strong>{toBig(o.amountToman).toLocaleString('fa-IR')} <small>تومان</small></strong><em className={`gp-chip ${o.stage === 'paid' ? 'green' : 'light'}`}><i />{poStageLabel(o.stage)}</em>{pre ? <PreOpeningBadge id={o.id} /> : null}</div>
     </div>
     <Stepper steps={PO_STAGES.map((s) => s.step)} current={idx} done={o.stage === 'paid'} testId="po-stepper" />
+    {canResend ? <div className="gp-resend-actions" style={{ margin: '12px 0' }}><DocResendButton kind="payment" id={id} onDone={(t) => setToast(t)} /></div> : null}
     <div className="gp-detail2">
       <div className="gp-main-col">
         {pre ? <PreOpeningCard order={o} pre={pre} /> : null}
