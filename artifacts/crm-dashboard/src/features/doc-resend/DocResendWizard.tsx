@@ -26,7 +26,7 @@ function hasOpenSignatureRequest(docs: HistoryDoc[]) {
   return docs.some((d) => ['sending', 'sent', 'delivery_unknown'].includes(d.status));
 }
 
-type Effect = { removed?: string; remains?: string; cancel?: string; bale?: string; notes: string[] };
+type Effect = { removed?: string; remains?: string[]; cancel?: string; bale?: string };
 
 function remainLine(kindLabel: string, docs: HistoryDoc[]): string {
   const signed = docs.filter((d) => d.status === 'signed');
@@ -35,45 +35,38 @@ function remainLine(kindLabel: string, docs: HistoryDoc[]): string {
   return 'سندهای قبلی در سابقه می‌مانند و حذف نمی‌شوند.';
 }
 
+function versionRemain(docs: HistoryDoc[]): string {
+  const next = nextVersion(docs);
+  const prev = next - 1;
+  return prev > 0
+    ? `نسخهٔ ${faId(next)} ساخته می‌شود؛ نسخهٔ ${faId(prev)} سر جایش می‌ماند`
+    : `نسخهٔ ${faId(next)} ساخته می‌شود`;
+}
+
 function confirmEffect(kind: 'goods' | 'payment', action: Action, controls: AdminControls, target: string): Effect {
-  const notes: string[] = [];
   if (action === 'resend_invoice' && controls.kind === 'goods') {
     const docs = controls.documents.invoice;
-    const next = nextVersion(docs);
-    const prev = next - 1;
-    notes.push(prev > 0
-      ? `نسخهٔ ${faId(next)} ساخته می‌شود؛ نسخهٔ ${faId(prev)} سر جایش می‌ماند`
-      : `نسخهٔ ${faId(next)} ساخته می‌شود`);
     return {
-      remains: remainLine('فاکتور', docs),
+      remains: [versionRemain(docs), remainLine('فاکتور', docs)],
       cancel: PREVIOUS_UNSIGNED_EMZAMI_CANCELLED && hasOpenSignatureRequest(docs) ? 'درخواست امضای قبلی (امضانشده)' : undefined,
       bale: controls.baleNotify ? BALE_NOTIFY_CONFIRM_TEXT : undefined,
-      notes,
     };
   }
   if (action === 'resend_acknowledgement' && controls.kind === 'goods') {
     const docs = controls.documents.acknowledgement;
-    const next = nextVersion(docs);
-    const prev = next - 1;
-    notes.push(prev > 0
-      ? `نسخهٔ ${faId(next)} ساخته می‌شود؛ نسخهٔ ${faId(prev)} سر جایش می‌ماند`
-      : `نسخهٔ ${faId(next)} ساخته می‌شود`);
     return {
-      remains: remainLine('اقرارنامه', docs),
+      remains: [versionRemain(docs), remainLine('اقرارنامه', docs)],
       cancel: PREVIOUS_UNSIGNED_EMZAMI_CANCELLED && hasOpenSignatureRequest(docs) ? 'درخواست امضای قبلی (امضانشده)' : undefined,
       bale: controls.baleNotify ? BALE_NOTIFY_CONFIRM_TEXT : undefined,
-      notes,
     };
   }
 
   // stage_back
   if (kind === 'payment') {
     if (controls.stage === 'paid') {
-      notes.push('پرداخت برگشت می‌خورد و سند حسابداری جبرانی ثبت می‌شود');
       return {
         removed: 'وضعیت «پرداخت‌شده» و ثبت‌های حسابداری همان پرداخت',
-        remains: 'سابقه، رسید و حساب مقصد در بایگانی می‌مانند.',
-        notes,
+        remains: ['سابقه، رسید و حساب مقصد در بایگانی می‌مانند.', 'پرداخت برگشت می‌خورد و سند حسابداری جبرانی ثبت می‌شود'],
       };
     }
     const stamps: string[] = [];
@@ -83,13 +76,12 @@ function confirmEffect(kind: 'goods' | 'payment', action: Action, controls: Admi
     }
     return {
       removed: stamps.length ? stamps.join(' و ') : undefined,
-      remains: 'سابقهٔ دستور و اطلاعات حساب مقصد می‌ماند.',
-      notes,
+      remains: ['سابقهٔ دستور و اطلاعات حساب مقصد می‌ماند.'],
     };
   }
 
   // goods stage-back
-  if (controls.kind !== 'goods') return { notes };
+  if (controls.kind !== 'goods') return {};
   const invoices = controls.documents.invoice;
   const signedInv = invoices.filter((d) => d.status === 'signed');
   const from = controls.stage;
@@ -102,21 +94,19 @@ function confirmEffect(kind: 'goods' | 'payment', action: Action, controls: Admi
       removed: from === 'invoice_signature'
         ? 'امضای در جریان روی پرونده (برای ادامه، امضای تازه لازم است)'
         : 'امضای ثبت‌شدهٔ فاکتور روی پرونده (برای ادامه، امضای تازه لازم است)',
-      remains: signedInv.length
+      remains: [signedInv.length
         ? signedInv.map((d) => `فاکتور نسخهٔ ${faId(d.version)} (امضاشده)`).join(' و ')
-        : 'سندهای قبلی در سابقه می‌مانند و حذف نمی‌شوند.',
+        : 'سندهای قبلی در سابقه می‌مانند و حذف نمی‌شوند.'],
       cancel,
-      notes,
     };
   }
   if (from === 'registrar_confirmation' && (target === 'acknowledgement_signature' || target === 'settlement_pending')) {
     return {
       removed: 'ثبت «اقرارنامه امضا شد» روی پرونده',
-      remains: 'اقرارنامهٔ قبلی در سابقه می‌ماند و حذف نمی‌شود.',
-      notes,
+      remains: ['اقرارنامهٔ قبلی در سابقه می‌ماند و حذف نمی‌شود.'],
     };
   }
-  return { remains: 'سندهای قبلی در سابقه می‌مانند و حذف نمی‌شوند.', cancel, notes };
+  return { remains: ['سندهای قبلی در سابقه می‌مانند و حذف نمی‌شوند.'], cancel };
 }
 
 export function DocResendButton({ kind, id, onDone }: { kind: 'goods' | 'payment'; id: number; onDone: (msg: string) => void }) {
@@ -214,7 +204,7 @@ export function DocResendWizard({ kind, id, onClose, onDone }: { kind: 'goods' |
     : [];
   const historyKind: 'invoice' | 'acknowledgement' = action === 'resend_acknowledgement' ? 'acknowledgement' : 'invoice';
   const reasonLen = reason.trim().length;
-  const effect = action ? confirmEffect(kind, action, controls, target) : { notes: [] as string[] };
+  const effect = action ? confirmEffect(kind, action, controls, target) : {};
   const pathLabel = action === 'stage_back' && target ? `از ${controls.stageLabel} ← به ${labelFor(kind, target)}` : null;
 
   return <Wizard
@@ -284,8 +274,7 @@ export function DocResendWizard({ kind, id, onClose, onDone }: { kind: 'goods' |
       {pathLabel ? <div className="dr-kv"><span>مسیر</span><b>{pathLabel}</b></div> : null}
       <div className="dr-kv"><span>دلیل</span><b>{reason.trim()}</b></div>
       <div className="dr-effect" role="status">
-        {effect.notes.map((n) => <p key={n} className="dr-effect-note">{n}</p>)}
-        {effect.remains ? <div className="dr-effect-group" data-testid="dr-effect-keeps"><strong>می‌ماند</strong><p>{effect.remains}</p></div> : null}
+        {effect.remains?.length ? <div className="dr-effect-group" data-testid="dr-effect-keeps"><strong>می‌ماند</strong>{effect.remains.map((n) => <p key={n}>{n}</p>)}</div> : null}
         {effect.cancel ? <div className="dr-effect-group" data-testid="dr-effect-cancel"><strong>لغو می‌شود</strong><p>{effect.cancel}</p></div> : null}
         {effect.removed ? <div className="dr-effect-group" data-testid="dr-effect-removed"><strong>برداشته می‌شود</strong><p>{effect.removed}</p></div> : null}
         {effect.bale ? <div className="dr-effect-group" data-testid="dr-effect-bale"><strong>پیام بله</strong><p>{effect.bale}</p></div> : null}

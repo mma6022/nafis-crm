@@ -1,6 +1,6 @@
 /** Shared building blocks for the «خرید کالا» / «دستور پرداخت» redesign: stepper, wizard shell, confirm dialog, toast, section tabs. */
 import { useEffect, useState, type ReactNode } from 'react';
-import { Check, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Modal } from '@/components/DataTools';
 
 export function Stepper({ steps, current, done, testId }: { steps: string[]; current: number; done?: boolean; testId: string }) {
@@ -29,7 +29,7 @@ export function Wizard({ title, testId, steps, step, summary, children, onClose,
       <div className="gp-wiz-foot">
         <button type="button" className={`btn gp-btn-${next.tone ?? 'primary'}`} disabled={next.disabled} onClick={next.onClick} data-testid={next.testId ?? `button-${testId}-next`}>{next.icon}{next.label}{next.icon ? null : <ChevronLeft size={16} />}</button>
         {onBack ? <button type="button" className="btn btn-ghost" onClick={onBack} data-testid={`button-${testId}-back`}><ChevronRight size={16} />قبلی</button>
-          : <button type="button" className="btn btn-ghost" onClick={onClose}>انصراف</button>}
+          : <button type="button" className="btn btn-ghost" onClick={onClose} data-testid={`button-${testId}-cancel`}>انصراف</button>}
       </div>
     </div>
   </Modal>;
@@ -61,7 +61,11 @@ export function ConfirmDialog({ title, testId, children, confirmLabel, tone = 'p
 
 export function Toast({ text, onDone, action }: { text: string; onDone: () => void; action?: ReactNode }) {
   useEffect(() => { const t = setTimeout(onDone, 6000); return () => clearTimeout(t); }, [text, onDone]);
-  return <div className="gp-toast" role="status" data-testid="toast-goods"><Check size={16} /><span>{text}</span>{action}<button type="button" onClick={onDone} aria-label="بستن"><X size={14} /></button></div>;
+  return <div className="gp-toast" role="status" data-testid="toast-goods" onClick={() => { if (!action) onDone(); }}>
+    <Check size={16} aria-hidden="true" />
+    <span>{text}</span>
+    {action}
+  </div>;
 }
 
 /**

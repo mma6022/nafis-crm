@@ -4,7 +4,7 @@ import { Link, useLocation, useParams } from 'wouter';
 import { ArrowRight, Check, FileText, Printer, RefreshCw, Send, Plus, Trash2, Banknote, ShieldCheck, Truck } from 'lucide-react';
 import { ErrorState, SkeletonPanel, formatDateTime } from '@/components/CrmShell';
 import GoodsSettlementPreview from '@/components/GoodsSettlementPreview';
-import { ConfirmDialog, Stepper } from '@/components/goods/GpKit';
+import { ConfirmDialog, Stepper, Toast } from '@/components/goods/GpKit';
 import { NEXT_STEP } from '@/pages/GoodsPurchases';
 import { getGetCompanyWalletQueryKey } from '@workspace/api-client-react';
 import { useListContractTemplates, getListContractTemplatesQueryKey, type ContractMapping } from '@workspace/api-client-react';
@@ -62,7 +62,7 @@ export default function GoodsPurchaseDetail() {
 
     <Stepper steps={STAGES.map((st) => st.label)} current={idx} done={p.stage === 'completed'} testId="goods-stepper" />
 
-    {flash ? <div className={`gp-alert ${flash.ok ? 'ok' : ''}`} role="status">{flash.text}</div> : null}
+    {flash?.ok ? <Toast text={flash.text} onDone={() => setFlash(null)} /> : flash ? <div className="gp-alert" role="alert">{flash.text}</div> : null}
     {canResend ? <div className="gp-resend-actions" style={{ margin: '12px 0' }}><DocResendButton kind="goods" id={pid} onDone={(t) => setFlash({ ok: true, text: t })} /></div> : null}
 
     <div className="gp-detail2">

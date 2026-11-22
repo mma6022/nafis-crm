@@ -4780,8 +4780,43 @@ button.gp-chip { cursor: pointer; font-family: inherit; }
 .gp-confirm p { margin: 0 0 10px; line-height: 1.9; }
 .gp-confirm textarea { width: 100%; min-height: 84px; padding: 9px 11px; border-radius: 10px; border: 1px solid #dbe2ea; font: inherit; resize: vertical; }
 .gp-req { color: #b42318; }
-.gp-toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 90; display: flex; gap: 12px; align-items: center; padding: 11px 18px; border-radius: 12px; background: #0f2a3d; color: #fff; box-shadow: 0 14px 30px -12px rgba(15,23,42,.5); font-size: 13.5px; max-width: calc(100vw - 32px); }
-.gp-toast a, .gp-toast button { color: #e3c27a; background: none; border: 0; font: inherit; cursor: pointer; }
+/* Success bar: one line, one icon, full width with 16px side margin, sits above the dock (dock height + 12px). Same pattern at 390 and 1280. */
+.gp-toast {
+  position: fixed;
+  z-index: 85;
+  left: 16px;
+  right: 16px;
+  width: auto;
+  max-width: none;
+  transform: none;
+  /* 22px = half of the 44px «⌄» dock toggle that sits on the dock's top edge, then +12px gap. */
+  bottom: calc(var(--ss-dock-h, 72px) + 22px + 12px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  min-height: 44px;
+  border-radius: 12px;
+  background: #e7f5f1;
+  color: #0f5f55;
+  border: 1px solid #b9e1d6;
+  box-shadow: none;
+  font-size: 14px;
+  line-height: 1.4;
+}
+@media (min-width: 1024px) {
+  .gp-toast { bottom: calc(var(--ss-dock-h, 90px) + var(--ss-gap, 16px) + 22px + 12px); }
+}
+.gp-toast > svg { flex: none; }
+.gp-toast > span {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gp-toast a, .gp-toast button { color: #0f5f55; background: none; border: 0; font: inherit; cursor: pointer; }
 .gp-pct-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .gp-pct-row input { width: 110px; padding: 9px 12px; border-radius: 10px; border: 1px solid #dbe2ea; font: inherit; font-size: 16px; font-weight: 700; text-align: center; }
 .gp-pct-sign { font-weight: 800; color: #64748b; }
