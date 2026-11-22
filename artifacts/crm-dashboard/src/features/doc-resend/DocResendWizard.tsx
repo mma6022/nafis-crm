@@ -90,11 +90,18 @@ function confirmEffect(kind: 'goods' | 'payment', action: Action, controls: Admi
     : undefined;
   const preSettlement = ['invoice_draft', 'invoice_signature'].includes(target);
   if (preSettlement && ['invoice_signature', 'settlement_pending'].includes(from)) {
+    const hasSigned = signedInv.length > 0;
+    let removed: string | undefined;
+    if (from === 'invoice_signature') {
+      // With an open unsigned request and no recorded signature, hide this line — «لغو می‌شود» is enough.
+      // With no open request, the recorded invoice signature is what is cleared.
+      if (hasSigned) removed = 'امضای ثبت‌شده‌ی فاکتور (برای ادامه، امضای تازه لازم است)';
+    } else {
+      removed = 'امضای ثبت‌شدهٔ فاکتور روی پرونده (برای ادامه، امضای تازه لازم است)';
+    }
     return {
-      removed: from === 'invoice_signature'
-        ? 'امضای در جریان روی پرونده (برای ادامه، امضای تازه لازم است)'
-        : 'امضای ثبت‌شدهٔ فاکتور روی پرونده (برای ادامه، امضای تازه لازم است)',
-      remains: [signedInv.length
+      removed,
+      remains: [hasSigned
         ? signedInv.map((d) => `فاکتور نسخهٔ ${faId(d.version)} (امضاشده)`).join(' و ')
         : 'سندهای قبلی در سابقه می‌مانند و حذف نمی‌شوند.'],
       cancel,
