@@ -133,14 +133,15 @@ function InvoicePanel({ p, editable, adminRevise, onSaved }: { p: Purchase; edit
   const [rows, setRows] = useState<Row[]>(init);
   const initFor = useRef(p.id);
   useEffect(() => { if (initFor.current !== p.id) { initFor.current = p.id; setRows(init()); } }, [p.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const itemsBody = () => rows.map((r) => ({ title: r.title.trim(), quantity: Number(r.quantity), unitPriceToman: digitsOnly(r.unitPriceToman) }));
+  const qty = (r: Row) => digitsOnly(r.quantity);
+  const itemsBody = () => rows.map((r) => ({ title: r.title.trim(), quantity: Number(qty(r) || 0), unitPriceToman: digitsOnly(r.unitPriceToman) }));
   const save = useMutation({
     mutationFn: (reason?: string) => adminRevise
       ? postAdminInvoice(p.id, itemsBody(), reason || 'ویرایش اقلام فاکتور', p.stage)
       : api.put<Purchase>(`/goods-purchases/${p.id}/invoice`, { items: itemsBody() }),
     onSuccess: () => { setAskReason(false); onSaved('اقلام فاکتور ذخیره شد.'); },
   });
-  const total = rows.reduce((s, r) => s + toBig(digitsOnly(r.unitPriceToman)) * BigInt(Math.max(0, Math.floor(Number(r.quantity) || 0))), 0n);
+  const total = rows.reduce((s, r) => s + toBig(digitsOnly(r.unitPriceToman)) * BigInt(Math.max(0, Math.floor(Number(qty(r) || '0') || 0))), 0n);
   const credit = toBig(p.creditAmountToman);
   const diff = credit - total;
   const set = (i: number, patch: Partial<Row>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
@@ -150,9 +151,9 @@ function InvoicePanel({ p, editable, adminRevise, onSaved }: { p: Purchase; edit
       <thead><tr><th>شرح کالا</th><th>تعداد</th><th>قیمت واحد (تومان)</th><th>جمع</th>{editable ? <th /> : null}</tr></thead>
       <tbody>{rows.map((r, i) => <tr key={i}>
         <td>{editable ? <input value={r.title} onChange={(e) => set(i, { title: e.target.value })} placeholder="مثال: یخچال ساید بای ساید" data-testid={`input-item-title-${i}`} /> : r.title}</td>
-        <td>{editable ? <input type="number" min={1} step={1} value={r.quantity} onChange={(e) => set(i, { quantity: e.target.value })} style={{ width: 70 }} /> : Number(r.quantity).toLocaleString('fa-IR')}</td>
+        <td>{editable ? <input dir="ltr" inputMode="numeric" value={qty(r) ? faId(qty(r)) : ''} onChange={(e) => set(i, { quantity: digitsOnly(e.target.value) })} style={{ width: 70 }} data-testid={`input-item-quantity-${i}`} aria-label="تعداد" /> : faId(qty(r) || '0')}</td>
         <td>{editable ? <input dir="ltr" inputMode="numeric" value={toBig(digitsOnly(r.unitPriceToman)) ? faGrouped(toBig(digitsOnly(r.unitPriceToman))) : ''} onChange={(e) => set(i, { unitPriceToman: digitsOnly(e.target.value) })} data-testid={`input-item-price-${i}`} /> : toman(r.unitPriceToman)}</td>
-        <td className="mono">{toman((toBig(digitsOnly(r.unitPriceToman)) * BigInt(Math.max(0, Math.floor(Number(r.quantity) || 0)))).toString())}</td>
+        <td className="mono">{toman((toBig(digitsOnly(r.unitPriceToman)) * BigInt(Math.max(0, Math.floor(Number(qty(r) || '0') || 0)))).toString())}</td>
         {editable ? <td><button className="icon-button" type="button" disabled={rows.length === 1} onClick={() => setRows(rows.filter((_, j) => j !== i))} aria-label="حذف ردیف"><Trash2 size={14} /></button></td> : null}
       </tr>)}</tbody>
     </table></div>
@@ -161,7 +162,7 @@ function InvoicePanel({ p, editable, adminRevise, onSaved }: { p: Purchase; edit
       <div className="gp-totals"><span>جمع فاکتور <b>{toman(total.toString())}</b></span><span>اعتبار <b>{toman(p.creditAmountToman)}</b></span><span className={diff === 0n ? 'ok' : 'bad'}>{diff === 0n ? 'برابر با کل اعتبار' : diff > 0n ? `${toman(diff.toString())} کمتر از اعتبار` : `${toman((-diff).toString())} بیشتر از اعتبار`}</span></div>
     </div>
     {save.isError ? <div className="gp-alert">{errText(save.error)}</div> : null}
-    {editable ? <div className="form-footer"><button className="btn btn-primary" disabled={save.isPending || diff !== 0n || rows.some((r) => !r.title.trim() || !(Number(r.quantity) > 0) || !digitsOnly(r.unitPriceToman))} onClick={() => adminRevise ? setAskReason(true) : save.mutate(undefined)} data-testid="button-save-invoice">{save.isPending ? 'در حال ذخیره…' : 'ذخیره فاکتور'}</button></div> : null}
+    {editable ? <div className="form-footer"><button className="btn btn-primary" disabled={save.isPending || diff !== 0n || rows.some((r) => !r.title.trim() || !(Number(qty(r) || '0') > 0) || !digitsOnly(r.unitPriceToman))} onClick={() => adminRevise ? setAskReason(true) : save.mutate(undefined)} data-testid="button-save-invoice">{save.isPending ? 'در حال ذخیره…' : 'ذخیره فاکتور'}</button></div> : null}
     {askReason ? <ConfirmDialog title="ذخیره اقلام فاکتور" testId="admin-invoice" confirmLabel="ذخیره فاکتور" tone="primary" busy={save.isPending} error={save.isError ? errText(save.error) : null}
       reason={{ label: 'دلیل ویرایش', min: 5, placeholder: 'مثلاً اصلاح شرح کالا' }}
       onConfirm={(reason) => save.mutate(reason)} onClose={() => setAskReason(false)}><p>نسخهٔ تازه از اقلام ذخیره می‌شود. فاکتورهای امضاشدهٔ قبلی در سابقه می‌مانند.</p></ConfirmDialog> : null}
