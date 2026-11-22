@@ -328,6 +328,59 @@ await ok("preview uses Persian labels for ranks, priority, and unknown; ids stay
   }
 });
 
+
+await ok("value picker lists actual field values with counts; in is stricter than exists; OR within a field, AND across fields", async () => {
+  const stats = seg.fieldValues(all, { source: "both" }, { kind: "all" });
+  const by = Object.fromEntries(stats.map((f) => [f.field, f]));
+  assert.ok(by.ssoRetiree);
+  const ssoVals = Object.fromEntries(by.ssoRetiree.values.map((v) => [v.value, v.count]));
+  assert.ok((ssoVals.self || 0) >= 1, `self=${ssoVals.self}`);
+  assert.ok((ssoVals.family || 0) >= 1, `family=${ssoVals.family}`);
+  assert.ok((ssoVals.none || 0) >= 1, `none=${ssoVals.none}`);
+  assert.equal(by.ssoRetiree.values.find((v) => v.value === "self").label, "خودش بازنشسته تأمین اجتماعی است");
+  assert.equal(by.phone.values.length, 0);
+  assert.equal(by.nationalCode.values.length, 0);
+  assert.equal(by.name.values.length, 0);
+  const jobRet = by.job.values.find((v) => v.value === "retired");
+  assert.ok(jobRet && jobRet.count >= 180, `retired count ${jobRet && jobRet.count}`);
+  assert.equal(jobRet.label, "بازنشسته");
+
+  const filled = seg.filterProfiles(all, { source: "both", conditions: [{ field: "ssoRetiree", op: "exists" }] });
+  const self = seg.filterProfiles(all, { source: "both", conditions: [{ field: "ssoRetiree", op: "in", values: ["self"] }] });
+  const family = seg.filterProfiles(all, { source: "both", conditions: [{ field: "ssoRetiree", op: "in", values: ["family"] }] });
+  const bothOr = seg.filterProfiles(all, { source: "both", conditions: [{ field: "ssoRetiree", op: "in", values: ["self", "family"] }] });
+  assert.ok(self.length >= 1);
+  assert.ok(self.length < filled.length, `self ${self.length} should be < filled ${filled.length}`);
+  assert.ok(self.every((p) => p.ssoRetiree === "self"));
+  assert.equal(bothOr.length, self.length + family.length);
+
+  const and = seg.filterProfiles(all, { source: "both", conditions: [
+    { field: "job", op: "in", values: ["retired"] },
+    { field: "ssoRetiree", op: "in", values: ["self"] },
+  ] });
+  assert.ok(and.every((p) => p.job === "retired" && p.ssoRetiree === "self"));
+
+  const x = seg.exportXlsx({ source: "both", conditions: [{ field: "ssoRetiree", op: "in", values: ["self"] }], columns: ["customerId", "name", "ssoRetiree"] }, admin, false);
+  assert.equal(x.rowCount, self.length);
+
+  const tehran = seg.filterProfiles(all, { source: "both", conditions: [{ field: "city", op: "in", values: ["تهران"] }] });
+  assert.ok(tehran.length >= 1, `tehran ${tehran.length}`);
+  assert.ok(tehran.every((p) => seg.canonCity(p.city) === "تهران"));
+  const cityBag = by.city.values.find((v) => v.value === "تهران");
+  assert.ok(cityBag && cityBag.count === tehran.length, `city picker ${cityBag && cityBag.count} vs filter ${tehran.length}`);
+
+  const amt = by.amountMillion;
+  if (amt && amt.min != null && amt.max != null) {
+    const ranged = seg.filterProfiles(all, { source: "both", conditions: [{ field: "amountMillion", op: "range", min: amt.min, max: amt.max }] });
+    assert.equal(ranged.length, amt.filled);
+  }
+
+  const ownStats = seg.fieldValues(all, { source: "both" }, seg.actorScope(expert));
+  const ownSso = ownStats.find((f) => f.field === "ssoRetiree");
+  const ownRows = seg.filterProfiles(all, { source: "both", conditions: [] }, seg.actorScope(expert));
+  assert.equal(ownSso.filled + ownSso.empty, ownRows.length);
+});
+
 await ok("customer data fingerprint unchanged from the start (plus export-only audit table)", async () => {
   assert.equal(customerFingerprint(), before);
 });

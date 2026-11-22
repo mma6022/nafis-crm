@@ -7,7 +7,7 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { requireAuth, getAuthenticatedUser, type AuthUser } from "../lib/auth";
 import {
   SEGMENTS_FLAG, segmentsOn, isSegmentsViewer, actorScope, fieldCatalog, parseQuery, preview, exportXlsx,
-  SegmentScopeError,
+  fieldValues, loadProfiles, SegmentScopeError,
 } from "../lib/customer-segments";
 
 const router: IRouter = Router();
@@ -56,6 +56,23 @@ router.get("/customer-segments/meta", requireAuth, requireViewer, guarded, (_req
     tags: cat.tags,
     scope: scope.kind,
   });
+});
+
+
+router.post("/customer-segments/values", requireAuth, requireViewer, guarded, (req, res) => {
+  const user = res.locals.authUser as AuthUser;
+  const q = parseQuery(req.body);
+  const scope = actorScope(user)!;
+  try {
+    res.json({
+      source: q.source,
+      includeUnlinkedLeads: q.includeUnlinkedLeads !== false && scope.kind === "all",
+      fields: fieldValues(loadProfiles(), q, scope),
+    });
+  } catch (e) {
+    if (e instanceof SegmentScopeError) { fail(res, e.status, e.error, e.publicMessage); return; }
+    throw e;
+  }
 });
 
 router.post("/customer-segments/preview", requireAuth, requireViewer, guarded, (req, res) => {

@@ -493,6 +493,117 @@ export function fieldCatalog(): { groups: typeof FIELD_GROUPS; fields: FieldCata
   return { groups: FIELD_GROUPS, fields, owners, tags };
 }
 
+/** Collapse obvious city duplicates so a picker value matches spelling variants. */
+export function canonCity(v: unknown): string {
+  let s = str(v).replace(/\s+/g, " ").replace(/\s*\/\s*/g, " / ").trim();
+  if (!s) return "";
+  const parts = s.split(" / ");
+  if (parts.length === 2 && parts[0] === parts[1]) s = parts[0];
+  const aliases: Record<string, string> = {
+    "خراسان رضوی / مشهد": "مشهد",
+    "فارس / شیراز": "شیراز",
+    "فارس/ شیراز": "شیراز",
+  };
+  return aliases[s] || s;
+}
+
+export type ValueOpt = { value: string; label: string; count: number };
+export type FieldValues = {
+  field: string;
+  type: FieldType;
+  filled: number;
+  empty: number;
+  values: ValueOpt[];
+  min?: number | string;
+  max?: number | string;
+};
+
+function labelForStored(key: string, value: string): string {
+  const p = emptyProfile();
+  if (key === "tags") { p.tags = [value]; p.tagLabels = []; }
+  else if (key === "documents") p.documents = [value];
+  else if (key === "ownerId") {
+    p.ownerId = value;
+    const owners = loadOwners();
+    p.ownerName = owners.find((o) => o.value === value)?.label || "";
+  } else {
+    (p as unknown as Record<string, unknown>)[key] = value;
+  }
+  const shown = displayValue(key, p);
+  return shown || value;
+}
+
+/** Distinct values + counts for the value picker. Respects source and actor scope. Never lists phone/national/name. */
+export function fieldValues(
+  all: Profile[],
+  q: Pick<SegmentQuery, "source" | "includeUnlinkedLeads">,
+  scope: ActorScope = { kind: "all" },
+): FieldValues[] {
+  const includeUnlinked = q.includeUnlinkedLeads !== false && scope.kind === "all";
+  const rows: Profile[] = [];
+  for (const raw of applyActorScope(all, scope)) {
+    if (!sourceEligible(raw, q.source, includeUnlinked)) continue;
+    rows.push(profileForSource(raw, q.source));
+  }
+  const total = rows.length;
+  const out: FieldValues[] = [];
+  for (const field of FIELDS) {
+    const skipList = field.sensitive === "phone" || field.sensitive === "national" || field.key === "name" || field.key === "customerId";
+    const counts = new Map<string, number>();
+    let empty = 0;
+    const nums: number[] = [];
+    const dates: string[] = [];
+    for (const p of rows) {
+      const raw = getValue(p, field.key);
+      if (field.type === "multi_enum") {
+        const arr = Array.isArray(raw) ? raw.map(String).filter((v) => nonempty(v)) : (nonempty(raw) ? [str(raw)] : []);
+        if (!arr.length) { empty++; continue; }
+        for (const v of arr) counts.set(v, (counts.get(v) || 0) + 1);
+        continue;
+      }
+      if (!nonempty(raw)) { empty++; continue; }
+      if (field.type === "number") {
+        const n = num(raw);
+        if (n == null) { empty++; continue; }
+        nums.push(n);
+        continue;
+      }
+      if (field.type === "date") {
+        const iso = str(raw);
+        if (asDate(iso) == null) { empty++; continue; }
+        dates.push(iso);
+        continue;
+      }
+      let s = str(raw);
+      if (field.key === "city") s = canonCity(s) || s;
+      if (!s) { empty++; continue; }
+      counts.set(s, (counts.get(s) || 0) + 1);
+    }
+    const rec: FieldValues = {
+      field: field.key,
+      type: field.type,
+      filled: total - empty,
+      empty,
+      values: skipList ? [] : [...counts.entries()]
+        .map(([value, count]) => ({ value, label: labelForStored(field.key, value), count }))
+        .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "fa"))
+        .slice(0, 200),
+    };
+    if (field.type === "number" && nums.length) {
+      rec.min = Math.min(...nums);
+      rec.max = Math.max(...nums);
+    }
+    if (field.type === "date" && dates.length) {
+      const sorted = dates.slice().sort();
+      rec.min = sorted[0];
+      rec.max = sorted[sorted.length - 1];
+    }
+    out.push(rec);
+  }
+  return out;
+}
+
+
 export function loadProfiles(): Profile[] {
   const tagLabel = new Map(loadTagCatalog().map((t) => [t.tag, t.label]));
   const customers = queryRows<{
@@ -881,6 +992,10 @@ export function matchesCondition(p: Profile, c: Condition): boolean {
     }
     if (field.key === "job" || field.key === "jobFile" || field.key === "jobSite" || field.key === "guarantorJob") {
       if (set.has(canonJob(val))) return true;
+    }
+    if (field.key === "city") {
+      const want = new Set([...set].map((v) => canonCity(v) || v));
+      if (want.has(canonCity(val) || val)) return true;
     }
     return false;
   }
