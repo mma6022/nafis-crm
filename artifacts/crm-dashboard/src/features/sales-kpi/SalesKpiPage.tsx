@@ -26,6 +26,19 @@ const toEn = (s: string) => String(s)
   .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
   .replace(/[^\d.]/g, "");
 
+const NAME_TITLE_RE = /^(آقای|خانم|آقا|بانو|مهندس|دکتر)\s+/u;
+const nameKey = (name: string | null | undefined) => String(name || "").replace(NAME_TITLE_RE, "").trim();
+const compareNames = (a: string | null | undefined, b: string | null | undefined) =>
+  nameKey(a).localeCompare(nameKey(b), "fa") || String(a || "").localeCompare(String(b || ""), "fa");
+const MINUS = "\u2212";
+const isLoneZero = (num: string) => num.replace(/[+\u2212\-\s]/g, "") === "۰";
+function formatSigned(text: string) {
+  const v = text.replace(/^[-\u2010\u2013\u2212]/, MINUS);
+  const m = v.match(/^([+\u2212])(.*)$/);
+  if (!m) return ui(v);
+  return <><span className="sg">{m[1]}</span>{ui(m[2])}</>;
+}
+
 const MONTH_NAMES = ["فروردین","اردیبهشت","خرداد","تیر","مرداد","شهریور","مهر","آبان","آذر","دی","بهمن","اسفند"];
 function recentJalaliMonths(count = 6): { anchor: string; label: string }[] {
   const parts = tehranPersianParts(new Date());
@@ -59,7 +72,7 @@ function groupExperts(experts: SalesKpiReport["experts"], teams: { teamId: numbe
     }
   }
   const rankKey = (e: (typeof experts)[number]) => e.rankInTeam == null ? 1e9 : e.rankInTeam;
-  const sortMembers = (list: typeof experts) => [...list].sort((a, b) => rankKey(a) - rankKey(b) || (a.name || "").localeCompare(b.name || "", "fa"));
+  const sortMembers = (list: typeof experts) => [...list].sort((a, b) => rankKey(a) - rankKey(b) || compareNames(a.name, b.name) || a.salespersonId - b.salespersonId);
   const groups: { teamId: number; name: string; members: typeof experts }[] = [];
   for (const tm of teams) {
     const members = byTeam.get(tm.teamId);
@@ -127,7 +140,7 @@ function Card({ kpi, canEdit, onOpenSettings, onOpenFormula }: {
         <button type="button" className="fbtn" data-testid="skpi-formula" onClick={() => onOpenFormula(kpi)}>فرمول</button>
       </header>
       <div className="s-b">
-        <span className={`num${muted ? " mute" : ""}`}>{ui(num)}</span>
+        <span className={`num${muted ? " mute" : ""}${isLoneZero(num) ? " is-zero" : ""}`}>{ui(num)}</span>
         {unit ? <span className="unit">{unit}</span> : null}
       </div>
       <div className="s-c">{kpi.status === "ok" && kpi.fractionLabel ? ui(kpi.fractionLabel) : null}</div>
@@ -135,7 +148,7 @@ function Card({ kpi, canEdit, onOpenSettings, onOpenFormula }: {
         {delta ? (
           <>
             <span className="cl">نسبت به دورهٔ قبل</span>
-            <span className="dv">{ui(delta.value)}</span>
+            <span className="dv">{formatSigned(delta.value)}</span>
           </>
         ) : null}
       </div>
@@ -352,7 +365,7 @@ function Board({ canEdit, access, selfId }: { canEdit: boolean; access: string |
                       <button key={e.salespersonId} type="button" className={`tr${expertId === e.salespersonId ? " sel" : ""}`} onClick={() => setExpertId(e.salespersonId)}>
                         <span className="c-rank">{e.rankInTeam != null ? `رتبه ${ui(e.rankInTeam)}` : "بدون رتبه"}</span>
                         <span className="c-name">{e.name}</span>
-                        <span className="c-val">{ui(salesNum)} <small>فروش</small></span>
+                        <span className="c-val">{isLoneZero(salesNum) ? <span className="is-zero">{ui(salesNum)}</span> : ui(salesNum)} <small>فروش</small></span>
                       </button>
                     );
                   })}

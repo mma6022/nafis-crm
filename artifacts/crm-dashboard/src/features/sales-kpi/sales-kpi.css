@@ -9,6 +9,8 @@ html.skpi-page .app-shell.ssv2 .app-main { padding-inline: 32px; }
   html.skpi-page .app-shell.ssv2 .app-main { padding-inline: 16px; }
   html.skpi-page .app-shell.ssv2 .topbar.ss-top { margin-inline: -16px; }
 }
+/* Classic shell: reserve space so assistant bubbles don't cover the last row (~64px+). */
+html.skpi-page .app-shell:not(.ssv2) .skpi { padding-bottom: 160px; }
 .skpi { --navy: rgb(41,54,155); --navy-d: #0B1450; --ink: rgb(31,41,55); --mut: #6B7280; --line: #E5E7EB; --bg: #F7F8FC; --tint: #EEF0FA; --amber-bg: #FFF7E6; --amber: #8A5A00; --r: 16px;
   direction: rtl; color: var(--ink); box-sizing: border-box; width: 100%; max-width: 1200px; margin-inline: auto; padding: 32px 0 48px; font-size: 14px; line-height: 24px;
   container-type: inline-size; container-name: skpi; }
@@ -76,6 +78,13 @@ html.skpi-page .app-shell.ssv2 .app-main { padding-inline: 32px; }
 .skpi .s-b { grid-area: b; display: flex; align-items: baseline; gap: 8px; height: 40px; white-space: nowrap; min-width: 0; }
 .skpi .num { font-size: 28px; line-height: 40px; font-weight: 700; color: var(--navy-d); }
 .skpi .num.mute { color: #9CA3AF; font-weight: 500; }
+/* Vazirmatn's «۰» is a tiny ring that reads as a bullet. Draw a 28/700-scale oval so it reads as zero. */
+.skpi .num.is-zero { position: relative; color: transparent; display: inline-block; width: 0.62em; min-width: 18px; }
+.skpi .num.is-zero::before { content: ""; position: absolute; top: 6px; bottom: 6px; right: 0; width: 0.52em; border: 3px solid var(--navy-d); border-radius: 50%; box-sizing: border-box; }
+.skpi .num.mute.is-zero::before { border-color: #9CA3AF; }
+.skpi .c-val .is-zero { position: relative; color: transparent; display: inline-block; width: 0.62em; min-width: 11px; font-size: 16px; line-height: 24px; font-weight: 700; }
+.skpi .c-val .is-zero::before { content: ""; position: absolute; top: 4px; bottom: 4px; right: 0; width: 0.52em; border: 2px solid var(--ink); border-radius: 50%; box-sizing: border-box; }
+.skpi .dv .sg { font-family: "Segoe UI", "Liberation Sans", Vazirmatn, sans-serif; font-weight: 700; }
 .skpi .unit { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--mut); }
 .skpi .s-c { grid-area: c; height: 24px; font-size: 12px; line-height: 24px; color: var(--mut); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .skpi .s-d { grid-area: d; height: 40px; display: flex; flex-direction: column; justify-content: flex-start; }
@@ -112,7 +121,7 @@ html.skpi-page .app-shell.ssv2 .app-main { padding-inline: 32px; }
 .skpi-progress-bar span { height: 6px; border-radius: 999px; background: #E5E7EB; }
 .skpi-progress-bar span.is-on { background: var(--navy); }
 .skpi-wiz-actions { display: flex; gap: 8px; justify-content: flex-start; flex-wrap: wrap; margin-top: 4px; }
-.skpi-success { margin: 0; padding: 10px 12px; border-radius: 12px; background: #ECFDF5; color: #065F46; font-size: 13px; font-weight: 700; line-height: 1.6; }
+.skpi-success { margin: 0; height: 44px; min-height: 44px; padding: 0 12px; display: flex; align-items: center; box-sizing: border-box; border-radius: 12px; background: #ECFDF5; color: #065F46; font-size: 13px; font-weight: 700; line-height: 1.4; position: static; }
 
 @media (max-width: 1023px) {
   .skpi { margin-inline: 0; max-width: none; padding: 24px 0 200px; }
@@ -139,14 +148,14 @@ html.skpi-page .app-shell.ssv2 .app-main { padding-inline: 32px; }
   .skpi .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .skpi .sub { margin-bottom: 8px; }
   .skpi .cards + .sub { margin-top: 24px; }
-  .skpi .kc { height: 280px; padding: 12px; grid-template-rows: 40px 32px 24px 40px 44px 44px; grid-template-areas: "a" "b" "c" "d" "e" "f"; row-gap: 8px; }
+  .skpi .kc { height: 280px; padding: 12px; grid-template-rows: 40px 36px 20px 40px 44px 44px; grid-template-areas: "a" "b" "c" "d" "e" "f"; row-gap: 8px; }
   .skpi .kc .s-a .fbtn { display: none; }
   .skpi .kc h3 { font-size: 13px; }
-  .skpi .s-b { height: 32px; gap: 4px; }
-  .skpi .num { font-size: 20px; line-height: 32px; }
+  .skpi .s-b { height: 36px; gap: 4px; }
+  .skpi .s-c { height: 20px; line-height: 20px; }
+  .skpi .num { font-size: 28px; line-height: 36px; font-weight: 700; }
   .skpi .unit { font-size: 12px; line-height: 16px; }
   .skpi .s-f { display: block; grid-area: f; }
   .skpi .s-f .fbtn { width: 100%; }
   .skpi .s-e { height: 44px; }
-  .skpi-success { position: sticky; bottom: 88px; z-index: 5; }
 }
