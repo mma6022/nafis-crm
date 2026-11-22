@@ -270,6 +270,8 @@ await ok("HTTP: me enabled, settings hide the key, expert is 403, admin board wo
   const me = await call("GET", "/attendance/me");
   assert.equal(me.json.enabled, true);
   assert.equal(me.json.isAdmin, true);
+  assert.equal(me.json.canView, true);
+  assert.equal(me.json.canManage, true);
   const st = await call("GET", "/attendance/settings");
   assert.equal(st.status, 200, JSON.stringify(st.json));
   assert.equal(st.json.hasCommKey, true);
@@ -279,6 +281,49 @@ await ok("HTTP: me enabled, settings hide the key, expert is 403, admin board wo
   const board = await call("GET", "/attendance/board", { query: { date: day } });
   assert.equal(board.status, 200, JSON.stringify(board.json));
   assert.ok(board.json.people.some((p) => p.status === "absent"));
+});
+
+await ok("sales manager can GET board/report; cannot change device settings; experts get 403", async () => {
+  const smRow = queryRow("SELECT id, role FROM users WHERE id=5");
+  assert.equal(smRow?.role, "sales_manager");
+  assert.notEqual(5, 29);
+  const smToken = sessionToken(5);
+  const me = await call("GET", "/attendance/me", { uid: 5, token: smToken });
+  assert.equal(me.status, 200, JSON.stringify(me.json));
+  assert.equal(me.json.enabled, true);
+  assert.equal(me.json.canView, true);
+  assert.equal(me.json.canManage, false);
+  assert.equal(me.json.isAdmin, false);
+  const board = await call("GET", "/attendance/board", { uid: 5, token: smToken, query: { date: day } });
+  assert.equal(board.status, 200, JSON.stringify(board.json));
+  assert.ok(Array.isArray(board.json.people));
+  const report = await call("GET", "/attendance/report", { uid: 5, token: smToken });
+  assert.equal(report.status, 200, JSON.stringify(report.json));
+  assert.equal(report.json.noSalaryComputed, true);
+  const writes = [
+    ["GET", "/attendance/settings", undefined],
+    ["PUT", "/attendance/settings", { host: "203.0.113.9", port: 4370 }],
+    ["POST", "/attendance/test", { host: "127.0.0.1" }],
+    ["POST", "/attendance/pull", {}],
+    ["GET", "/attendance/staff", undefined],
+    ["POST", "/attendance/staff", { deviceUsers: [] }],
+    ["PUT", "/attendance/map", { entries: [] }],
+  ];
+  for (const [method, path, body] of writes) {
+    const r = await call(method, path, { uid: 5, token: smToken, body });
+    assert.equal(r.status, 403, `${method} ${path} → ${r.status} ${JSON.stringify(r.json)}`);
+    assert.ok(!JSON.stringify(r.json || {}).includes(COMM));
+  }
+  const expertBoard = await call("GET", "/attendance/board", { uid: 2, token: expertToken, query: { date: day } });
+  assert.equal(expertBoard.status, 403);
+  const expertReport = await call("GET", "/attendance/report", { uid: 2, token: expertToken });
+  assert.equal(expertReport.status, 403);
+  const expertMe = await call("GET", "/attendance/me", { uid: 2, token: expertToken });
+  assert.equal(expertMe.status, 200);
+  assert.equal(expertMe.json.enabled, true);
+  assert.equal(expertMe.json.canView, false);
+  assert.equal(expertMe.json.canManage, false);
+  assert.equal(expertMe.json.isAdmin, false);
 });
 
 await ok("flag off stops pull job; customers and team config untouched", async () => {

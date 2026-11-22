@@ -1,9 +1,12 @@
 /**
  * Attendance routes (t869). flag.attendance_v1 absent/≠'1' → /me returns enabled:false, other routes 404.
- * Settings, test, map, pull, board, report: admin only. Comm key never returned or logged.
+ * Board and monthly report: admin + sales_manager (view). Device settings/test/map/pull: plain admin only.
+ * Comm key never returned or logged. sales_manager is users.role='sales_manager' (AuthUser.salesManager / baseRole);
+ * requireAdmin would also allow them because effectiveRole remaps to admin — settings must use requireAttendanceAdmin.
  */
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
-import { requireAuth, requireAdmin, type AuthUser } from "../lib/auth";
+import { requireAuth, getAuthenticatedUser, type AuthUser } from "../lib/auth";
+import { isSalesManagerUser } from "../lib/sales-manager";
 import {
   ATTENDANCE_FLAG, attendanceOn, attendanceTick, ensureAttendanceSchema, getSettings,
   listMap, listStaff, monthlyReport, pullLogs, saveMap, saveSettings, testConnection, todayBoard,
@@ -28,17 +31,50 @@ function publicErr(e: unknown, res: Response) {
   fail(res, status, "bad_request", err.publicMessage || "درخواست نامعتبر است.");
 }
 
+/** Plain سامانه admin, not «مدیر فروش» (whose effective role is also admin). */
+function isAttendanceAdmin(u: AuthUser): boolean {
+  return u.role === "admin" && !isSalesManagerUser(u);
+}
+
+/** Admin or sales manager may view the board and monthly report. */
+function isAttendanceViewer(u: AuthUser): boolean {
+  return isAttendanceAdmin(u) || isSalesManagerUser(u);
+}
+
+function requireAttendanceViewer(req: Request, res: Response, next: NextFunction): void {
+  const user = (res.locals.authUser as AuthUser | undefined) ?? getAuthenticatedUser(req);
+  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!isAttendanceViewer(user)) { res.status(403).json({ error: "Forbidden" }); return; }
+  res.locals.authUser = user;
+  next();
+}
+
+function requireAttendanceAdmin(req: Request, res: Response, next: NextFunction): void {
+  const user = (res.locals.authUser as AuthUser | undefined) ?? getAuthenticatedUser(req);
+  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!isAttendanceAdmin(user)) { res.status(403).json({ error: "Forbidden" }); return; }
+  res.locals.authUser = user;
+  next();
+}
+
 router.get("/attendance/me", requireAuth, (req, res) => {
   const u = res.locals.authUser as AuthUser;
   const enabled = attendanceOn();
-  res.json({ enabled, flag: ATTENDANCE_FLAG, isAdmin: u.role === "admin", canManage: enabled && u.role === "admin" });
+  const isAdmin = isAttendanceAdmin(u);
+  res.json({
+    enabled,
+    flag: ATTENDANCE_FLAG,
+    isAdmin,
+    canView: enabled && isAttendanceViewer(u),
+    canManage: enabled && isAdmin,
+  });
 });
 
-router.get("/attendance/settings", requireAuth, requireAdmin, guarded, (_req, res) => {
+router.get("/attendance/settings", requireAuth, requireAttendanceAdmin, guarded, (_req, res) => {
   res.json(getSettings());
 });
 
-router.put("/attendance/settings", requireAuth, requireAdmin, guarded, (req, res) => {
+router.put("/attendance/settings", requireAuth, requireAttendanceAdmin, guarded, (req, res) => {
   try {
     const b = (req.body || {}) as Record<string, unknown>;
     const u = res.locals.authUser as AuthUser;
@@ -58,7 +94,7 @@ router.put("/attendance/settings", requireAuth, requireAdmin, guarded, (req, res
   } catch (e) { publicErr(e, res); }
 });
 
-router.post("/attendance/test", requireAuth, requireAdmin, guarded, async (req, res) => {
+router.post("/attendance/test", requireAuth, requireAttendanceAdmin, guarded, async (req, res) => {
   try {
     const b = (req.body || {}) as Record<string, unknown>;
     const result = await testConnection({
@@ -70,25 +106,25 @@ router.post("/attendance/test", requireAuth, requireAdmin, guarded, async (req, 
   } catch (e) { publicErr(e, res); }
 });
 
-router.post("/attendance/pull", requireAuth, requireAdmin, guarded, async (_req, res) => {
+router.post("/attendance/pull", requireAuth, requireAttendanceAdmin, guarded, async (_req, res) => {
   try { res.json(await pullLogs()); }
   catch (e) { publicErr(e, res); }
 });
 
-router.get("/attendance/staff", requireAuth, requireAdmin, guarded, (req, res) => {
+router.get("/attendance/staff", requireAuth, requireAttendanceAdmin, guarded, (req, res) => {
   const deviceUsers = Array.isArray(req.query.hint) ? [] : undefined;
   // Optional device users come from the last test (client sends them in POST body via /attendance/map-preview)
   res.json({ staff: listStaff(), map: listMap() });
   void deviceUsers;
 });
 
-router.post("/attendance/staff", requireAuth, requireAdmin, guarded, (req, res) => {
+router.post("/attendance/staff", requireAuth, requireAttendanceAdmin, guarded, (req, res) => {
   const b = (req.body || {}) as { deviceUsers?: { userId: string; name: string }[] };
   const deviceUsers = Array.isArray(b.deviceUsers) ? b.deviceUsers.map((d) => ({ userId: String(d.userId || ""), name: String(d.name || "") })) : [];
   res.json({ staff: listStaff(deviceUsers), map: listMap() });
 });
 
-router.put("/attendance/map", requireAuth, requireAdmin, guarded, (req, res) => {
+router.put("/attendance/map", requireAuth, requireAttendanceAdmin, guarded, (req, res) => {
   try {
     const b = (req.body || {}) as { entries?: { deviceUserId: string; deviceUserName?: string | null; crmUserId: number | null }[] };
     saveMap(Array.isArray(b.entries) ? b.entries : []);
@@ -96,14 +132,14 @@ router.put("/attendance/map", requireAuth, requireAdmin, guarded, (req, res) => 
   } catch (e) { publicErr(e, res); }
 });
 
-router.get("/attendance/board", requireAuth, requireAdmin, guarded, (req, res) => {
+router.get("/attendance/board", requireAuth, requireAttendanceViewer, guarded, (req, res) => {
   try {
     const date = typeof req.query.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : undefined;
     res.json(todayBoard(new Date(), date));
   } catch (e) { publicErr(e, res); }
 });
 
-router.get("/attendance/report", requireAuth, requireAdmin, guarded, (req, res) => {
+router.get("/attendance/report", requireAuth, requireAttendanceViewer, guarded, (req, res) => {
   try {
     const nowJ = jalaliParts();
     const year = req.query.year != null ? Number(req.query.year) : nowJ.year;
