@@ -173,7 +173,7 @@ export const LABELS = {
   docs: { payslip: "فیش حقوقی", salary_deduction_cert: "گواهی کسر از حقوق", sayadi_cheque: "چک صیادی", guarantor: "ضامن", none: "هیچ‌کدام", national_card: "کارت ملی", birth_cert: "شناسنامه", retirement_decree: "حکم بازنشستگی", sayadi_or_promissory: "چک صیادی یا سفته" } as Record<string, string>,
   docsReady: { all: "کامل", partial: "ناقص", none: "هیچ‌کدام" } as Record<string, string>,
   status: { in_progress: "در جریان", cancelled: "لغو شده", completed: "تکمیل شده" } as Record<string, string>,
-  priority: { "1": "P1", "2": "P2", "3": "P3" } as Record<string, string>,
+  priority: { "1": "اولویت ۱", "2": "اولویت ۲", "3": "اولویت ۳", P1: "اولویت ۱", P2: "اولویت ۲", P3: "اولویت ۳" } as Record<string, string>,
   verification: { unverified: "تأیید نشده", verified: "تأیید شده", failed: "ناموفق" } as Record<string, string>,
   leadSource: { site: "سایت", inbound_call: "تماس ورودی", instagram: "اینستاگرام", other: "سایر", none: "نامشخص" } as Record<string, string>,
   regSource: { site_lead: "سرنخ سایت", staff_form: "فرم کارشناس", portal: "پورتال" } as Record<string, string>,
@@ -447,14 +447,33 @@ export function loadCityOptions(): Array<{ value: string; label: string }> {
   return rows.map((r) => ({ value: r.city, label: r.city }));
 }
 
+const RANK_LETTER: Record<string, string> = { A: "الف", B: "ب", C: "ج", D: "د", E: "ه" };
+const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
+export function faDigits(s: string | number): string {
+  return String(s).replace(/\d/g, (d) => FA_DIGITS[Number(d)]);
+}
+
+/** Preview/filter label for a stored credit rank. Values stay Latin (A, C1, unknown) for filtering. */
+export function creditLabel(v: string | null | undefined): string {
+  const raw = (v ?? "").trim();
+  if (!raw || /^unknown$/i.test(raw) || raw === "نمی‌داند") return "نامشخص";
+  const u = raw.toUpperCase();
+  const m = /^([A-E])([1-3])?$/.exec(u);
+  if (m) {
+    const letter = RANK_LETTER[m[1]];
+    return m[2] ? `رتبه ${letter}${faDigits(m[2])}` : `رتبه ${letter}`;
+  }
+  return raw;
+}
+
 function creditOptions(): Array<{ value: string; label: string }> {
   const letters = ["A", "B", "C", "D", "E"];
   const out: Array<{ value: string; label: string }> = [];
   for (const L of letters) {
-    out.push({ value: L, label: L });
-    for (const n of [1, 2, 3]) out.push({ value: `${L}${n}`, label: `${L}${n}` });
+    out.push({ value: L, label: creditLabel(L) });
+    for (const n of [1, 2, 3]) out.push({ value: `${L}${n}`, label: creditLabel(`${L}${n}`) });
   }
-  out.push({ value: "unknown", label: "نامشخص / نمی‌داند" });
+  out.push({ value: "unknown", label: "نامشخص" });
   return out;
 }
 
@@ -929,21 +948,26 @@ export function filterProfiles(all: Profile[], q: SegmentQuery, scope: ActorScop
 
 export function maskPhone(phone: string): string {
   const d = phone.replace(/\D/g, "");
-  if (d.length < 4) return phone ? "••••" : "";
-  return `${"•".repeat(Math.max(4, d.length - 4))}${d.slice(-4)}`;
+  if (!phone) return "";
+  if (d.length < 4) return "پوشیده";
+  return `پوشیده ${faDigits(d.slice(-4))}`;
 }
 
 export function displayValue(key: string, p: Profile, opts?: { phones?: boolean; national?: boolean }): string {
   const raw = getValue(p, key);
   if (key === "phone") return opts?.phones ? String(raw ?? "") : maskPhone(String(raw ?? ""));
-  if (key === "nationalCode") return opts?.national ? String(raw ?? "") : (raw ? "••••" : "");
+  if (key === "nationalCode") return opts?.national ? String(raw ?? "") : (raw ? "پوشیده" : "");
   if (key === "tags") return (p.tagLabels.length ? p.tagLabels : p.tags).join("، ");
   if (key === "documents") return p.documents.map((d) => LABELS.docs[d] || d).join("، ");
   if (key === "ownerId") return p.ownerName || p.ownerId;
   if (key === "customerId") return p.customerId != null ? String(p.customerId) : "";
+  if (key === "creditRank" || key === "creditRankFile" || key === "creditRankSite" || key === "guarantorRank") {
+    return creditLabel(str(raw));
+  }
   if (Array.isArray(raw)) return raw.map(String).join("، ");
   const s = str(raw);
   if (!s) return "";
+  if (/^unknown$/i.test(s)) return "نامشخص";
   const maps: Record<string, Record<string, string>> = {
     job: LABELS.job, jobFile: { ...LABELS.job, ...LABELS.jobRaw }, jobSite: LABELS.job,
     canReferRetiree: LABELS.yn, canReferRetireeFile: LABELS.yn, canReferRetireeSite: LABELS.yn,

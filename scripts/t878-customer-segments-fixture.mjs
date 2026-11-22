@@ -190,8 +190,18 @@ await ok("preview masks phones and never includes national id by default", async
   assert.ok(!prev.columns.includes("nationalCode"));
   for (const row of prev.rows) {
     const ph = row.values.phone || "";
-    if (ph) assert.match(ph, /•/);
+    if (ph) {
+      assert.match(ph, /پوشیده/);
+      assert.doesNotMatch(ph, /•/);
+    }
     assert.doesNotMatch(ph, /09\d{9}/);
+    const pri = row.values.priority || "";
+    assert.doesNotMatch(pri, /\bP[123]\b/);
+    const rank = row.values.creditRank || "";
+    if (rank) {
+      assert.doesNotMatch(rank, /\bunknown\b/i);
+      assert.doesNotMatch(rank, /\b[A-E]\b/);
+    }
   }
 });
 
@@ -280,6 +290,30 @@ await ok("expert_lockdown allowlist includes this report (own-only, same pattern
   const el = await import("../src/lib/expert-lockdown.ts");
   assert.ok(el.EL_ALLOWED_PAGES.includes("/customer-segments"));
   assert.ok(el.elAllowedPages().includes("/customer-segments"));
+});
+
+
+await ok("preview uses Persian labels for ranks, priority, and unknown; ids stay Latin in xlsx", async () => {
+  assert.equal(seg.creditLabel("unknown"), "نامشخص");
+  assert.equal(seg.creditLabel("C"), "رتبه ج");
+  assert.equal(seg.creditLabel("B"), "رتبه ب");
+  assert.equal(seg.creditLabel("E"), "رتبه ه");
+  assert.equal(seg.creditLabel("A1"), "رتبه الف۱");
+  assert.equal(seg.displayValue("priority", { priority: "1" }), "اولویت ۱");
+  assert.match(seg.maskPhone("09121234567"), /پوشیده ۱۲۳۴|پوشیده 1234|پوشیده/);
+  assert.doesNotMatch(seg.maskPhone("09121234567"), /•/);
+  const q = { source: "both", conditions: [{ field: "job", op: "in", values: ["retired"] }], columns: ["customerId", "name", "phone", "priority", "creditRank"] };
+  const x = seg.exportXlsx(q, admin, false);
+  assert.ok(x.columns.includes("customerId"));
+  assert.ok(!x.columns.includes("phone"));
+  // ids / numbers in the spreadsheet stay Latin (sort); labels are Persian
+  // inflate is optional — rowCount is enough together with displayValue
+  const sample = customersOnly.find((p) => p.priority === "1" || p.priority === 1 || p.creditRank);
+  if (sample) {
+    const idText = seg.displayValue("customerId", sample);
+    assert.match(idText, /[0-9]/);
+    assert.doesNotMatch(idText, /[۰-۹]/);
+  }
 });
 
 await ok("customer data fingerprint unchanged from the start (plus export-only audit table)", async () => {
