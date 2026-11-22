@@ -113,8 +113,8 @@ function GoodsAuditEvent({ event: e }: { event: PurchaseEvent }) {
   const short = ADMIN_AUDIT_SHORT[e.action];
   if (short) {
     const reason = typeof parseEventDetail(e.detail)?.reason === 'string' ? String(parseEventDetail(e.detail)?.reason) : '';
-    const meta = [e.actorName || 'سیستم', formatDateTime(e.createdAt), reason].filter(Boolean).join(' · ');
-    return <li className="dr-audit" data-testid={`audit-${e.action}`}><strong>{short}</strong><span>{meta}</span></li>;
+    const meta = [e.actorName || 'سیستم', formatDateTime(e.createdAt)].filter(Boolean).join(' · ');
+    return <li className="dr-audit" data-testid={`audit-${e.action}`}><strong>{short}</strong><span>{meta}</span>{reason ? <span>{reason}</span> : null}</li>;
   }
   return <li><strong>{eventLabel(e.action)}</strong><span>{formatDateTime(e.createdAt)}</span></li>;
 }

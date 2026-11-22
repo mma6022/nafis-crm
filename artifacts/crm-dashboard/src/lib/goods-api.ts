@@ -252,7 +252,7 @@ const EVENT_LABELS: Record<string, string> = {
   sales_approved: 'تأیید فروش', admin_approved: 'تأیید مدیریت', paid: 'ثبت پرداخت', created_order: 'ایجاد دستور پرداخت',
   team_commission_posted: 'پورسانت ثبت شد', team_commission_reversed: 'برگشت پرونده · کسر پورسانت در ماه بعد', team_commission_unposted: '«پرداخت‌شده» برگشت · پورسانت خنثی شد',
   payment_recorded: '«پرداخت‌شده» ثبت شد', payment_reverted: '«پرداخت‌شده» برگشت (ثبت اشتباه)',
-  admin_stage_back: 'بازگشت مرحله توسط مدیر', admin_document_resend: 'تولید نسخهٔ تازهٔ سند توسط مدیر', admin_invoice_revised: 'ویرایش اقلام فاکتور توسط مدیر',
+  admin_stage_back: 'بازگشت مرحله توسط مدیر', admin_document_resend: 'تولید نسخهٔ تازهٔ سند توسط مدیر', admin_invoice_revised: 'ویرایش اقلام فاکتور توسط مدیر', admin_signature_request_cancelled: 'لغو درخواست امضا', admin_bale_notify_sent: 'پیام بله ارسال شد', admin_bale_notify_failed: 'ارسال پیام بله ناموفق',
   company_credit_registered_in_nafisvam_wallet: 'اعتبار شرکت در کیف پول نفیس‌وام ثبت شد',
   acknowledgement_template_refreshed: 'قالب اقرارنامه به‌روز شد',
   t664_credit_corrected: 'اصلاح اعتبار',
@@ -262,7 +262,7 @@ const EVENT_LABELS: Record<string, string> = {
 const PO_EVENT_LABELS: Record<string, string> = {
   created: 'دستور پرداخت ساخته شد', sales_approved: 'تأیید فروش · حساب مقصد انتخاب شد', admin_approved: 'تأیید مدیریت',
   payment_recorded: '«پرداخت‌شده» ثبت شد', payment_reverted: '«پرداخت‌شده» برگشت (ثبت اشتباه)',
-  admin_stage_back: 'بازگشت مرحله توسط مدیر', admin_document_resend: 'تولید نسخهٔ تازهٔ سند توسط مدیر', admin_invoice_revised: 'ویرایش اقلام فاکتور توسط مدیر',
+  admin_stage_back: 'بازگشت مرحله توسط مدیر', admin_document_resend: 'تولید نسخهٔ تازهٔ سند توسط مدیر', admin_invoice_revised: 'ویرایش اقلام فاکتور توسط مدیر', admin_signature_request_cancelled: 'لغو درخواست امضا', admin_bale_notify_sent: 'پیام بله ارسال شد', admin_bale_notify_failed: 'ارسال پیام بله ناموفق',
 };
 export const poEventLabel = (a?: string) => (a && PO_EVENT_LABELS[a]) || eventLabel(a);
 export const eventLabel = (a?: string) => {

@@ -97,7 +97,7 @@ function confirmEffect(kind: 'goods' | 'payment', action: Action, controls: Admi
     if (from === 'invoice_signature') {
       // With an open unsigned request and no recorded signature, hide this line — «لغو می‌شود» is enough.
       // With no open request, the recorded invoice signature is what is cleared.
-      if (hasSigned) removed = 'امضای ثبت‌شده‌ی فاکتور؛ برای ادامه امضای تازه لازم است';
+      if (hasSigned) removed = 'امضای ثبت‌شده‌ی فاکتور';
     } else {
       removed = 'امضای ثبت‌شدهٔ فاکتور روی پرونده (برای ادامه، امضای تازه لازم است)';
     }

@@ -317,7 +317,7 @@ function History({ order: o }: { order: PaymentOrder }) {
   };
   return <aside className="panel gp-history" data-testid="po-history"><h3><HistoryIcon size={16} /> تاریخچه</h3>
     {events.length ? <ul>{events.map((e, i) => <li key={i} className={e.action === 'payment_recorded' ? 'ok' : e.action === 'payment_reverted' ? 'bad' : ''}>
-      {ADMIN_AUDIT_SHORT[e.action] ? <><strong>{ADMIN_AUDIT_SHORT[e.action]}</strong><span className="secondary-cell" data-testid={`audit-${e.action}`}>{[e.actorName || 'سیستم', formatDateTime(e.createdAt), typeof e.detail?.reason === 'string' ? e.detail.reason : ''].filter(Boolean).join(' · ')}</span></> : <>
+      {ADMIN_AUDIT_SHORT[e.action] ? <><strong>{ADMIN_AUDIT_SHORT[e.action]}</strong><span className="secondary-cell" data-testid={`audit-${e.action}`}>{[e.actorName || 'سیستم', formatDateTime(e.createdAt)].filter(Boolean).join(' · ')}</span>{typeof e.detail?.reason === 'string' && e.detail.reason ? <span className="secondary-cell">{e.detail.reason}</span> : null}</> : <>
       <span className="secondary-cell">{e.actorName || 'سیستم'} · {formatDateTime(e.createdAt)}</span>
       <strong>{poEventLabel(e.action)}</strong>
       {e.action === 'payment_recorded' && o.trackingNumber && o.stage === 'paid' && i === events.findIndex((x) => x.action === 'payment_recorded') ? <span className="secondary-cell">کد پیگیری <bdi className="mono">{o.trackingNumber}</bdi></span> : null}

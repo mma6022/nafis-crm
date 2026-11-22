@@ -107,6 +107,9 @@ export const ADMIN_AUDIT_SHORT: Record<string, string> = {
   admin_stage_back: 'بازگشت مرحله',
   admin_document_resend: 'ارسال دوباره سند',
   admin_invoice_revised: 'ویرایش فاکتور',
+  admin_signature_request_cancelled: 'لغو درخواست امضا',
+  admin_bale_notify_sent: 'پیام بله ارسال شد',
+  admin_bale_notify_failed: 'ارسال پیام بله ناموفق',
 };
 
 export function parseEventDetail(detail?: string | Record<string, unknown> | null): Record<string, unknown> | null {
