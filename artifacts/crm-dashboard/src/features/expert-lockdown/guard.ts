@@ -11,7 +11,7 @@ export const EL_ALLOWED_PAGES = [
   "/messengers",
   "/internal-chat",
   "/bale-bot",
-  "/sales-performance", "/customer-segments",
+  "/sales-performance", "/customer-segments", "/sales-kpi",
 ] as const;
 
 export type ElAllowedPage = (typeof EL_ALLOWED_PAGES)[number];

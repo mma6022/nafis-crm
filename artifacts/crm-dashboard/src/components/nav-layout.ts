@@ -30,6 +30,7 @@ export const ROLE_MENUS: Record<MenuKind, RoleMenu> = {
       { href: '/customers', label: 'مشتریان من' }, // SALES-FIXES 480000: shown only while the server lists /customers in allowedPages (flag.sf480_open_lists)
       { href: '/loan-applications', label: 'پرونده‌های من' },
       { href: '/customer-segments', label: 'گزارش مشتریان' },
+      { href: '/sales-kpi', label: 'شاخص‌های فروش' },
       { href: '/payment-orders' },
       { href: '/goods-purchases' },
       { href: '/messengers', label: 'گفتگو در پیام‌رسان‌ها' },
@@ -53,7 +54,7 @@ export const ROLE_MENUS: Record<MenuKind, RoleMenu> = {
       { href: '/my-performance', label: 'عملکرد و پورسانت من', fallback: '/sales-commissions' },
       { action: 'assistant', label: 'چت دستیار' },
     ],
-    more: [{ id: 'more', hrefs: ['/reminders', '/calls', '/callback-requests', '/consultations', '/loan-plans', '/smart-filing', '/goods-purchases', '/chat', '/phone', '/settings/bale', '/mobile-calls', '/my-wallet', '/sales-commissions', '/contracts', '/wallet-management', '/bank-accounts', '/customer-segments'] }],
+    more: [{ id: 'more', hrefs: ['/reminders', '/calls', '/callback-requests', '/consultations', '/loan-plans', '/smart-filing', '/goods-purchases', '/chat', '/phone', '/settings/bale', '/mobile-calls', '/my-wallet', '/sales-commissions', '/contracts', '/wallet-management', '/bank-accounts', '/customer-segments', '/sales-kpi'] }],
     shortcuts: ['/', '/customers', '/messengers', '/internal-chat'],
   },
   // «کارهای امروز من» for trainees is UNDECIDED → «/» keeps its old label.
@@ -61,7 +62,7 @@ export const ROLE_MENUS: Record<MenuKind, RoleMenu> = {
   // salesperson role, so their server permissions and own-customer scoping are exactly the experts' (no create/admin-approve/pay).
   trainee: {
     main: [{ href: '/' }, { href: '/customers', label: 'مشتری‌های من' }, { href: '/loan-applications', label: 'پرونده‌های وام من' }, { href: '/payment-orders' }, { href: '/goods-purchases' }, { href: '/reminders' }, { href: '/loan-plans' }, { href: '/internal-chat' }],
-    more: [{ id: 'more', hrefs: ['/calls', '/consultations', '/callback-requests', '/my-wallet', '/chat', '/phone', '/customer-segments'] }],
+    more: [{ id: 'more', hrefs: ['/calls', '/consultations', '/callback-requests', '/my-wallet', '/chat', '/phone', '/customer-segments', '/sales-kpi'] }],
     hide: ['/mobile-calls', '/contracts', '/sales-commissions', '/my-performance', '/wallet-management', '/bank-accounts', '/messengers'],
     shortcuts: ['/', '/customers', '/reminders', '/internal-chat'],
   },
@@ -73,7 +74,7 @@ export const ROLE_MENUS: Record<MenuKind, RoleMenu> = {
   },
   // Admin: nothing removed, only re-ordered; the other 24 items sit under a grouped «بیشتر».
   admin: {
-    main: [{ href: '/', label: 'داشبورد مدیر فروش' }, { href: '/loan-applications' }, { href: '/customers' }, { href: '/calls' }, { href: '/goods-purchases' }, { href: '/payment-orders' }, { href: '/internal-chat' }, { href: '/sales-reports' }, { href: '/customer-segments' }, { href: '/settings/assistants' }],
+    main: [{ href: '/', label: 'داشبورد مدیر فروش' }, { href: '/loan-applications' }, { href: '/customers' }, { href: '/calls' }, { href: '/goods-purchases' }, { href: '/payment-orders' }, { href: '/internal-chat' }, { href: '/sales-reports' }, { href: '/customer-segments' }, { href: '/sales-kpi' }, { href: '/settings/assistants' }],
     more: [
       { id: 'sales', label: 'فروش', hrefs: ['/daily-plans', '/reminders', '/consultations', '/callback-requests', '/smart-filing', '/loan-plans', '/contracts'] },
       { id: 'finance', label: 'مالی', hrefs: ['/sales-commissions', '/my-performance', '/my-wallet', '/wallet-management', '/bank-accounts', '/accounting'] },

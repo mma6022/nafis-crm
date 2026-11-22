@@ -1,0 +1,46 @@
+/* t886 شاخص‌های فروش — tabs, RTL, 390 and 1280. Nafis navy / gold. */
+.skpi { --navy:#29369B; --gold:#C99A2E; --ink:#1F2937; --muted:#6B7280; --line:#E5E7EB; --bg:#F7F7F9; --card:#fff; direction:rtl; color:var(--ink); max-width:1120px; margin:0 auto; padding:16px 16px 180px; }
+.skpi * { box-sizing:border-box; }
+.skpi-h { display:flex; flex-direction:column; gap:6px; margin:0 0 16px; }
+.skpi-h h1 { margin:0; font-size:20px; font-weight:800; }
+.skpi-h .skpi-lead { margin:0; color:var(--muted); font-size:13px; line-height:1.7; }
+.skpi-period { display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin:0 0 16px; }
+.skpi-period label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); min-width:0; }
+.skpi-period select, .skpi-period input, .skpi-settings input, .skpi-settings select { font:inherit; border:1px solid var(--line); border-radius:10px; padding:8px 10px; min-height:44px; background:#fff; color:var(--ink); }
+.skpi-period button, .skpi-settings button { appearance:none; border:1px solid var(--navy); background:var(--navy); color:#fff; border-radius:10px; padding:8px 14px; min-height:44px; font:inherit; font-weight:700; cursor:pointer; }
+.skpi-period button.ghost, .skpi-settings button.ghost { background:#fff; color:var(--navy); }
+.skpi-tabs { display:flex; gap:8px; margin:0 0 16px; padding:0; list-style:none; overflow-x:auto; }
+.skpi-tabs button { appearance:none; border:1px solid var(--line); background:var(--card); border-radius:12px; padding:8px 12px; text-align:right; cursor:pointer; color:var(--ink); font:inherit; min-height:44px; min-width:max-content; font-weight:700; }
+.skpi-tabs button.on { border-color:var(--navy); background:#EEF0FA; color:var(--navy); }
+.skpi-tabs button:disabled { opacity:.45; cursor:not-allowed; }
+.skpi-grid { display:grid; grid-template-columns:1fr; gap:10px; }
+.skpi-card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:14px 16px; display:flex; flex-direction:column; gap:6px; min-height:112px; }
+.skpi-card h3 { margin:0; font-size:13px; font-weight:700; line-height:1.5; }
+.skpi-val { font-size:22px; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:-0.01em; }
+.skpi-card.missing .skpi-val, .skpi-card.empty .skpi-val, .skpi-card.baseline .skpi-val { font-size:16px; color:var(--muted); font-weight:700; }
+.skpi-frac { margin:0; font-size:12px; color:var(--muted); }
+.skpi-tip { margin:0; font-size:12px; color:#4B5563; line-height:1.65; }
+.skpi-tip summary { cursor:pointer; color:var(--navy); font-weight:700; }
+.skpi-ban { margin:0 0 12px; padding:10px 12px; border-radius:12px; background:#FFF7E6; color:#7A4D00; font-size:13px; line-height:1.6; }
+.skpi-err { margin:0 0 12px; color:#B91C1C; font-size:13px; }
+.skpi-rank { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 14px; }
+.skpi-chip { background:#EEF0FA; color:var(--navy); border-radius:999px; padding:4px 10px; font-size:12px; font-weight:700; }
+.skpi-settings { display:grid; gap:12px; }
+.skpi-settings .row { display:grid; gap:8px; }
+.skpi-off, .skpi-load { padding:32px 16px 180px; }
+.skpi-experts { display:grid; gap:8px; margin:0 0 16px; }
+.skpi-experts button { appearance:none; width:100%; text-align:right; border:1px solid var(--line); background:#fff; border-radius:12px; padding:10px 12px; min-height:44px; font:inherit; cursor:pointer; display:flex; justify-content:space-between; gap:8px; }
+.skpi-experts button.on { border-color:var(--navy); background:#EEF0FA; }
+@media (min-width: 800px) {
+  .skpi { padding:24px 24px 180px; }
+  .skpi-grid { grid-template-columns:repeat(2, 1fr); }
+  .skpi-settings .row { grid-template-columns:repeat(2, 1fr); }
+}
+@media (min-width: 1100px) {
+  .skpi-grid { grid-template-columns:repeat(3, 1fr); }
+}
+@media (max-width: 430px) {
+  html.skpi-page .skpi { padding-bottom: 200px; }
+  .skpi-h h1 { font-size:18px; }
+  .skpi-val { font-size:20px; }
+}

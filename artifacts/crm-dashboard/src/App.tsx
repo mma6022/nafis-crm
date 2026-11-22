@@ -74,6 +74,7 @@ import MobileCalls from '@/pages/MobileCalls';
 import SalesReports from '@/pages/SalesReports';
 import CustomerSegmentsPage from '@/features/customer-segments/CustomerSegmentsPage';
 import SalesPerformancePage from '@/features/sales-performance/SalesPerformancePage';
+import SalesKpiPage from '@/features/sales-kpi/SalesKpiPage';
 import { VoipDock } from '@/components/voip/VoipDock';
 import StaffChatPage from '@/chat/StaffChatPage';
 import InternalChatPage from '@/internal-chat/InternalChatPage';
@@ -282,6 +283,7 @@ function AppWithRoutes() {
                     <Route path="/customer-segments"><CustomerSegmentsPage /></Route>
                     <Route path="/sales-performance/expert/:id"><SalesPerformancePage /></Route>
                     <Route path="/sales-performance"><SalesPerformancePage /></Route>
+                    <Route path="/sales-kpi"><SalesKpiPage /></Route>
                     <Route path="/sales-commissions"><PermissionRoute permission="goods_finance.view"><SalesCommissions /></PermissionRoute></Route>
                     <Route path="/my-wallet"><PermissionRoute permission="goods_finance.view"><StaffWallet /></PermissionRoute></Route>
                     <Route path="/messengers"><PermissionRoute permission="internal_chat.use"><MessengersPage /></PermissionRoute></Route>
