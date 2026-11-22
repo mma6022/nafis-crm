@@ -72,7 +72,7 @@ export const ROLE_MENUS: Record<MenuKind, RoleMenu> = {
   },
   // Admin: nothing removed, only re-ordered; the other 24 items sit under a grouped «بیشتر».
   admin: {
-    main: [{ href: '/', label: 'داشبورد مدیر فروش' }, { href: '/loan-applications' }, { href: '/customers' }, { href: '/calls' }, { href: '/goods-purchases' }, { href: '/payment-orders' }, { href: '/internal-chat' }, { href: '/sales-reports' }, { href: '/settings/assistants' }],
+    main: [{ href: '/', label: 'داشبورد مدیر فروش' }, { href: '/loan-applications' }, { href: '/customers' }, { href: '/calls' }, { href: '/goods-purchases' }, { href: '/payment-orders' }, { href: '/internal-chat' }, { href: '/sales-reports' }, { href: '/customer-segments' }, { href: '/settings/assistants' }],
     more: [
       { id: 'sales', label: 'فروش', hrefs: ['/daily-plans', '/reminders', '/consultations', '/callback-requests', '/smart-filing', '/loan-plans', '/contracts'] },
       { id: 'finance', label: 'مالی', hrefs: ['/sales-commissions', '/my-performance', '/my-wallet', '/wallet-management', '/bank-accounts', '/accounting'] },

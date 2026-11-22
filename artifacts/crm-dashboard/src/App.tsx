@@ -72,6 +72,7 @@ import { AfterCallPopup } from '@/components/voip/AfterCallPopup';
 import { S132bLayer } from '@/features/voip-call/S132bLayer'; // SIMOTEL-132 B: renders nothing unless flag.simotel132b is on
 import MobileCalls from '@/pages/MobileCalls';
 import SalesReports from '@/pages/SalesReports';
+import CustomerSegmentsPage from '@/features/customer-segments/CustomerSegmentsPage';
 import SalesPerformancePage from '@/features/sales-performance/SalesPerformancePage';
 import { VoipDock } from '@/components/voip/VoipDock';
 import StaffChatPage from '@/chat/StaffChatPage';
@@ -278,6 +279,7 @@ function AppWithRoutes() {
                     <Route path="/accounting/ledger"><PermissionRoute permission="accounting.view"><LedgerReports /></PermissionRoute></Route>
                     <Route path="/accounting"><PermissionRoute permission="accounting.view"><Accounting /></PermissionRoute></Route>
                     <Route path="/sales-reports"><SalesReports /></Route>
+                    <Route path="/customer-segments"><AdminOnlyRoute><CustomerSegmentsPage /></AdminOnlyRoute></Route>
                     <Route path="/sales-performance/expert/:id"><SalesPerformancePage /></Route>
                     <Route path="/sales-performance"><SalesPerformancePage /></Route>
                     <Route path="/sales-commissions"><PermissionRoute permission="goods_finance.view"><SalesCommissions /></PermissionRoute></Route>
