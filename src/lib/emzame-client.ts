@@ -53,3 +53,16 @@ export async function emzameRequest(
   }
   throw new Error("provider_auth_failed");
 }
+
+/** Cancel an unsigned Emzame signature request. Never call this for a signed document.
+ *  Path follows the existing sendContract style on the same backoffice client. */
+export async function cancelEmzameContract(providerContractId: string): Promise<void> {
+  const id = String(providerContractId ?? "").trim();
+  if (!id) throw new Error("provider_cancel_failed");
+  const response = await emzameRequest("contracts/cancelContract", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ contractId: id }),
+  });
+  if (!response.ok) throw new Error("provider_cancel_failed");
+}

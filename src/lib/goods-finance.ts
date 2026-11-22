@@ -139,7 +139,7 @@ export function getGoodsPurchase(id: number): any {
     developmentDiscountToman: p.development_discount_toman, companyCreditToman: p.company_credit_toman, createdAt: p.created_at, completedAt: p.completed_at,
     invoiceDocument: goodsDocumentState(id,"invoice"), acknowledgementDocument: goodsDocumentState(id,"acknowledgement"),
     items: queryRows<any>("SELECT id,title,quantity,unit_price_toman unitPriceToman,total_toman totalToman FROM goods_invoice_items WHERE purchase_id=? ORDER BY id", [id]),
-    events: queryRows<any>("SELECT action,actor_user_id actorUserId,detail,created_at createdAt FROM goods_purchase_events WHERE purchase_id=? ORDER BY id", [id]) };
+    events: queryRows<any>(`SELECT e.action,e.actor_user_id actorUserId,COALESCE(NULLIF(u.full_name,''),u.username) actorName,e.detail,e.created_at createdAt FROM goods_purchase_events e LEFT JOIN users u ON u.id=e.actor_user_id WHERE e.purchase_id=? ORDER BY e.id`, [id]) };
 }
 export function createGoodsPurchase(customerId: number, planId: number, actor: AuthUser): any {
   return runTransaction(() => {

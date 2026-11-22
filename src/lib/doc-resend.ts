@@ -11,10 +11,15 @@ import { assertGoodsPurchaseScope, getGoodsPurchase, goodsEvent, saveGoodsInvoic
 import { goodsDocumentHistory, generateGoodsDocument, type GoodsDocumentKind } from "./goods-documents";
 import { paymentEvent, paymentOrder } from "./payment-orders";
 import { revertPaidPaymentOrder } from "./payment-order-unpay";
+import { cancelEmzameContract } from "./emzame-client";
+import { srBotHasToken, srDeliver, srDefaultSignUrl, srKeyboard, srStartedChats } from "./bale-sign-reminder";
 
 export const DOC_RESEND_FLAG = "flag.doc_resend_v1";
+/** Sub-flag: notify the customer on Bale when a new invoice/acknowledgement is issued. Absent or ≠ '1' = OFF. Requires DOC_RESEND_FLAG too. No SMS, no paid messages. */
+export const DOC_RESEND_BALE_NOTIFY_FLAG = "flag.doc_resend_bale_notify";
 export const REASON_MIN = 5;
 export const REASON_MAX = 2000;
+const UNSIGNED_OPEN_STATUSES = new Set(["sent", "sending", "delivery_unknown"]);
 
 export const GOODS_STAGES = [
   "discharge_pending", "invoice_draft", "invoice_signature", "settlement_pending",
@@ -35,12 +40,21 @@ export const PAYMENT_STAGE_LABELS: Record<string, string> = {
 /** Stages at or after settleGoodsPurchase (wallet debit, lots consumed, company credit). */
 const POST_SETTLEMENT = new Set(["acknowledgement_signature", "registrar_confirmation", "completed"]);
 
-export function docResendOn(): boolean {
+function settingValue(key: string): string | undefined {
   try {
-    return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [DOC_RESEND_FLAG])?.value === "1";
+    return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [key])?.value;
   } catch {
-    return false;
+    return undefined;
   }
+}
+
+export function docResendOn(): boolean {
+  return settingValue(DOC_RESEND_FLAG) === "1";
+}
+
+/** Both the main flag and the Bale sub-flag must be '1'. Absent = OFF. */
+export function docResendBaleNotifyOn(): boolean {
+  return docResendOn() && settingValue(DOC_RESEND_BALE_NOTIFY_FLAG) === "1";
 }
 
 /** Plain admin or sales manager only. Effective role is admin for both; distinguish via baseRole / salesManager. */
@@ -48,6 +62,93 @@ export function canDocResend(u: AuthUser | null | undefined): boolean {
   if (!u) return false;
   if (isSalesManagerUser(u)) return true;
   return u.role === "admin" && u.baseRole !== "sales_manager";
+}
+
+
+export type CancelEmzameFn = (providerContractId: string) => Promise<void>;
+export type GenerateGoodsDocumentFn = typeof generateGoodsDocument;
+export type NotifyDocResendFn = (opts: {
+  purchaseId: number; kind: GoodsDocumentKind; actor: AuthUser; version?: number;
+}) => Promise<{ sent: boolean; reason?: string }>;
+
+let cancelEmzameFn: CancelEmzameFn | null = null;
+let generateGoodsDocumentFn: GenerateGoodsDocumentFn | null = null;
+let notifyDocResendFn: NotifyDocResendFn | null = null;
+
+/** Test-only: mock the Emzame cancel call. Null restores the real client (still unused unless a test sets EMZAME_*). */
+export function setCancelEmzameContractForTests(fn: CancelEmzameFn | null) { cancelEmzameFn = fn; }
+/** Test-only: stub generate (e.g. startGoodsDocumentGeneration) so fixtures never run LibreOffice or sendContract. */
+export function setGenerateGoodsDocumentForTests(fn: GenerateGoodsDocumentFn | null) { generateGoodsDocumentFn = fn; }
+/** Test-only: intercept Bale notify. Null restores the real (still no-send unless the sub-flag is on and srDeliver is also mocked). */
+export function setNotifyDocResendForTests(fn: NotifyDocResendFn | null) { notifyDocResendFn = fn; }
+export function resetDocResendHooksForTests() {
+  cancelEmzameFn = null;
+  generateGoodsDocumentFn = null;
+  notifyDocResendFn = null;
+}
+
+async function runCancelEmzame(providerContractId: string) {
+  const run = cancelEmzameFn ?? cancelEmzameContract;
+  await run(providerContractId);
+}
+
+/** Cancel previous UNSIGNED Emzame requests of this kind. Never touches signed rows. */
+export async function cancelPreviousUnsignedGoodsRequests(purchaseId: number, kind: GoodsDocumentKind) {
+  const rows = queryRows<{ id: number; status: string; provider_contract_id: string | null }>(
+    `SELECT id, status, provider_contract_id FROM goods_purchase_documents
+     WHERE purchase_id=? AND kind=? ORDER BY version`,
+    [purchaseId, kind],
+  );
+  const cancelled: number[] = [];
+  const skippedSigned: number[] = [];
+  const stamp = new Date().toISOString();
+  for (const row of rows) {
+    if (row.status === "signed") { skippedSigned.push(row.id); continue; }
+    if (!row.provider_contract_id) continue;
+    if (!UNSIGNED_OPEN_STATUSES.has(row.status)) continue;
+    await runCancelEmzame(String(row.provider_contract_id));
+    if (executeChanges(
+      `UPDATE goods_purchase_documents SET provider_status='cancelled', status='cancelled', updated_at=?
+       WHERE id=? AND status<>'signed' AND provider_contract_id IS NOT NULL`,
+      [stamp, row.id],
+    ) !== 1) {
+      fail(409, "provider_cancel_conflict");
+    }
+    cancelled.push(row.id);
+  }
+  return { cancelled, skippedSigned };
+}
+
+function firstNameOfCustomer(customerId: number): string {
+  const c = queryRow<{ name: string | null; first_name: string | null }>("SELECT name, first_name FROM customers WHERE id=?", [customerId]);
+  const first = String(c?.first_name ?? "").trim();
+  if (first) return first;
+  return String(c?.name ?? "مشتری").trim().split(/\s+/)[0] || "مشتری";
+}
+
+/** Notify the customer on Bale that a new document was issued. No SMS, no paid messages. Off unless both flags are '1'. */
+export async function notifyDocResendViaBale(opts: {
+  purchaseId: number; kind: GoodsDocumentKind; actor: AuthUser; version?: number;
+}): Promise<{ sent: boolean; reason?: string }> {
+  if (notifyDocResendFn) return notifyDocResendFn(opts);
+  if (!docResendBaleNotifyOn()) return { sent: false, reason: "flag_off" };
+  const p = getGoodsPurchase(opts.purchaseId);
+  const chats = srStartedChats(p.customerId);
+  if (!chats.length) return { sent: false, reason: "bot_not_started" };
+  const target = chats[0];
+  if (!srBotHasToken(target.bot_id)) return { sent: false, reason: "no_token" };
+  const kindLabel = opts.kind === "invoice" ? "فاکتور" : "اقرارنامه";
+  const text = `سلام ${firstNameOfCustomer(p.customerId)}، ${kindLabel} تازه‌ای برای درخواست خرید کالا صادر شد. در صورت نیاز از مسیر امضا اقدام کنید.`;
+  const keyboard = srKeyboard(srDefaultSignUrl());
+  let delivered: { ok: true; messageId: number } | { ok: false; message: string };
+  try {
+    delivered = await srDeliver({
+      chatRow: target.id, botId: target.bot_id, text, keyboard, authorUserId: opts.actor.id, at: new Date().toISOString(),
+    });
+  } catch {
+    return { sent: false, reason: "bale_failed" };
+  }
+  return delivered.ok ? { sent: true } : { sent: false, reason: "bale_failed" };
 }
 
 export class DocResendError extends Error {
@@ -139,6 +240,7 @@ export function goodsAdminControls(purchaseId: number, actor: AuthUser) {
     invoiceVersion: p.invoice_version,
     invoiceSignedVersion: p.invoice_signed_version,
     acknowledgementSigned: !!p.acknowledgement_signed,
+    baleNotify: docResendBaleNotifyOn(),
   };
 }
 
@@ -268,11 +370,15 @@ export async function resendGoodsDocument(purchaseId: number, kind: GoodsDocumen
     items: (p.items ?? []).map((i: any) => ({ title: i.title, quantity: i.quantity, unitPriceToman: i.unitPriceToman })),
   };
   if (kind === "invoice" && !(p.items ?? []).length) fail(409, "invoice_items_required");
-  const document = await generateGoodsDocument(source, kind, actor.id, manual, { forceNew: true });
+  const cancelled = await cancelPreviousUnsignedGoodsRequests(purchaseId, kind);
+  const generate = generateGoodsDocumentFn ?? generateGoodsDocument;
+  const document = await generate(source, kind, actor.id, manual, { forceNew: true });
+  const bale = await notifyDocResendViaBale({ purchaseId, kind, actor, version: document?.version });
   goodsEvent(purchaseId, "admin_document_resend", actor.id, {
     reason, kind, fromStage: p.stage, documentId: document?.id, version: document?.version, actorUserId: actor.id,
+    cancelledDocumentIds: cancelled.cancelled, baleNotify: bale,
   });
-  return { document, purchase: getGoodsPurchase(purchaseId), kind };
+  return { document, purchase: getGoodsPurchase(purchaseId), kind, cancelled, baleNotify: bale };
 }
 
 export function documentCounts(purchaseId: number) {

@@ -464,6 +464,8 @@ export type SrSendResult =
   | { ok: true; state: "cooldown"; lastSentAt: string; lastSentFa: string; lockUntil: string; lockUntilFa: string; messageId: number | null; idempotent?: boolean }
   | { ok: false; status: number; error: string; message: string; lastSentFa?: string | null; lockUntilFa?: string | null };
 
+export const srDeliver: SrDeliverFn = async (opts) => (deliverFn ?? defaultDeliver)(opts);
+
 const defaultDeliver: SrDeliverFn = async ({ chatRow, botId, text, keyboard, authorUserId, at }) => {
   const bot = botById(botId);
   if (!bot || !bcMaySendFromBot(bot)) return { ok: false, message: SR_TEXTS.baleFailed };

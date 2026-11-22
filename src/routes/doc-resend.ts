@@ -1,13 +1,13 @@
 /**
  * t882 admin/sales-manager stage-back and document resend.
  * flag.doc_resend_v1 absent/≠'1' → /me returns enabled:false; other routes 404.
- * Never calls Emzami/SMS/Bale from these handlers except through generateGoodsDocument (local PDF).
- * Sending to Emzami stays on the existing /documents/:kind/send route after the new version is generated.
+ * Cancel of a previous UNSIGNED Emzame request uses the provider client (mocked in tests; never a live send/cancel from fixtures).
+ * Bale notify uses the sign-reminder deliver path, behind flag.doc_resend_bale_notify (absent=OFF). No SMS, no paid messages, no sendContract.
  */
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { requireAuth, type AuthUser } from "../lib/auth";
 import {
-  DOC_RESEND_FLAG, docResendOn, canDocResend, DocResendError, parseReason,
+  DOC_RESEND_FLAG, DOC_RESEND_BALE_NOTIFY_FLAG, docResendOn, docResendBaleNotifyOn, canDocResend, DocResendError, parseReason,
   goodsAdminControls, paymentAdminControls, goodsStageBack, paymentStageBack,
   reviseGoodsInvoice, resendGoodsDocument,
   GOODS_STAGE_LABELS, PAYMENT_STAGE_LABELS,
@@ -51,6 +51,8 @@ router.get("/doc-resend/me", requireAuth, (req, res) => {
   res.json({
     enabled,
     flag: DOC_RESEND_FLAG,
+    baleNotify: docResendBaleNotifyOn(),
+    baleNotifyFlag: DOC_RESEND_BALE_NOTIFY_FLAG,
     canAct,
     salesManager: !!u.salesManager,
     stageLabels: { goods: GOODS_STAGE_LABELS, payment: PAYMENT_STAGE_LABELS },
