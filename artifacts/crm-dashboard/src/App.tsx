@@ -73,6 +73,7 @@ import { S132bLayer } from '@/features/voip-call/S132bLayer'; // SIMOTEL-132 B: 
 import MobileCalls from '@/pages/MobileCalls';
 import SalesReports from '@/pages/SalesReports';
 import SalesPerformancePage from '@/features/sales-performance/SalesPerformancePage';
+import { AttendanceBoardPage, AttendanceReportPage, AttendanceSettingsPage } from '@/features/attendance/AttendancePages';
 import { VoipDock } from '@/components/voip/VoipDock';
 import StaffChatPage from '@/chat/StaffChatPage';
 import InternalChatPage from '@/internal-chat/InternalChatPage';
@@ -342,6 +343,9 @@ function AppWithRoutes() {
                     <Route path="/settings/releases">
                       <AdminOnlyRoute><Releases /></AdminOnlyRoute>
                     </Route>
+                    <Route path="/attendance/settings"><AdminOnlyRoute><AttendanceSettingsPage /></AdminOnlyRoute></Route>
+                    <Route path="/attendance/report"><AdminOnlyRoute><AttendanceReportPage /></AdminOnlyRoute></Route>
+                    <Route path="/attendance"><AdminOnlyRoute><AttendanceBoardPage /></AdminOnlyRoute></Route>
                     <Route component={NotFound} />
                   </Switch>
                 </CrmShell>

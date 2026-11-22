@@ -3,7 +3,7 @@ import { VcHeaderBadge } from '@/features/voip-call/VoipCall';
 import { VoipAnywhereFirstFormHost } from '@/features/voip-call/VoipAnywhere';
 import { useRmConfig } from '@/features/reminder-must/api';
 import { CustomerName } from '@/components/customer/CustomerName';
-import { Moon, Lock, AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, Link2, LifeBuoy, LogOut, Menu, MessageCircle, MoreHorizontal, Sparkles, MessagesSquare, MessageSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, ListChecks, type LucideIcon } from 'lucide-react';
+import { Moon, Lock, AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, Link2, LifeBuoy, LogOut, Menu, MessageCircle, MoreHorizontal, Sparkles, MessagesSquare, MessageSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, ListChecks, Fingerprint, type LucideIcon } from 'lucide-react';
 import { UserAvatar, AvatarPicker } from '@/components/UserAvatar';
 import { useHealthCheck, getHealthCheckQueryKey, useGetAuthSession, useLogout, useUpdateAuthProfile, useListReminders, useAcknowledgeReminder, getListRemindersQueryKey, getGetAuthSessionQueryKey, type CrmUser, type Reminder } from '@workspace/api-client-react';
 import { Link, useLocation } from 'wouter';
@@ -49,6 +49,7 @@ import { useLinkPageMe } from '@/features/link-page/api';
 import { useSalesTeamsMe } from '@/features/sales-teams/api';
 import { useSmcMe } from '@/features/sales-manager-console/api';
 import { useSalesPerformanceMe } from '@/features/sales-performance/api';
+import { useAttendanceMe } from '@/features/attendance/api';
 import { useBaleBotMe } from '@/features/bale-bot/api';
 import { useSalesShellV2, useNavBadges, ssRequestIncoming, tehranHm } from '@/features/sales-shell/api';
 import { useBottomNavV2 } from '@/features/bottom-nav-v2/api';
@@ -66,7 +67,7 @@ import { useTabState } from '@/lib/tab-coordinator';
 
 const nafissLogoUrl = `${import.meta.env.BASE_URL}nafiss-financial-logo.png`;
 
-type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin' | 'discipline'; dp?: 'today' | 'admin'; leadAnnotator?: boolean; ct?: boolean; lp?: boolean; mt?: boolean; smc?: boolean; sam?: boolean; spPerf?: boolean; bb?: 'inbox' | 'admin' };
+type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin' | 'discipline'; dp?: 'today' | 'admin'; leadAnnotator?: boolean; ct?: boolean; lp?: boolean; mt?: boolean; smc?: boolean; sam?: boolean; spPerf?: boolean; att?: boolean; bb?: 'inbox' | 'admin' };
 
 // Routes and permission rules are unchanged; only grouping, order, labels of groups and icons are new.
 const allNavItems: NavItem[] = [
@@ -103,6 +104,7 @@ const allNavItems: NavItem[] = [
   { href: '/phone', label: 'تلفن شرکت', icon: Phone, permission: 'calls.view' },
   { href: '/sales-reports', label: 'گزارش فروش', icon: BarChart3, adminOnly: true },
   { href: '/sales-performance', label: 'گزارش عملکرد فروش', icon: BarChart3, spPerf: true },
+  { href: '/attendance', label: 'حضور و غیاب', icon: Fingerprint, att: true },
   { href: '/social-monitor-reports', label: 'گزارش پیام‌رسان‌ها', icon: Radar, adminOnly: true },
   { href: '/voice-notes-usage', label: 'مصرف تبدیل صدا به متن', icon: AudioLines, adminOnly: true },
   { href: '/smart-filing', label: 'ثبت هوشمند', icon: Bot, smartFiling: true },
@@ -135,7 +137,7 @@ const navGroups: NavGroup[] = [
   { id: 'goods', label: 'خرید کالا', icon: Store, hrefs: ['/goods-purchases', '/sales-commissions', '/my-performance', '/my-wallet'] },
   { id: 'finance', label: 'مالی و پرداخت', icon: Banknote, hrefs: ['/payment-orders', '/wallet-management', '/bank-accounts', '/accounting'] },
   { id: 'comms', label: 'پیام‌ها و تلفن', icon: Headset, hrefs: ['/chat', '/internal-chat', '/messengers', '/settings/bale', '/bale/autoreply', '/instagram-inbox', '/mobile-calls', '/phone', '/call-center'] },
-  { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/sales-performance', '/social-monitor-reports', '/voice-notes-usage', '/call-queue-events', '/call-queue-discipline', '/daily-plans'] },
+  { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/sales-performance', '/attendance', '/social-monitor-reports', '/voice-notes-usage', '/call-queue-events', '/call-queue-discipline', '/daily-plans'] },
   { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/sales-teams', '/sales-team-admin', '/sales-admin', '/settings/notifications', '/settings/assistants', '/settings/default-owner', '/settings/links', '/call-queue-events', '/settings/call-queue', '/settings/releases'] },
 ];
 
@@ -284,6 +286,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const SAM_FOLDED = ['/sales-teams', '/settings/default-owner', '/settings/call-queue', '/call-queue-discipline', '/daily-plans'];
   const mtMe = useSalesTeamsMe(Boolean(user) && !elLocked).data; // multi-team v1 — skip for locked experts (not an allowed shell endpoint)
   const spMe = useSalesPerformanceMe(Boolean(user)).data; // sales-performance v1
+  const attMe = useAttendanceMe(Boolean(user) && isAdminUser).data; // attendance v1 (flag.attendance_v1)
   const basePageTitle = isAdminUser && (location === '/my-wallet' || location.startsWith('/my-wallet/')) ? 'کیف پول کارشناس‌ها' : location === '/settings/links' && !lpMe?.enabled ? 'تنظیمات' /* links v1.0 off: same title as before */ : location === '/sales-teams' && mtMe?.readonly ? 'تیم من' : titleFor(location);
   
   // SALES-SHELL v2 (per-user flag.sales_shell_v2.user.<id>; ALL OFF by default): no sidebar, bottom dock / tab bar.
@@ -323,6 +326,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
     if (item.smc) return Boolean(smcMe?.enabled && smcMe.canManage && !smcMe.merged);
     if (item.sam) return samOn;
     if (item.spPerf) return Boolean(spMe?.canView);
+    if (item.att) return Boolean(attMe?.enabled && attMe.isAdmin);
     if (item.ct) return Boolean(ctCfg?.enabled && (ctCfg.manager || ctCfg.viewer)); // t742s2933: plain admin keeps the report (read-only)
     if (item.cq === 'discipline') return Boolean(cqCfg?.manager && cqCfg.flags.discipline);
     // R2 «پنل محدود»: only «صف تماس من» and «یادآورها» stay in the menu.
