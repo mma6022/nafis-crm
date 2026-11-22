@@ -11,6 +11,11 @@ export type KpiCell = {
   status: KpiStatus; value: number | null; display: string;
   numerator: number | null; denominator: number | null; unit: KpiUnit;
   assumption: string | null; missingReason: string | null; incomplete: boolean;
+  missingKind?: "setting" | "source" | null;
+  direction?: "higher_better" | "lower_better" | null;
+  fractionLabel?: string | null;
+  previousValue?: number | null;
+  deltaDisplay?: string | null;
 };
 export type ExpertKpi = {
   salespersonId: number; name: string | null; userId: number | null; trainee: boolean;
@@ -25,7 +30,7 @@ export type SalesKpiMe = {
   name: string | null; visibility: "all" | "self_and_team_totals" | null;
 };
 export type SalesKpiReport = {
-  period: string; periodKey: string; label: string; previousLabel: string;
+  period: string; periodKey: string; periodTitle?: string; label: string; previousLabel: string;
   from: string; to: string; workingDays: number;
   incompleteFrom: string; callDataIncomplete: boolean;
   access: string; visibility: string;
