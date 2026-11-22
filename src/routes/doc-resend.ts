@@ -64,11 +64,11 @@ router.get("/goods-purchases/:id/admin-controls", requireAuth, requireActor, gua
   catch (e) { handleError(res, e); }
 });
 
-router.post("/goods-purchases/:id/admin-stage", requireAuth, requireActor, guarded, (req, res) => {
+router.post("/goods-purchases/:id/admin-stage", requireAuth, requireActor, guarded, async (req, res) => {
   try {
     const { reason, expectedStage } = parseReason(req.body);
     const toStage = String(req.body?.stage ?? "");
-    const purchase = goodsStageBack(Number(req.params.id), toStage, res.locals.authUser, reason, expectedStage);
+    const purchase = await goodsStageBack(Number(req.params.id), toStage, res.locals.authUser, reason, expectedStage);
     res.json(purchase);
   } catch (e) { handleError(res, e); }
 });

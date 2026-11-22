@@ -285,24 +285,32 @@ function clearGoodsDownstream(from: string, to: string, purchaseId: number) {
   }
 }
 
-export function goodsStageBack(purchaseId: number, toStage: string, actor: AuthUser, reason: string, expectedStage?: string) {
+export async function goodsStageBack(purchaseId: number, toStage: string, actor: AuthUser, reason: string, expectedStage?: string) {
+  assertGoodsPurchaseScope(purchaseId, actor);
+  const p = getGoodsPurchase(purchaseId);
+  if (expectedStage && p.stage !== expectedStage) fail(409, "admin_case_revision_conflict");
+  if (!GOODS_STAGES.includes(toStage as any)) fail(400, "invalid_admin_case_stage");
+  if (p.stage === toStage) fail(409, "admin_case_no_changes");
+  const { targets } = goodsAllowedTargets(p.stage);
+  if (!targets.includes(toStage)) {
+    if (p.stage === "completed") fail(409, "completed_financial_lock");
+    fail(409, "settlement_financial_lock");
+  }
+  const from = p.stage;
+  // Going back from invoice_signature cancels an in-flight UNSIGNED Emzami request (same helper as resend; never signed). Fail-closed: cancel failure aborts the stage change.
+  let cancelledDocumentIds: number[] = [];
+  if (from === "invoice_signature") {
+    const cancelled = await cancelPreviousUnsignedGoodsRequests(purchaseId, "invoice");
+    cancelledDocumentIds = cancelled.cancelled;
+  }
   return runTransaction(() => {
-    assertGoodsPurchaseScope(purchaseId, actor);
-    const p = getGoodsPurchase(purchaseId);
-    if (expectedStage && p.stage !== expectedStage) fail(409, "admin_case_revision_conflict");
-    if (!GOODS_STAGES.includes(toStage as any)) fail(400, "invalid_admin_case_stage");
-    if (p.stage === toStage) fail(409, "admin_case_no_changes");
-    const { targets } = goodsAllowedTargets(p.stage);
-    if (!targets.includes(toStage)) {
-      if (p.stage === "completed") fail(409, "completed_financial_lock");
-      fail(409, "settlement_financial_lock");
-    }
-    const from = p.stage;
+    const again = getGoodsPurchase(purchaseId);
+    if (again.stage !== from || (expectedStage && again.stage !== expectedStage)) fail(409, "admin_case_revision_conflict");
     if (executeChanges("UPDATE goods_purchases SET stage=? WHERE id=? AND stage=?", [toStage, purchaseId, from]) !== 1) {
       fail(409, "admin_case_revision_conflict");
     }
     clearGoodsDownstream(from, toStage, purchaseId);
-    goodsEvent(purchaseId, "admin_stage_back", actor.id, { fromStage: from, toStage, reason, actorUserId: actor.id });
+    goodsEvent(purchaseId, "admin_stage_back", actor.id, { fromStage: from, toStage, reason, actorUserId: actor.id, cancelledDocumentIds });
     return getGoodsPurchase(purchaseId);
   });
 }

@@ -109,6 +109,9 @@ const snapDocs = (purchaseId) => queryRows(
 );
 const sameDocs = (a, b) => assert.deepEqual(a, b);
 
+// Default: mock cancel; tests that need a live-shaped hook replace this. Never hit the network.
+resend.setCancelEmzameContractForTests(async () => {});
+
 await ok("flag absent is OFF", async () => {
   setFlag(null);
   assert.equal(resend.docResendOn(), false);
@@ -174,18 +177,28 @@ await ok("reason and confirmation are required", async () => {
   assert.equal(unconfirmed.json.error, "admin_confirmation_required");
 });
 
-await ok("goods stage-back invoice_signature → invoice_draft keeps the sent invoice", async () => {
+await ok("goods stage-back invoice_signature → invoice_draft keeps the invoice row and cancels the unsigned request", async () => {
+  const cancelCalls = [];
+  resend.setCancelEmzameContractForTests(async (providerContractId) => { cancelCalls.push(providerContractId); });
   const before = snapDocs(54);
   assert.equal(before.length, 1);
   assert.equal(before[0].status, "sent");
   const sentId = before[0].id;
+  const providerId = before[0].provider_contract_id;
   const r = await call("post", "/goods-purchases/:id/admin-stage", { id: "54" }, {
     stage: "invoice_draft", reason: "بازگشت برای اصلاح فاکتور", confirmed: true, expectedStage: "invoice_signature",
   }, salesManager);
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.equal(r.json.stage, "invoice_draft");
   assert.equal(r.json.invoice_signed_version, null);
-  sameDocs(before, snapDocs(54));
+  const after = snapDocs(54);
+  assert.equal(after.length, 1);
+  assert.equal(after[0].id, sentId);
+  assert.equal(after[0].status, "cancelled");
+  assert.equal(after[0].provider_status, "cancelled");
+  assert.equal(after[0].invoice_number, before[0].invoice_number);
+  assert.equal(after[0].pdf_sha256, before[0].pdf_sha256);
+  assert.deepEqual(cancelCalls, [providerId]);
   const ev = queryRow("SELECT action, detail FROM goods_purchase_events WHERE purchase_id=? ORDER BY id DESC LIMIT 1", [54]);
   assert.equal(ev.action, "admin_stage_back");
   const listed = (await import("../src/lib/goods-finance.ts")).getGoodsPurchase(54).events;
@@ -196,7 +209,9 @@ await ok("goods stage-back invoice_signature → invoice_draft keeps the sent in
   assert.equal(detail.toStage, "invoice_draft");
   assert.equal(detail.reason, "بازگشت برای اصلاح فاکتور");
   assert.equal(detail.actorUserId, 5);
+  assert.deepEqual(detail.cancelledDocumentIds, [sentId]);
   assert.equal(queryRow("SELECT id FROM goods_purchase_documents WHERE id=?", [sentId]).id, sentId);
+  resend.setCancelEmzameContractForTests(async () => {});
 });
 
 await ok("expectedStage conflict is 409", async () => {
@@ -218,7 +233,7 @@ await ok("admin can revise invoice items after stage-back; old sent document sta
   const after = snapDocs(54);
   assert.equal(after.length, before.length);
   assert.equal(after[0].id, before[0].id);
-  assert.equal(after[0].status, "sent");
+  assert.equal(after[0].status, "cancelled");
 });
 
 await ok("forceNew opens a new invoice version and leaves the signed one valid", async () => {
@@ -361,9 +376,58 @@ const stubGenerate = async (source, kind, actorId, manual, opts) => {
   return docs.goodsDocumentState(source.id, kind);
 };
 
+await ok("stage-back from invoice_signature cancels an in-flight UNSIGNED Emzami request, fails closed, and never touches a signed doc", async () => {
+  setFlag("1");
+  const cancelCalls = [];
+  resend.setCancelEmzameContractForTests(async (providerContractId) => {
+    cancelCalls.push(providerContractId);
+    throw new Error("provider_cancel_failed");
+  });
+  try {
+    const before = snapDocs(81);
+    const sent = before.find((d) => d.kind === "invoice" && d.status === "sent");
+    assert.ok(sent?.provider_contract_id);
+    const stageBefore = queryRow("SELECT stage FROM goods_purchases WHERE id=81").stage;
+    assert.equal(stageBefore, "invoice_signature");
+    await assert.rejects(
+      () => resend.goodsStageBack(81, "invoice_draft", admin, "بازگشت با لغو ناموفق", "invoice_signature"),
+      (e) => e instanceof Error && /provider_cancel_failed/.test(e.message),
+    );
+    assert.equal(cancelCalls.length, 1);
+    assert.equal(cancelCalls[0], sent.provider_contract_id);
+    assert.equal(queryRow("SELECT stage FROM goods_purchases WHERE id=81").stage, "invoice_signature");
+    assert.equal(snapDocs(81).find((d) => d.id === sent.id).status, "sent");
+
+    cancelCalls.length = 0;
+    resend.setCancelEmzameContractForTests(async (providerContractId) => { cancelCalls.push(providerContractId); });
+    const out = await resend.goodsStageBack(81, "invoice_draft", admin, "بازگشت از امضای فاکتور و لغو درخواست امضای قبلی", "invoice_signature");
+    assert.equal(out.stage, "invoice_draft");
+    assert.deepEqual(cancelCalls, [sent.provider_contract_id]);
+    const cancelled = snapDocs(81).find((d) => d.id === sent.id);
+    assert.equal(cancelled.status, "cancelled");
+    assert.equal(cancelled.provider_status, "cancelled");
+    assert.equal(cancelled.invoice_number, sent.invoice_number);
+    assert.equal(cancelled.pdf_sha256, sent.pdf_sha256);
+    const ev = queryRow("SELECT detail FROM goods_purchase_events WHERE purchase_id=? AND action='admin_stage_back' ORDER BY id DESC LIMIT 1", [81]);
+    const detail = JSON.parse(ev.detail);
+    assert.deepEqual(detail.cancelledDocumentIds, [sent.id]);
+
+    // A signed invoice on another purchase must stay signed.
+    const signed = snapDocs(48).find((d) => d.kind === "invoice" && d.status === "signed");
+    assert.ok(signed);
+  } finally {
+    resend.resetDocResendHooksForTests();
+    resend.setCancelEmzameContractForTests(async () => {});
+  }
+});
+
 await ok("cancel of a previous UNSIGNED Emzame request is mocked, fails closed, and never touches a signed doc", async () => {
   setFlag("1");
   setNotifyFlag(null);
+  // First test cancelled purchase 54's sent invoice; restore the unsigned request so this resend path can cancel it.
+  const restore = queryRow("SELECT id, provider_contract_id, invoice_number FROM goods_purchase_documents WHERE purchase_id=54 AND kind='invoice' ORDER BY version DESC LIMIT 1");
+  assert.ok(restore?.provider_contract_id);
+  executeChanges("UPDATE goods_purchase_documents SET status='sent', provider_status='readyForSign', updated_at=? WHERE id=?", [new Date().toISOString(), restore.id]);
   const cancelCalls = [];
   resend.setGenerateGoodsDocumentForTests(stubGenerate);
   resend.setCancelEmzameContractForTests(async (providerContractId) => {
@@ -414,6 +478,7 @@ await ok("cancel of a previous UNSIGNED Emzame request is mocked, fails closed, 
     if (signedContract) assert.ok(!cancelCalls.includes(signedContract));
   } finally {
     resend.resetDocResendHooksForTests();
+    resend.setCancelEmzameContractForTests(async () => {});
   }
 });
 
