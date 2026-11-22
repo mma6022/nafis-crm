@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import JSZip from "jszip";
 import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
-import { crmDb, databasePath, queryRow } from "./crm-db";
+import { crmDb, databasePath, queryRow, queryRows } from "./crm-db";
 import { emzameRequest } from "./emzame-client";
 import { emzameProviderId as providerId } from "./emzame-response";
 import { providerContractState } from "./emzame-signature";
@@ -64,12 +64,28 @@ function publicState(row: any) {
   } : null;
 }
 export function goodsDocumentState(purchaseId: number, kind: GoodsDocumentKind) { return publicState(latest(purchaseId, kind)); }
+export function goodsDocumentHistory(purchaseId: number, kind?: GoodsDocumentKind) {
+  const rows = kind
+    ? queryRows<any>("SELECT * FROM goods_purchase_documents WHERE purchase_id=? AND kind=? ORDER BY version", [purchaseId, kind])
+    : queryRows<any>("SELECT * FROM goods_purchase_documents WHERE purchase_id=? ORDER BY kind, version", [purchaseId]);
+  return rows.map((row) => ({
+    ...publicState(row),
+    invoiceNumber: row.invoice_number ?? null,
+    pdfUrl: row.pdf_path ? `/api/goods-purchases/${row.purchase_id}/documents/${row.kind}/pdf?version=${row.version}` : null,
+  }));
+}
+function rowAt(purchaseId: number, kind: GoodsDocumentKind, version?: number) {
+  if (version == null) return latest(purchaseId, kind);
+  const n = Number(version);
+  if (!Number.isSafeInteger(n) || n < 1) return null;
+  return queryRow<any>("SELECT * FROM goods_purchase_documents WHERE purchase_id=? AND kind=? AND version=?", [purchaseId, kind, n]);
+}
 export function assertInvoiceEditable(purchaseId: number) {
   const row = latest(purchaseId, "invoice");
   if (row && ["generating", "sending", "sent", "signed", "delivery_unknown"].includes(row.status)) throw new Error("invoice_document_locked");
 }
-export function invalidateGoodsInvoice(purchaseId: number) {
-  assertInvoiceEditable(purchaseId);
+export function invalidateGoodsInvoice(purchaseId: number, opts: { adminResend?: boolean } = {}) {
+  if (!opts.adminResend) assertInvoiceEditable(purchaseId);
   crmDb.prepare("UPDATE goods_purchase_documents SET status='superseded',updated_at=? WHERE purchase_id=? AND kind='invoice' AND status IN ('generated','failed','rejected')").run(now(), purchaseId);
 }
 function sourceHash(source: GoodsDocumentSource) { return sha(JSON.stringify(source)); }
@@ -88,9 +104,11 @@ function safeFile(file: string, directory = store) {
   if (path.dirname(resolved) !== canonicalRoot || !fs.statSync(resolved).isFile()) throw new Error("document_path_invalid");
   return resolved;
 }
-export async function goodsPdf(purchaseId: number, kind: GoodsDocumentKind) {
-  const row = latest(purchaseId, kind);
-  if (!row?.pdf_path || row.status === "superseded") throw new Error("document_not_generated");
+export async function goodsPdf(purchaseId: number, kind: GoodsDocumentKind, version?: number) {
+  const row = rowAt(purchaseId, kind, version);
+  if (!row?.pdf_path) throw new Error("document_not_generated");
+  // History (including superseded) stays readable by version; latest-without-version still skips superseded.
+  if (version == null && row.status === "superseded") throw new Error("document_not_generated");
   const bytes = await fsp.readFile(safeFile(row.pdf_path));
   if (sha(bytes) !== row.pdf_sha256) throw new Error("document_integrity_failed");
   return bytes;
@@ -160,7 +178,16 @@ async function convertPdf(docx: Buffer): Promise<string> {
     return file;
   } finally { conversions--; await fsp.rm(dir, { recursive: true, force: true }); }
 }
-export async function generateGoodsDocument(source: GoodsDocumentSource, kind: GoodsDocumentKind, actorId: number, manual: Record<string, string> = {}) {
+export type StartGoodsDocument =
+  | { reused: ReturnType<typeof publicState> }
+  | { id: number; invoiceNumber: string | null; issuedAt: Date; fingerprint: string };
+
+/**
+ * Inserts a new goods_purchase_documents row (status generating) or returns the existing one.
+ * forceNew: open a new version even when a sent/signed document already exists; those old rows are left untouched.
+ * Sent/signed/sending/delivery_unknown are never superseded here.
+ */
+export function startGoodsDocumentGeneration(source: GoodsDocumentSource, kind: GoodsDocumentKind, actorId: number, opts: { forceNew?: boolean } = {}): StartGoodsDocument {
   let previous = latest(source.id, kind);
   // Only local rendering is reclaimable. A stale external send remains locked
   // because its remote outcome is unknown and replay could send twice.
@@ -169,14 +196,17 @@ export async function generateGoodsDocument(source: GoodsDocumentSource, kind: G
     previous = latest(source.id, kind);
   }
   const fingerprint = documentSourceHash(source, kind);
+  if (opts.forceNew && previous && ["generating", "sending"].includes(previous.status) && Date.parse(previous.updated_at) >= Date.now() - 120000) {
+    throw new Error("document_delivery_locked");
+  }
   // Explicit generation renews unsent documents from an older rendering policy.
   // Sent/signed documents and their original bytes stay intact.
   const renewPrevious = previous?.status === "generated" && !previous.provider_contract_id && !previous.provider_file_id &&
-    previous.source_hash !== fingerprint && (compatibleDocumentSource(source, kind, previous.source_hash) ||
-      (kind === "acknowledgement" && previous.source_hash === sourceHash(source)));
-  if (previous && !renewPrevious && !["failed", "rejected", "superseded"].includes(previous.status)) {
+    (opts.forceNew || (previous.source_hash !== fingerprint && (compatibleDocumentSource(source, kind, previous.source_hash) ||
+      (kind === "acknowledgement" && previous.source_hash === sourceHash(source)))));
+  if (!opts.forceNew && previous && !renewPrevious && !["failed", "rejected", "superseded"].includes(previous.status)) {
     if (!compatibleDocumentSource(source, kind, previous.source_hash)) throw new Error("document_source_changed");
-    return publicState(previous);
+    return { reused: publicState(previous) };
   }
   const issuedAt = new Date();
   const issuedAtIso = issuedAt.toISOString();
@@ -194,6 +224,13 @@ export async function generateGoodsDocument(source: GoodsDocumentSource, kind: G
     crmDb.exec("ROLLBACK");
     throw error;
   }
+  return { id, invoiceNumber, issuedAt, fingerprint };
+}
+
+export async function generateGoodsDocument(source: GoodsDocumentSource, kind: GoodsDocumentKind, actorId: number, manual: Record<string, string> = {}, opts: { forceNew?: boolean } = {}) {
+  const started = startGoodsDocumentGeneration(source, kind, actorId, opts);
+  if ("reused" in started) return started.reused;
+  const { id, invoiceNumber, issuedAt } = started;
   try {
     const customer = queryRow<any>("SELECT c.*,s.name salesperson_name FROM customers c LEFT JOIN salespersons s ON s.id=c.salesperson_id WHERE c.id=?", [source.customerId]);
     const plan = queryRow<any>("SELECT * FROM loan_plans WHERE id=?", [source.planId]);

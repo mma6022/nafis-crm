@@ -166,11 +166,13 @@ export function createGoodsPurchase(customerId: number, planId: number, actor: A
     return getGoodsPurchase(id);
   });
 }
-export function saveGoodsInvoice(id: number, items: any[], actorId: number): any {
+export function saveGoodsInvoice(id: number, items: any[], actorId: number, opts: { adminResend?: boolean } = {}): any {
   return runTransaction(() => {
     const p = getGoodsPurchase(id);
     if (p.stage !== "invoice_draft") throw new Error("invalid_purchase_stage");
-    assertInvoiceEditable(id);
+    // adminResend (t882): allow a new items revision even when a sent/signed invoice already exists.
+    // invalidateGoodsInvoice only supersedes unsent generated/failed/rejected rows; signed/sent stay.
+    if (!opts.adminResend) assertInvoiceEditable(id);
     if (!Array.isArray(items) || !items.length || items.length > 100) throw new Error("invalid_invoice_items");
     const parsed = items.map(i => {
       const title = String(i.title ?? "").trim(), quantity = Number(i.quantity);
@@ -182,7 +184,7 @@ export function saveGoodsInvoice(id: number, items: any[], actorId: number): any
     executeChanges("DELETE FROM goods_invoice_items WHERE purchase_id=?", [id]);
     for (const i of parsed) execute("INSERT INTO goods_invoice_items(purchase_id,title,quantity,unit_price_toman,total_toman) VALUES(?,?,?,?,?)", [id,i.title,i.quantity,i.unit.toString(),i.total.toString()]);
     executeChanges("UPDATE goods_purchases SET invoice_version=invoice_version+1,invoice_signed_version=NULL WHERE id=?", [id]);
-    invalidateGoodsInvoice(id);
+    invalidateGoodsInvoice(id, { adminResend: !!opts.adminResend });
     goodsEvent(id,"invoice_saved",actorId);
     return getGoodsPurchase(id);
   });

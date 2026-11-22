@@ -3,6 +3,7 @@ import healthRouter from "./health";
 import crmRouter from "./crm";
 import consultationReportRouter from "./consultation-report";
 import customerSegmentsRouter from "./customer-segments";
+import docResendRouter from "./doc-resend";
 import { staffChatRouter } from "./customer-chat";
 import { startDatabaseBackupScheduler } from "../lib/database-backup";
 import contractsRouter from "./contracts";
@@ -116,6 +117,7 @@ router.use("/internal-chat",createInternalChatRouter({db:crmDb,requireAuth,requi
 // Before crmRouter: «/consultations/report» must not reach «/consultations/:id».
 router.use(consultationReportRouter);
 router.use(customerSegmentsRouter); // t878 گزارش مشتریان (flag.customer_segments_v1, OFF → /me enabled:false, دیگر مسیرها ۴۰۴)
+router.use(docResendRouter); // t882 بازگشت مرحله و ارسال دوباره سند (flag.doc_resend_v1, OFF → /me enabled:false, دیگر مسیرها ۴۰۴)
 router.use(leadAnnotatorRouter);
 router.use(registrarViewRouter);
 router.use(expertLockdownRouter);

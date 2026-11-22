@@ -17,6 +17,7 @@ import { NO_CREDIT_FA } from "../lib/provider-credit";
 import { ensureAccountingSchema, postPaymentDocument, reversePaymentDocument, AccountingError } from "../lib/accounting";
 import { GlPostingError } from "../lib/gl-posting";
 import { onPaymentOrderPaid, unpayPurchaseCommission, orderCommissionView, TeamCommissionError } from "../lib/team-commission";
+import { revertPaidPaymentOrder } from "../lib/payment-order-unpay";
 
 ensurePaymentOrdersSchema();
 ensureAccountingSchema();
@@ -301,20 +302,7 @@ router.post("/payment-orders/:id/unpay", permission("payment_orders.view"), (req
   if (preOpeningOrders([Number(order.id)]).size) return fail(res, 409, "pre_opening_unpay_forbidden");
   try {
     runTransaction(() => {
-      const revision = paidReversalCount(order.id) + 1;
-      const feed = Boolean(queryRow("SELECT 1 FROM sqlite_master WHERE type='table' AND name='site_notification_events'"));
-      const preMax = feed ? Number(queryRow<any>("SELECT MAX(id) m FROM site_notification_events")?.m ?? 0) : -1;
-      const snapshot = { sourceBankAccountId: order.source_bank_account_id, trackingNumber: order.tracking_number, paidAt: order.paid_at,
-        receiptFilename: order.receipt_filename, receiptMime: order.receipt_mime, receiptSha256: order.receipt_sha256, paidBy: order.paid_by };
-      const commission = unpayPurchaseCommission(order.purchase_id, u.id, reason);
-      const doc = reversePaymentDocument(order, u.id, revision, reason);
-      if (executeChanges(`UPDATE customer_payment_orders SET stage='awaiting_payment',source_bank_account_id=NULL,tracking_number=NULL,paid_at=NULL,
-        receipt_filename=NULL,receipt_mime=NULL,receipt_sha256=NULL,paid_by=NULL,updated_at=? WHERE id=? AND stage='paid'`, [now(), order.id]) !== 1) throw new Error("payment_stage_changed");
-      execute(`INSERT INTO payment_order_paid_reversals(order_id,revision,reason,actor_id,created_at,snapshot_json,accounting_original_document_id,accounting_reversal_document_id)
-        VALUES(?,?,?,?,?,?,?,?)`, [order.id, revision, reason, u.id, now(), JSON.stringify({ ...snapshot, neutralizedCommissionRows: commission.neutralized }), doc.originalId, doc.reversalId]);
-      paymentEvent(order.id, "payment_reverted", u.id, { reason, revision, neutralizedCommissionRows: commission.neutralized });
-      // No staff notification for a revert (change-feed rows fired by the trigger above are removed in the same transaction).
-      if (preMax >= 0) executeChanges("DELETE FROM site_notification_events WHERE id>?", [preMax]);
+      revertPaidPaymentOrder(order, u, reason);
     });
   } catch (error) {
     if (error instanceof TeamCommissionError) return fail(res, error.status, error.message);

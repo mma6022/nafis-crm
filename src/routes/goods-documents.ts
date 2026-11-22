@@ -74,7 +74,10 @@ router.post("/goods-purchases/:id/documents/:kind/send-updated", guard, async (r
 router.get("/goods-purchases/:id/documents/:kind/pdf", guard, async (req, res): Promise<void> => {
   try {
     const kind = String(req.params.kind) as GoodsDocumentKind;
-    const pdf = await goodsPdf(Number(req.params.id), kind);
+    const versionRaw = req.query.version;
+    const version = versionRaw == null || versionRaw === "" ? undefined : Number(versionRaw);
+    if (version !== undefined && (!Number.isSafeInteger(version) || version < 1)) { res.status(400).json({ error: "invalid_document_request" }); return; }
+    const pdf = await goodsPdf(Number(req.params.id), kind, version);
     res.setHeader("Cache-Control", "private, no-store");
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `inline; filename="goods-${req.params.id}-${kind}.pdf"`);
