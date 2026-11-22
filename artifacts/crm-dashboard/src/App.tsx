@@ -279,7 +279,7 @@ function AppWithRoutes() {
                     <Route path="/accounting/ledger"><PermissionRoute permission="accounting.view"><LedgerReports /></PermissionRoute></Route>
                     <Route path="/accounting"><PermissionRoute permission="accounting.view"><Accounting /></PermissionRoute></Route>
                     <Route path="/sales-reports"><SalesReports /></Route>
-                    <Route path="/customer-segments"><AdminOnlyRoute><CustomerSegmentsPage /></AdminOnlyRoute></Route>
+                    <Route path="/customer-segments"><CustomerSegmentsPage /></Route>
                     <Route path="/sales-performance/expert/:id"><SalesPerformancePage /></Route>
                     <Route path="/sales-performance"><SalesPerformancePage /></Route>
                     <Route path="/sales-commissions"><PermissionRoute permission="goods_finance.view"><SalesCommissions /></PermissionRoute></Route>

@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 
 const base = () => (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
 
-export type SegmentsMe = { enabled: boolean; flag: string; canView: boolean; canExport: boolean };
+export type SegmentsMe = { enabled: boolean; flag: string; canView: boolean; canExport: boolean; scope?: 'all' | 'own' | null; salespersonId?: number | null };
 export type FieldOpt = { value: string; label: string };
 export type FieldCat = {
   key: string; label: string; group: string; type: string;
@@ -16,8 +16,8 @@ export type PublicRow = {
   kind: 'customer' | 'unlinked_lead'; customerId: number | null; leadKey: string;
   values: Record<string, string>; sources: Record<string, string>; sourceLabels: Record<string, string>;
 };
-export type Preview = { total: number; page: number; pageSize: number; columns: string[]; rows: PublicRow[] };
-export type Meta = { groups: Array<{ id: string; label: string }>; fields: FieldCat[]; owners: FieldOpt[]; tags: Array<{ tag: string; label: string }> };
+export type Preview = { total: number; page: number; pageSize: number; columns: string[]; rows: PublicRow[]; scope?: 'all' | 'own' };
+export type Meta = { groups: Array<{ id: string; label: string }>; fields: FieldCat[]; owners: FieldOpt[]; tags: Array<{ tag: string; label: string }>; scope?: 'all' | 'own' };
 
 export function useSegmentsMe(enabled: boolean) {
   return useQuery<SegmentsMe>({
@@ -32,7 +32,7 @@ export function useSegmentsMe(enabled: boolean) {
 
 export async function fetchMeta(): Promise<Meta> {
   const r = await fetch(`${base()}/api/customer-segments/meta`, { credentials: 'include' });
-  if (!r.ok) throw new Error(r.status === 404 ? 'این گزارش فعلاً فعال نیست.' : r.status === 403 ? 'این گزارش فقط برای مدیر و مدیر فروش است.' : 'خواندن فهرست فیلدها ممکن نشد.');
+  if (!r.ok) throw new Error(r.status === 404 ? 'این گزارش فعلاً فعال نیست.' : r.status === 403 ? 'این گزارش فقط برای مدیر، مدیر فروش و کارشناس است.' : 'خواندن فهرست فیلدها ممکن نشد.');
   return r.json() as Promise<Meta>;
 }
 
@@ -41,7 +41,7 @@ export async function fetchPreview(q: SegmentQuery, page = 1, pageSize = 20): Pr
     method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ ...q, page, pageSize }),
   });
-  if (!r.ok) throw new Error(r.status === 404 ? 'این گزارش فعلاً فعال نیست.' : r.status === 403 ? 'این گزارش فقط برای مدیر و مدیر فروش است.' : 'پیش‌نمایش ساخته نشد.');
+  if (!r.ok) throw new Error(r.status === 404 ? 'این گزارش فعلاً فعال نیست.' : r.status === 403 ? 'این گزارش فقط برای مدیر، مدیر فروش و کارشناس است.' : 'پیش‌نمایش ساخته نشد.');
   return r.json() as Promise<Preview>;
 }
 
@@ -50,7 +50,11 @@ export async function downloadExport(q: SegmentQuery, includePhones: boolean): P
     method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ ...q, includePhones }),
   });
-  if (!r.ok) throw new Error(r.status === 404 ? 'این گزارش فعلاً فعال نیست.' : r.status === 403 ? 'خروجی فقط برای مدیر و مدیر فروش است.' : 'خروجی اکسل ساخته نشد.');
+  if (!r.ok) {
+    const data = await r.json().catch(() => null) as { message?: string } | null;
+    const msg = data && typeof data.message === 'string' ? data.message : '';
+    throw new Error(r.status === 404 ? 'این گزارش فعلاً فعال نیست.' : r.status === 403 ? (msg || 'فقط مشتری‌های خودتان را می‌توانید ببینید یا خروجی بگیرید.') : 'خروجی اکسل ساخته نشد.');
+  }
   const blob = await r.blob();
   const cd = r.headers.get('content-disposition') || '';
   const m = /filename="([^"]+)"/.exec(cd);

@@ -29,6 +29,7 @@ export const ROLE_MENUS: Record<MenuKind, RoleMenu> = {
       { href: '/today', label: 'کارهای امروز من' },
       { href: '/customers', label: 'مشتریان من' }, // SALES-FIXES 480000: shown only while the server lists /customers in allowedPages (flag.sf480_open_lists)
       { href: '/loan-applications', label: 'پرونده‌های من' },
+      { href: '/customer-segments', label: 'گزارش مشتریان' },
       { href: '/payment-orders' },
       { href: '/goods-purchases' },
       { href: '/messengers', label: 'گفتگو در پیام‌رسان‌ها' },
@@ -52,7 +53,7 @@ export const ROLE_MENUS: Record<MenuKind, RoleMenu> = {
       { href: '/my-performance', label: 'عملکرد و پورسانت من', fallback: '/sales-commissions' },
       { action: 'assistant', label: 'چت دستیار' },
     ],
-    more: [{ id: 'more', hrefs: ['/reminders', '/calls', '/callback-requests', '/consultations', '/loan-plans', '/smart-filing', '/goods-purchases', '/chat', '/phone', '/settings/bale', '/mobile-calls', '/my-wallet', '/sales-commissions', '/contracts', '/wallet-management', '/bank-accounts'] }],
+    more: [{ id: 'more', hrefs: ['/reminders', '/calls', '/callback-requests', '/consultations', '/loan-plans', '/smart-filing', '/goods-purchases', '/chat', '/phone', '/settings/bale', '/mobile-calls', '/my-wallet', '/sales-commissions', '/contracts', '/wallet-management', '/bank-accounts', '/customer-segments'] }],
     shortcuts: ['/', '/customers', '/messengers', '/internal-chat'],
   },
   // «کارهای امروز من» for trainees is UNDECIDED → «/» keeps its old label.
@@ -60,7 +61,7 @@ export const ROLE_MENUS: Record<MenuKind, RoleMenu> = {
   // salesperson role, so their server permissions and own-customer scoping are exactly the experts' (no create/admin-approve/pay).
   trainee: {
     main: [{ href: '/' }, { href: '/customers', label: 'مشتری‌های من' }, { href: '/loan-applications', label: 'پرونده‌های وام من' }, { href: '/payment-orders' }, { href: '/goods-purchases' }, { href: '/reminders' }, { href: '/loan-plans' }, { href: '/internal-chat' }],
-    more: [{ id: 'more', hrefs: ['/calls', '/consultations', '/callback-requests', '/my-wallet', '/chat', '/phone'] }],
+    more: [{ id: 'more', hrefs: ['/calls', '/consultations', '/callback-requests', '/my-wallet', '/chat', '/phone', '/customer-segments'] }],
     hide: ['/mobile-calls', '/contracts', '/sales-commissions', '/my-performance', '/wallet-management', '/bank-accounts', '/messengers'],
     shortcuts: ['/', '/customers', '/reminders', '/internal-chat'],
   },

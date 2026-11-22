@@ -39,25 +39,25 @@ export default function CustomerSegmentsPage() {
     return (
       <div className="cses cses-off" dir="rtl">
         <h1>دسترسی ندارید</h1>
-        <p>این گزارش فقط برای مدیر و مدیر فروش است.</p>
+        <p>این گزارش فقط برای مدیر، مدیر فروش و کارشناس است.</p>
       </div>
     );
   }
-  return <Wizard ready={Boolean(me?.canView)} />;
+  return <Wizard ready={Boolean(me?.canView)} scope={me?.scope === 'own' ? 'own' : 'all'} />;
 }
 
-function Wizard({ ready }: { ready: boolean }) {
+function Wizard({ ready, scope }: { ready: boolean; scope: 'all' | 'own' }) {
   const [step, setStep] = useState(1);
   const [maxStep, setMaxStep] = useState(1);
   const [meta, setMeta] = useState<Meta | null>(null);
   const [err, setErr] = useState('');
   const [source, setSource] = useState<SegmentQuery['source']>('both');
-  const [includeUnlinked, setIncludeUnlinked] = useState(false);
+  const [includeUnlinked, setIncludeUnlinked] = useState(true);
   const [columns, setColumns] = useState<string[]>([]);
   const [conditions, setConditions] = useState<Condition[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [loading, setLoading] = useState(false);
-  const [includePhones, setIncludePhones] = useState(true);
+  const [includePhones, setIncludePhones] = useState(false);
   const [exported, setExported] = useState(false);
 
   useEffect(() => {
@@ -74,7 +74,7 @@ function Wizard({ ready }: { ready: boolean }) {
   const fields = meta?.fields ?? [];
   const byKey = useMemo(() => new Map(fields.map((f) => [f.key, f])), [fields]);
   const query = useMemo<SegmentQuery>(() => ({
-    source, includeUnlinkedLeads: includeUnlinked, conditions: conditions.filter((c) => byKey.has(c.field)), columns,
+    source, includeUnlinkedLeads: scope === 'all' && includeUnlinked, conditions: conditions.filter((c) => byKey.has(c.field)), columns,
   }), [source, includeUnlinked, conditions, columns, byKey]);
 
   const go = (n: number) => { setStep(n); setMaxStep((m) => Math.max(m, n)); setErr(''); };
@@ -102,7 +102,7 @@ function Wizard({ ready }: { ready: boolean }) {
     <div className="cses" dir="rtl" data-testid="page-customer-segments">
       <header className="cses-h">
         <h1>گزارش مشتریان</h1>
-        <p>مشتری‌ها را بر اساس دادهٔ پرونده و فرم‌های سایت جدا کنید و خروجی اکسل بگیرید. فیلترها با «و» ترکیب می‌شوند.</p>
+        <p>مشتری‌ها را بر اساس دادهٔ پرونده و فرم‌های سایت جدا کنید و خروجی اکسل بگیرید. فیلترها با «و» ترکیب می‌شوند.{scope === 'own' ? ' شما فقط مشتری‌هایی را می‌بینید که الان مالک‌شان هستید.' : ''}</p>
       </header>
       <ol className="cses-steps">
         {STEPS.map((s) => (
@@ -125,8 +125,8 @@ function Wizard({ ready }: { ready: boolean }) {
               <label className="cses-opt"><input type="radio" name="src" checked={source === 'site'} onChange={() => setSource('site')} /><span><b>فقط فرم‌های سایت</b><span>فقط مشتری‌هایی که فرم ثبت درخواست یا سرنخ سایت دارند.</span></span></label>
             </div>
             <label className="cses-opt">
-              <input type="checkbox" checked={includeUnlinked} onChange={(e) => setIncludeUnlinked(e.target.checked)} />
-              <span><b>سرنخ‌های سایت بدون پرونده هم بیاید</b><span>درخواست تماس‌هایی که هنوز به مشتری وصل نشده‌اند.</span></span>
+              <input type="checkbox" checked={scope === 'all' && includeUnlinked} onChange={(e) => setIncludeUnlinked(e.target.checked)} disabled={scope === 'own'} />
+              <span><b>سرنخ‌های سایت بدون پرونده هم بیاید</b><span>{scope === 'own' ? 'سرنخ بدون پرونده مالک ندارد؛ در فهرست کارشناس نمی‌آید.' : 'درخواست تماس‌هایی که هنوز به مشتری وصل نشده‌اند. به‌طور پیش‌فرض روشن است.'}</span></span>
             </label>
           </div>
           <div className="cses-sec">
@@ -208,7 +208,7 @@ function Wizard({ ready }: { ready: boolean }) {
             </p>
             <label className="cses-opt">
               <input type="checkbox" checked={includePhones} onChange={(e) => setIncludePhones(e.target.checked)} />
-              <span><b>شماره تماس و کد ملی در فایل باشد</b><span>فقط مدیر و مدیر فروش می‌توانند خروجی بگیرند. اگر تیک را بردارید، این ستون‌ها از فایل حذف می‌شوند.</span></span>
+              <span><b>شماره تماس و کد ملی در فایل باشد</b><span>پیش‌فرض خاموش است. فقط اگر این تیک را بزنید، این دو ستون در اکسل می‌آیند و در گزارش ثبت می‌شود که آمده‌اند.</span></span>
             </label>
             {exported ? <p className="cses-hint">فایل دانلود شد. اگر مرورگر جلوی دانلود را گرفت، اجازه بدهید و دوباره بزنید.</p> : null}
           </div>

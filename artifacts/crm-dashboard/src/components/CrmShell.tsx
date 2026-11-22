@@ -279,7 +279,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const ctCfg = useCtConfig(Boolean(user) && isAdminUser).data;
   const bbMe = useBaleBotMe().data; // bale v1.1
   const lpMe = useLinkPageMe(Boolean(user) && isAdminUser).data; // links v1.0
-  const segMe = useSegmentsMe(Boolean(user) && isAdminUser).data; // t878 گزارش مشتریان: admin + sales_manager while flag on
+  const segMe = useSegmentsMe(Boolean(user)).data; // t878 گزارش مشتریان: admin/SM all, expert/trainee own-only while flag on
   // v1.1 (t815s2681): the server answers 200 only for plain admins; sales managers get 403 → no item. v1.2 merge ON: admins + sales managers (t356s1307).
   const smcMe = useSmcMe(Boolean(user && user.role === 'admin') && !elLocked).data;
   const samOn = Boolean(smcMe?.merged && smcMe.canManage);
