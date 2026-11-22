@@ -166,8 +166,11 @@ function missingCell(base: { key: string; group: KpiGroup; label: string; formul
 function attachDeltas(current: KpiCell[], previous: KpiCell[]): KpiCell[] {
   const map = new Map(previous.map((k) => [k.key, k]));
   return current.map((k) => {
+    if (k.status !== "ok") return k;
     const p = map.get(k.key);
-    if (k.status !== "ok" || !p || p.status !== "ok" || k.value == null || p.value == null) return k;
+    if (!p || p.status !== "ok" || k.value == null || p.value == null) {
+      return { ...k, deltaDisplay: "نسبت به دورهٔ قبل: داده ندارد" };
+    }
     const d = k.value - p.value;
     const abs = Math.abs(d);
     let body: string;
@@ -263,18 +266,25 @@ export function completedSalesRows(db: DatabaseSync, fromIso: string, toIso: str
   }));
 }
 
+/**
+ * Same cohort as filedByExpert: non-pre-registration loan applications created in the window.
+ * Cancelled among them = first cancel-case or funder-initial-reject on that application
+ * occurs before the exclusive window end (so the rate cannot exceed 100%).
+ */
 export function cancelledByExpert(db: DatabaseSync, fromIso: string, toIso: string, excludeTest: boolean): Map<number, number> {
   const out = new Map<number, number>();
   if (!has(db, "loan_applications") || !has(db, "loan_application_stage_history")) return out;
   const snap = appSpSql(db);
   const rows = db.prepare(`SELECT ${snap} sp, a.id app, MIN(julianday(h.created_at)) first
-    FROM loan_application_stage_history h
-    JOIN loan_applications a ON a.id=h.application_id
+    FROM loan_applications a
     JOIN customers c ON c.id=a.customer_id
-    WHERE a.deleted_at IS NULL AND h.action='cancel-case' ${notTestJoin(excludeTest)}
+    JOIN loan_application_stage_history h ON h.application_id=a.id
+      AND h.action IN ('cancel-case','funder-initial-reject')
+    WHERE a.deleted_at IS NULL AND COALESCE(a.is_pre_registration,0)=0 ${notTestJoin(excludeTest)}
       AND ${snap} IS NOT NULL
+      AND julianday(a.created_at)>=julianday(?) AND julianday(a.created_at)<julianday(?)
     GROUP BY a.id
-    HAVING first>=julianday(?) AND first<julianday(?)`).all(fromIso, toIso) as any[];
+    HAVING first<julianday(?)`).all(fromIso, toIso, toIso) as any[];
   for (const r of rows) out.set(Number(r.sp), (out.get(Number(r.sp)) ?? 0) + 1);
   return out;
 }
@@ -863,7 +873,7 @@ const ASSIGN_ASSUMPTION = "مشتری تخصیص‌یافته = مشتریانی
 const AMOUNT_ASSUMPTION = "مبلغ فروش = مبلغ مصوب پروندهٔ وام در زمان تکمیل. خرید کالا در این عدد نیست.";
 const WORKDAY_ASSUMPTION = "روز کاری = روزهای تقویم تهران به‌جز جمعه و تعطیلات رسمی (official_holidays). ساعات حضور دستگاه حضور و غیاب در این نسخه نیست.";
 const DOC_ASSUMPTION = "واجد شرایط = اولین ورود پرونده به مرحلهٔ بارگذاری مدارک در دوره؛ تکمیل = عبور از مرحلهٔ بررسی مدارک.";
-const CANCEL_ASSUMPTION = "لغو = اولین اقدام cancel-case در دوره؛ ثبت‌شده = پرونده‌های وام ایجادشده در دوره (پیش‌ثبت نیست).";
+const CANCEL_ASSUMPTION = "گروه: پرونده‌های وام غیرپیش‌ثبت که در همین دوره ایجاد شده‌اند (همان مخرج). لغو = اولین اقدام cancel-case یا funder-initial-reject روی همان پرونده تا پایان دوره. رد کارشناس یا رد مدیر در این نرخ نیست.";
 const RETAIN_ASSUMPTION = "فعال در شروع دوره = مشتری منسوب که قبل از دوره ساخته شده و الان لغو نیست، مگر اینکه در دوره فعالیت داشته باشد. تاریخ لغو جداگانه ثبت نمی‌شود.";
 const PREV_ASSUMPTION = "خریدار قبلی = مشتری با دست‌کم یک پروندهٔ تکمیل‌شده پیش از شروع دوره. در صورت تعیین فاصلهٔ روز، فقط کسانی که از خریدشان آن فاصله گذشته باشد.";
 const REG_ASSUMPTION = "آمادهٔ تحویل به واحد ثبت = اولین ورود به مرحلهٔ تحویل مدارک فیزیکی؛ تحویل = اولین اقدام بعدی یک کاربر با نقش ثبت‌کننده.";
@@ -910,7 +920,7 @@ function kpisFor(
   const called = extras?.teamCalledUnique ?? c.called;
   items.push(ratioCell({ key: "call_conversion", group: "sales", label: "نرخ تبدیل تماس به فروش", formula: "(تعداد فروش موفق ÷ تعداد مشتریان تماس‌گرفته‌شده یکتا) × ۱۰۰", assumption: "مشتری تماس‌گرفته‌شده یکتا = شماره تلفن یکتا در تماس‌های واقعی دوره، با همان انتساب گزارش عملکرد فروش.", incomplete: callIncomplete }, c.sales, called));
   items.push(ratioCell({ key: "document_completion", group: "sales", label: "نرخ تکمیل مدارک", formula: "(تعداد مشتریان تکمیل‌کننده مدارک ÷ تعداد مشتریان واجد شرایط) × ۱۰۰", assumption: DOC_ASSUMPTION }, c.docsDone, c.docsElig));
-  items.push(ratioCell({ key: "cancellation_rate", group: "sales", label: "نرخ لغو فروش", formula: "(تعداد فروش‌های لغوشده ÷ تعداد فروش‌های ثبت‌شده) × ۱۰۰", assumption: CANCEL_ASSUMPTION }, c.cancelled, c.registered));
+  items.push(ratioCell({ key: "cancellation_rate", group: "sales", label: "نرخ لغو فروش", formula: "(پرونده‌های ثبت‌شدهٔ همین دوره که لغو یا رد تأمین‌کننده شده‌اند ÷ پرونده‌های ثبت‌شده در دوره) × ۱۰۰", assumption: CANCEL_ASSUMPTION }, c.cancelled, c.registered));
 
   items.push(ratioCell({ key: "ontime_followup", group: "discipline", label: "نرخ پیگیری به‌موقع", formula: "(پیگیری‌های انجام‌شده در موعد ÷ کل پیگیری‌های سررسیدشده) × ۱۰۰", assumption: FU_ASSUMPTION }, c.fuOnTime, c.fuDue));
   if (settings.oldCustomerDays == null) {
@@ -993,12 +1003,14 @@ function targetFor(targets: TargetRow[], kind: "expert" | "team", id: number): {
   return { targetCount: row?.targetCount ?? null, minTargetCount: row?.minTargetCount ?? null };
 }
 
+/** Rank descending. A value of 0 is always unranked («بدون رتبه»), even when others have sales. */
 function rankDesc(values: number[]): Array<number | null> {
   if (values.length === 0 || values.every((v) => v === 0)) return values.map(() => null);
   const order = values.map((v, i) => ({ v, i })).sort((a, b) => b.v - a.v);
   const ranks = Array(values.length).fill(null) as Array<number | null>;
   let r = 1;
   for (let k = 0; k < order.length; k++) {
+    if (order[k].v === 0) { ranks[order[k].i] = null; continue; }
     if (k > 0 && order[k].v !== order[k - 1].v) r = k + 1;
     ranks[order[k].i] = r;
   }
@@ -1091,7 +1103,7 @@ export function salesKpiReport(db: DatabaseSync, actor: AuthUser, query: KpiQuer
 
   const overallRanks = rankDesc(experts.filter((e) => !e.trainee).map((e) => cur.bySp.get(e.salespersonId)?.sales ?? 0));
   const overallIndex = new Map(experts.filter((e) => !e.trainee).map((e, i) => [e.salespersonId, overallRanks[i]]));
-  const teamRank = new Map<number, number>();
+  const teamRank = new Map<number, number | null>();
   for (const t of teams) {
     const members = t.members.filter((m) => !m.trainee && !EXCLUDED_USER_IDS.includes(Number(m.userId)));
     const ranks = rankDesc(members.map((m) => cur.bySp.get(m.salespersonId)?.sales ?? 0));

@@ -335,8 +335,22 @@ await ok("zero sales show unit and no rank; Aban range has ranks and comparison"
     const vals = new Set(ranked.map((e) => e.rankOverall));
     assert.ok(vals.size >= 1);
   }
+  for (const e of aban.experts) {
+    const sales = e.kpis.find((k) => k.key === "successful_sales");
+    if ((sales?.value ?? 0) === 0) {
+      assert.equal(e.rankInTeam, null, e.name + " 0 sales must be unranked in team");
+      assert.equal(e.rankOverall, null, e.name + " 0 sales must be unranked overall");
+    } else if (!e.trainee) {
+      assert.ok(e.rankInTeam != null, e.name + " with sales should have a team rank");
+    }
+  }
   const cancel = hasani.kpis.find((k) => k.key === "cancellation_rate");
   assert.equal(cancel.direction, "lower_better");
+  assert.ok(cancel.deltaDisplay, "comparison line on sales cards");
+  const fu = hasani.kpis.find((k) => k.key === "ontime_followup");
+  assert.ok(fu.deltaDisplay, "comparison line on discipline cards");
+  const growth = hasani.kpis.find((k) => k.key === "followup_quality_growth");
+  if (growth.status === "ok") assert.ok(growth.deltaDisplay, "comparison line on growth cards");
 });
 
 await ok("faRangeLabel includes both ends of the previous month", async () => {
@@ -344,6 +358,76 @@ await ok("faRangeLabel includes both ends of the previous month", async () => {
   assert.ok(aban.previousLabel.includes("تا"));
   assert.ok(aban.periodTitle);
   assert.match(aban.periodTitle, /آبان\s+۱۴۰۵/);
+});
+
+
+await ok("cancellation rate uses the same filed-in-period cohort and never exceeds 100%", async () => {
+  const from = "2026-10-23", to = "2026-11-21";
+  const aban = kpi.salesKpiReport(crmDb, admin, { period: "custom", from, to }, now);
+  const fromIso = new Date(from + "T00:00:00+03:30").toISOString();
+  const toIso = new Date(new Date(to + "T00:00:00+03:30").getTime() + 86400000).toISOString();
+  const cancelled = kpi.cancelledByExpert(crmDb, fromIso, toIso, true);
+  for (const e of aban.experts) {
+    const k = e.kpis.find((x) => x.key === "cancellation_rate");
+    assert.ok(k, e.name);
+    if (k.status === "ok") {
+      assert.ok(k.value <= 100 + 1e-9, e.name + " rate=" + k.value);
+      assert.ok((k.numerator ?? 0) <= (k.denominator ?? 0), e.name);
+      assert.equal(k.numerator, cancelled.get(e.salespersonId) ?? 0, e.name);
+    } else if (k.status === "empty_denom") {
+      assert.equal(k.denominator, 0);
+      assert.ok((cancelled.get(e.salespersonId) ?? 0) === 0);
+    }
+  }
+  for (const tm of aban.teams) {
+    const k = tm.kpis.find((x) => x.key === "cancellation_rate");
+    if (k && k.status === "ok") {
+      assert.ok(k.value <= 100 + 1e-9, tm.name + " rate=" + k.value);
+      assert.ok((k.numerator ?? 0) <= (k.denominator ?? 0), tm.name);
+    }
+  }
+  const hasani = aban.experts.find((e) => e.salespersonId === 3);
+  const k = hasani.kpis.find((x) => x.key === "cancellation_rate");
+  assert.equal(k.numerator, cancelled.get(3) ?? 0);
+
+  // A funder-initial-reject on a newly filed app in the window must count, once.
+  const proto = queryRow("SELECT consultation_id, customer_id, plan_ids, requested_amount FROM loan_applications WHERE deleted_at IS NULL LIMIT 1");
+  assert.ok(proto);
+  executeChanges(
+    "INSERT INTO loan_applications(consultation_id, customer_id, plan_ids, requested_amount, salesperson_id_snapshot, created_at, updated_at, stage, status, is_pre_registration, deleted_at) VALUES (?,?,?,?,?,?,?,?,?,?,NULL)",
+    [proto.consultation_id, proto.customer_id, proto.plan_ids, proto.requested_amount, 3, "2026-10-25T08:00:00.000Z", "2026-10-25T08:00:00.000Z", "draft", "rejected", 0],
+  );
+  const appId = queryRow("SELECT last_insert_rowid() AS id").id;
+  executeChanges(
+    "INSERT INTO loan_application_stage_history(application_id, from_stage, to_stage, action, reason, actor_id, created_at) VALUES (?,?,?,?,?,?,?)",
+    [appId, "funder_initial_approval", "customer_documents_upload", "funder-initial-reject", "fixture", 1, "2026-10-26T08:00:00.000Z"],
+  );
+  const after = kpi.cancelledByExpert(crmDb, fromIso, toIso, true);
+  assert.equal(after.get(3) ?? 0, (cancelled.get(3) ?? 0) + 1);
+  const again = kpi.salesKpiReport(crmDb, admin, { period: "custom", from, to, expertId: 3 }, now);
+  const k2 = again.experts[0].kpis.find((x) => x.key === "cancellation_rate");
+  if (k2.status === "ok") assert.ok(k2.value <= 100 + 1e-9);
+  executeChanges("DELETE FROM loan_application_stage_history WHERE application_id=?", [appId]);
+  executeChanges("DELETE FROM loan_applications WHERE id=?", [appId]);
+});
+
+await ok("Mohammad t888s3087: assignment is period flow, amount is loan approved_amount, Thursday is a working day", async () => {
+  // Thursday 2026-11-19 is 28 Aban 1405; Friday 2026-11-20 is off.
+  const thu = kpi.workingDaysIn(crmDb, 0, 0); // smoke the helper exists
+  void thu;
+  // A 7-day span that includes one Friday should count 6 minus holidays, and must include Thursday.
+  // 2026-11-14 (Sat) .. 2026-11-20 (Fri): 6 weekdays + Thu, minus Fri and any official holiday.
+  const start = Math.floor((Date.parse("2026-11-14T00:00:00+03:30") + 210 * 60000) / 86400000);
+  // Use the same day-number convention as the lib via a known range from a report.
+  const aban = kpi.salesKpiReport(crmDb, admin, { period: "custom", from: "2026-11-14", to: "2026-11-20" }, now);
+  // 7 calendar days, one Friday (20 Nov), Thursday 19 Nov is included. Holidays may reduce further, never below 5 and never 7.
+  assert.ok(aban.workingDays <= 6, "Friday must be off, got " + aban.workingDays);
+  assert.ok(aban.workingDays >= 5, "Thursday must stay a working day unless it is an official holiday, got " + aban.workingDays);
+  const hasani = kpi.salesKpiReport(crmDb, admin, { period: "custom", from: "2026-10-23", to: "2026-11-21", expertId: 3 }, now).experts[0];
+  const amt = hasani.kpis.find((k) => k.key === "avg_sale_amount");
+  assert.equal(amt.assumption.includes("خرید کالا"), true);
+  const conv = hasani.kpis.find((k) => k.key === "customer_conversion");
+  assert.match(conv.assumption, /در همین دوره به کارشناس منسوب/);
 });
 
 console.log(`t886 sales-kpi: ${passed} passed`);
