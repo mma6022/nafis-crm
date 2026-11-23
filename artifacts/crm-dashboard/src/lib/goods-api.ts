@@ -57,6 +57,8 @@ const ERRORS: Record<string, string> = {
   Forbidden: 'دسترسی لازم برای این عملیات را ندارید.',
   positive_customer_payout_required: 'درصد پرداخت به مشتری باید بیشتر از صفر باشد.',
   invalid_percent: 'درصد نامعتبر است. عددی بین ۰ و ۱۰۰ با حداکثر دو رقم اعشار وارد کنید.',
+  invoice_percent_required: 'درصد را وارد کنید.',
+  invoice_percents_exceed_100: 'جمع دو درصد نباید بیشتر از ۱۰۰ باشد.',
   template_not_found: 'قالب انتخاب‌شده پیدا نشد.',
   targets_must_increase: 'اهداف فروش باید مثبت و صعودی باشند.',
   template_values_invalid: 'مقادیر دستی قالب نامعتبر است.',

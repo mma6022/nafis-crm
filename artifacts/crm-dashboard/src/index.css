@@ -4589,15 +4589,24 @@
 .gp-wallet { grid-column: span 2; padding: 16px; border-radius: 14px; background: linear-gradient(135deg, #0f766e, #15505a); color: #e6f4f1; display: flex; flex-direction: column; gap: 4px; }
 .gp-wallet strong { font-size: 24px; color: #fff; }
 .gp-wallet small { color: #a7d4cb; }
-.gp-invoice input { width: 100%; padding: 7px 9px; border: 1px solid #dbe2ea; border-radius: 8px; font: inherit; }
+.gp-invoice { min-width: 28rem; }
+.gp-invoice th:nth-child(2), .gp-invoice td:nth-child(2) { width: 4.75rem; min-width: 4.75rem; white-space: nowrap; }
+.gp-invoice th:nth-child(3), .gp-invoice td:nth-child(3) { min-width: 8.5rem; white-space: nowrap; }
+.gp-invoice input { width: 100%; min-height: 44px; box-sizing: border-box; padding: 8px 9px; border: 1px solid #dbe2ea; border-radius: 8px; font: inherit; }
+.gp-invoice input[data-testid^="input-item-quantity-"] { width: 4.5rem; min-width: 4.5rem; }
 .gp-invoice-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
 .gp-totals { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; }
 .gp-totals .ok { color: var(--teal); font-weight: 700; }
 .gp-totals .bad { color: #b42318; font-weight: 700; }
-.gp-percents { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; margin-top: 14px; align-items: end; }
-.gp-percents .field { margin: 0; }
-.gp-percents .field input { direction: ltr; text-align: left; max-width: 8rem; }
-.gp-percents .gp-totals { grid-column: 1 / -1; }
+.gp-percents { display: grid; grid-template-columns: repeat(2, minmax(0, 16rem)); gap: 12px 20px; margin-top: 14px; align-items: start; }
+.gp-percent-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.gp-percent-col .field { margin: 0; }
+.gp-percents .gp-pct-row { display: flex; align-items: center; gap: 6px; }
+.gp-percents .gp-pct-row input { direction: ltr; text-align: left; width: 7.5rem; max-width: 100%; min-height: 44px; box-sizing: border-box; padding: 8px 10px; border: 1px solid #dbe2ea; border-radius: 8px; font: inherit; }
+.gp-percents .gp-pct-sign { font-weight: 800; color: #64748b; }
+.gp-percent-amount { margin: 0; font-size: 12px; color: #64748b; line-height: 1.4; }
+.gp-percent-amount b { color: var(--ink-deep); font-size: 13px; font-weight: 700; }
+.gp-percents .gp-alert { grid-column: 1 / -1; margin: 0; }
 @media (max-width: 480px) { .gp-percents { grid-template-columns: 1fr; } }
 .gp-doc.signed { border-color: #bfe3da; }
 .gp-doc.rejected { border-color: #f5c6c6; }

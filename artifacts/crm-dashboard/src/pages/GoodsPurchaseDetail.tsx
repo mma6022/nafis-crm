@@ -134,6 +134,22 @@ const pctText = (v: unknown) => {
 };
 const faPct = (s: string) => s.replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]).replace('.', '٫');
 const floorPct = (amount: bigint, bps: number) => amount * BigInt(bps) / 10000n;
+/** Keep in sync with GOODS_PAYOUT_PERCENT_BASIS in goods-finance.ts. Mohammad t902s3186: payout % is of the full invoice amount. Flip to "after_discount" only after a further owner decision. */
+const PAYOUT_PERCENT_BASIS: 'invoice' | 'after_discount' = 'invoice';
+function payoutBasisAmount(invoice: bigint, discount: bigint, basis: typeof PAYOUT_PERCENT_BASIS = PAYOUT_PERCENT_BASIS) {
+  return basis === 'after_discount' ? invoice - discount : invoice;
+}
+function invoicePercentError(payoutPct: string, discountPct: string): string | null {
+  const payoutBps = percentToBps(payoutPct);
+  const discountBps = percentToBps(discountPct);
+  if (payoutPct.trim() === '' || discountPct.trim() === '') return 'درصد را وارد کنید.';
+  if (payoutBps == null || discountBps == null || payoutBps < 0 || payoutBps > 10000 || discountBps < 0 || discountBps > 10000) {
+    return 'درصد نامعتبر است. عددی بین ۰ و ۱۰۰ با حداکثر دو رقم اعشار وارد کنید.';
+  }
+  if (payoutBps <= 0) return 'درصد پرداخت به مشتری باید بیشتر از صفر باشد.';
+  if (payoutBps + discountBps > 10000) return 'جمع دو درصد نباید بیشتر از ۱۰۰ باشد.';
+  return null;
+}
 function InvoicePanel({ p, editable, adminRevise, onSaved }: { p: Purchase; editable: boolean; adminRevise?: boolean; onSaved: (t: string) => void }) {
   const [askReason, setAskReason] = useState(false);
   const init = (): Row[] => (p.items?.length ? p.items.map((i: PurchaseItem) => ({ title: i.title, quantity: String(i.quantity), unitPriceToman: String(i.unitPriceToman) })) : [{ title: '', quantity: '1', unitPriceToman: '' }]);
@@ -169,7 +185,7 @@ function InvoicePanel({ p, editable, adminRevise, onSaved }: { p: Purchase; edit
       <thead><tr><th>شرح کالا</th><th>تعداد</th><th>قیمت واحد (تومان)</th><th>جمع</th>{editable ? <th /> : null}</tr></thead>
       <tbody>{rows.map((r, i) => <tr key={i}>
         <td>{editable ? <input value={r.title} onChange={(e) => set(i, { title: e.target.value })} placeholder="مثال: یخچال ساید بای ساید" data-testid={`input-item-title-${i}`} /> : r.title}</td>
-        <td>{editable ? <input dir="ltr" inputMode="numeric" value={qty(r) ? faId(qty(r)) : ''} onChange={(e) => set(i, { quantity: digitsOnly(e.target.value) })} style={{ width: 70 }} data-testid={`input-item-quantity-${i}`} aria-label="تعداد" /> : faId(qty(r) || '0')}</td>
+        <td>{editable ? <input dir="ltr" inputMode="numeric" value={qty(r) ? faId(qty(r)) : ''} onChange={(e) => set(i, { quantity: digitsOnly(e.target.value) })} data-testid={`input-item-quantity-${i}`} aria-label="تعداد" /> : faId(qty(r) || '0')}</td>
         <td>{editable ? <input dir="ltr" inputMode="numeric" value={toBig(digitsOnly(r.unitPriceToman)) ? faGrouped(toBig(digitsOnly(r.unitPriceToman))) : ''} onChange={(e) => set(i, { unitPriceToman: digitsOnly(e.target.value) })} data-testid={`input-item-price-${i}`} /> : toman(r.unitPriceToman)}</td>
         <td className="mono">{toman((toBig(digitsOnly(r.unitPriceToman)) * BigInt(Math.max(0, Math.floor(Number(qty(r) || '0') || 0)))).toString())}</td>
         {editable ? <td><button className="icon-button" type="button" disabled={rows.length === 1} onClick={() => setRows(rows.filter((_, j) => j !== i))} aria-label="حذف ردیف"><Trash2 size={14} /></button></td> : null}
@@ -179,20 +195,34 @@ function InvoicePanel({ p, editable, adminRevise, onSaved }: { p: Purchase; edit
       {editable ? <button className="btn btn-ghost" type="button" onClick={() => setRows([...rows, { title: '', quantity: '1', unitPriceToman: '' }])}><Plus size={14} />ردیف تازه</button> : <span />}
       <div className="gp-totals"><span>جمع فاکتور <b>{toman(total.toString())}</b></span><span>اعتبار <b>{toman(p.creditAmountToman)}</b></span><span className={diff === 0n ? 'ok' : 'bad'}>{diff === 0n ? 'برابر با کل اعتبار' : diff > 0n ? `${toman(diff.toString())} کمتر از اعتبار` : `${toman((-diff).toString())} بیشتر از اعتبار`}</span></div>
     </div>
-    {adminRevise || !editable ? <div className="gp-percents" data-testid="invoice-percents">
-      <div className="field"><label htmlFor={`invoice-discount-pct-${p.id}`}>درصد کسر از مبلغ فاکتور (تخفیف توسعه)</label>
-        {editable ? <input id={`invoice-discount-pct-${p.id}`} dir="ltr" inputMode="decimal" value={faPct(discountPct)} onChange={(e) => setDiscountPct(normalizePercentInput(e.target.value).slice(0, 6))} data-testid="input-invoice-discount-percent" /> : <b data-testid="invoice-discount-percent">{faPct(discountPct) || '—'}٪</b>}
+    {adminRevise || !editable ? <div className="gp-percents" data-testid="invoice-percents">{(() => {
+      const discountBps = percentToBps(discountPct);
+      const payoutBps = percentToBps(payoutPct);
+      const discountAmt = discountBps == null ? null : floorPct(credit, discountBps);
+      const payoutAmt = payoutBps == null || (PAYOUT_PERCENT_BASIS === 'after_discount' && discountAmt == null) ? null : floorPct(payoutBasisAmount(credit, discountAmt ?? 0n), payoutBps);
+      const percentErr = editable ? invoicePercentError(payoutPct, discountPct) : null;
+      return <>
+      <div className="gp-percent-col">
+        <div className="field"><label htmlFor={`invoice-discount-pct-${p.id}`}>درصد کسر از مبلغ فاکتور (تخفیف توسعه، از کل مبلغ فاکتور)</label>
+          {editable
+            ? <div className="gp-pct-row"><input id={`invoice-discount-pct-${p.id}`} dir="ltr" inputMode="decimal" value={faPct(discountPct)} onChange={(e) => setDiscountPct(normalizePercentInput(e.target.value).slice(0, 6))} data-testid="input-invoice-discount-percent" aria-invalid={Boolean(percentErr && (discountPct.trim() === '' || (discountBps != null && payoutBps != null && discountBps + payoutBps > 10000)))} /><span className="gp-pct-sign">٪</span></div>
+            : <b data-testid="invoice-discount-percent">{faPct(discountPct) || '—'}٪</b>}
+        </div>
+        <p className="gp-percent-amount" data-testid="invoice-discount-amount">تخفیف توسعه <b>{discountAmt == null ? '—' : toman(discountAmt.toString())}</b></p>
       </div>
-      <div className="field"><label htmlFor={`invoice-payout-pct-${p.id}`}>درصد پرداخت به مشتری</label>
-        {editable ? <input id={`invoice-payout-pct-${p.id}`} dir="ltr" inputMode="decimal" value={faPct(payoutPct)} onChange={(e) => setPayoutPct(normalizePercentInput(e.target.value).slice(0, 6))} data-testid="input-invoice-payout-percent" /> : <b data-testid="invoice-payout-percent">{faPct(payoutPct) || '—'}٪</b>}
+      <div className="gp-percent-col">
+        <div className="field"><label htmlFor={`invoice-payout-pct-${p.id}`}>درصد پرداخت به مشتری (از کل مبلغ فاکتور)</label>
+          {editable
+            ? <div className="gp-pct-row"><input id={`invoice-payout-pct-${p.id}`} dir="ltr" inputMode="decimal" value={faPct(payoutPct)} onChange={(e) => setPayoutPct(normalizePercentInput(e.target.value).slice(0, 6))} data-testid="input-invoice-payout-percent" aria-invalid={Boolean(percentErr && (payoutPct.trim() === '' || (payoutBps != null && payoutBps <= 0) || (discountBps != null && payoutBps != null && discountBps + payoutBps > 10000)))} /><span className="gp-pct-sign">٪</span></div>
+            : <b data-testid="invoice-payout-percent">{faPct(payoutPct) || '—'}٪</b>}
+        </div>
+        <p className="gp-percent-amount" data-testid="invoice-payout-amount">واریزی به مشتری <b>{payoutAmt == null ? '—' : toman(payoutAmt.toString())}</b></p>
       </div>
-      <div className="gp-totals">
-        <span>تخفیف توسعه <b>{(() => { const bps = percentToBps(discountPct); return bps == null ? '—' : toman(floorPct(credit, bps).toString()); })()}</b></span>
-        <span>واریزی پیش‌فرض <b>{(() => { const bps = percentToBps(payoutPct); const principal = toBig(p.principalAmountToman); return bps == null ? '—' : toman(floorPct(principal, bps).toString()); })()}</b></span>
-      </div>
-    </div> : null}
+      {percentErr ? <div className="gp-alert" role="alert" data-testid="error-invoice-percents">{percentErr}</div> : null}
+      </>;
+    })()}</div> : null}
     {save.isError ? <div className="gp-alert">{errText(save.error)}</div> : null}
-    {editable ? <div className="form-footer"><button className="btn btn-primary" disabled={save.isPending || diff !== 0n || rows.some((r) => !r.title.trim() || !(Number(qty(r) || '0') > 0) || !digitsOnly(r.unitPriceToman)) || (Boolean(adminRevise) && ((percentToBps(payoutPct) ?? 0) <= 0 || (percentToBps(payoutPct) ?? 0) > 10000 || percentToBps(discountPct) == null || (percentToBps(discountPct) ?? -1) < 0 || (percentToBps(discountPct) ?? 0) > 10000))} onClick={() => adminRevise ? setAskReason(true) : save.mutate(undefined)} data-testid="button-save-invoice">{save.isPending ? 'در حال ذخیره…' : 'ذخیره فاکتور'}</button></div> : null}
+    {editable ? <div className="form-footer"><button className="btn btn-primary" disabled={save.isPending || diff !== 0n || rows.some((r) => !r.title.trim() || !(Number(qty(r) || '0') > 0) || !digitsOnly(r.unitPriceToman)) || (Boolean(adminRevise) && invoicePercentError(payoutPct, discountPct) != null)} onClick={() => adminRevise ? setAskReason(true) : save.mutate(undefined)} data-testid="button-save-invoice">{save.isPending ? 'در حال ذخیره…' : 'ذخیره فاکتور'}</button></div> : null}
     {askReason ? <ConfirmDialog title="ذخیره اقلام فاکتور" testId="admin-invoice" confirmLabel="ذخیره فاکتور" tone="primary" busy={save.isPending} error={save.isError ? errText(save.error) : null}
       reason={{ label: 'دلیل ویرایش', min: 5, placeholder: 'مثلاً اصلاح شرح کالا' }}
       onConfirm={(reason) => save.mutate(reason)} onClose={() => setAskReason(false)}><p>نسخهٔ تازه از اقلام و درصدها ذخیره می‌شود. فاکتورهای امضاشدهٔ قبلی در سابقه می‌مانند.</p></ConfirmDialog> : null}
