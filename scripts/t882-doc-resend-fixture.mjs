@@ -806,6 +806,21 @@ await ok("empty invoice percents and percents summing over 100 are rejected", as
   assert.equal(String(after.development_discount_toman), String(before.development_discount_toman));
 });
 
+await ok("invoice percents that sum to exactly 100 are allowed", async () => {
+  const { applyGoodsPurchasePercents } = await import("../src/lib/goods-finance.ts");
+  applyGoodsPurchasePercents(69, { customerPayoutPercent: 50, developmentDiscountPercent: 50 });
+  const after = queryRow("SELECT payout_bps, development_discount_bps FROM goods_purchases WHERE id=69");
+  assert.equal(Number(after.payout_bps), 5000);
+  assert.equal(Number(after.development_discount_bps), 5000);
+  // 50.01 + 50 exceeds 100 and must still be rejected (boundary is >, not >=).
+  assert.throws(() => applyGoodsPurchasePercents(69, { customerPayoutPercent: 50.01, developmentDiscountPercent: 50 }), (e) => e instanceof Error && e.message === "invoice_percents_exceed_100");
+  const still = queryRow("SELECT payout_bps, development_discount_bps FROM goods_purchases WHERE id=69");
+  assert.equal(Number(still.payout_bps), 5000);
+  assert.equal(Number(still.development_discount_bps), 5000);
+  applyGoodsPurchasePercents(69, { customerPayoutPercent: 50, developmentDiscountPercent: 20 });
+});
+
+
 
 await ok("no goods_purchase_documents rows were deleted in this fixture copy", async () => {
   // Compared with the source masked file, the copy may have added generating/failed rows, never fewer signed/sent.
