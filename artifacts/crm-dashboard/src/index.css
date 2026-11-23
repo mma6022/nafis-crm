@@ -4589,25 +4589,49 @@
 .gp-wallet { grid-column: span 2; padding: 16px; border-radius: 14px; background: linear-gradient(135deg, #0f766e, #15505a); color: #e6f4f1; display: flex; flex-direction: column; gap: 4px; }
 .gp-wallet strong { font-size: 24px; color: #fff; }
 .gp-wallet small { color: #a7d4cb; }
-.gp-invoice { min-width: 28rem; }
 .gp-invoice th:nth-child(2), .gp-invoice td:nth-child(2) { width: 4.75rem; min-width: 4.75rem; white-space: nowrap; }
 .gp-invoice th:nth-child(3), .gp-invoice td:nth-child(3) { min-width: 8.5rem; white-space: nowrap; }
 .gp-invoice input { width: 100%; min-height: 44px; box-sizing: border-box; padding: 8px 9px; border: 1px solid #dbe2ea; border-radius: 8px; font: inherit; }
+.gp-invoice input[data-testid^="input-item-title-"], .gp-invoice td:first-child { word-break: normal; overflow-wrap: anywhere; }
 .gp-invoice input[data-testid^="input-item-quantity-"] { width: 4.5rem; min-width: 4.5rem; }
 .gp-invoice-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
 .gp-totals { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; }
 .gp-totals .ok { color: var(--teal); font-weight: 700; }
 .gp-totals .bad { color: #b42318; font-weight: 700; }
-.gp-percents { display: grid; grid-template-columns: repeat(2, minmax(0, 16rem)); gap: 12px 20px; margin-top: 14px; align-items: start; }
-.gp-percent-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.gp-percent-col .field { margin: 0; }
-.gp-percents .gp-pct-row { display: flex; align-items: center; gap: 6px; }
-.gp-percents .gp-pct-row input { direction: ltr; text-align: left; width: 7.5rem; max-width: 100%; min-height: 44px; box-sizing: border-box; padding: 8px 10px; border: 1px solid #dbe2ea; border-radius: 8px; font: inherit; }
-.gp-percents .gp-pct-sign { font-weight: 800; color: #64748b; }
+.gp-percents { display: grid; grid-template-columns: repeat(2, minmax(0, 16rem)); grid-template-rows: auto auto auto auto; gap: 6px 20px; margin-top: 14px; align-items: start; }
+.gp-percent-col { display: grid; grid-template-rows: subgrid; grid-row: span 4; gap: 6px; min-width: 0; }
+.gp-percent-label { font-size: 11px; color: #475569; font-weight: 700; }
+.gp-pct-field { display: inline-flex; align-items: center; direction: ltr; box-sizing: border-box; width: 7.5rem; max-width: 100%; min-height: 44px; padding: 0 10px; border: 1px solid #dbe2ea; border-radius: 8px; background: #fff; color: var(--ink-deep); font-size: 16px; font-weight: 700; font-family: inherit; line-height: 1.2; }
+.gp-pct-field input { direction: ltr; text-align: left; flex: 0 0 auto; width: auto; min-width: 1ch; field-sizing: content; min-height: 44px; padding: 8px 0; margin: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; font-family: inherit; font-size: 16px; font-weight: 700; color: inherit; line-height: 1.2; outline: 0; }
+.gp-pct-field input:focus { border: 0; box-shadow: none; outline: 0; }
+.gp-pct-field .gp-pct-sign { margin: 0; padding: 0; font-family: inherit; font-size: 16px; font-weight: 700; color: inherit; line-height: 1.2; }
+.gp-pct-field:focus-within { border-color: var(--nafiss-blue); box-shadow: 0 0 0 3px var(--nafiss-light); }
+.gp-pct-field.is-invalid { border-color: #b42318; }
+.gp-pct-field.is-invalid:focus-within { border-color: #b42318; box-shadow: 0 0 0 3px #fdecec; }
 .gp-percent-amount { margin: 0; font-size: 12px; color: #64748b; line-height: 1.4; }
 .gp-percent-amount b { color: var(--ink-deep); font-size: 13px; font-weight: 700; }
-.gp-percents .gp-alert { grid-column: 1 / -1; margin: 0; }
-@media (max-width: 480px) { .gp-percents { grid-template-columns: 1fr; } }
+.gp-field-error { margin: 0; font-size: 12px; line-height: 1.5; color: #9b2c2c; font-weight: 700; }
+.gp-stage-panel [data-testid="button-save-invoice"]:disabled { opacity: 1; background: #cbd5e1; color: #1e293b; box-shadow: none; transform: none; cursor: not-allowed; }
+@media (max-width: 480px) {
+  .gp-percents { grid-template-columns: 1fr; grid-template-rows: none; }
+  .gp-percent-col { display: flex; flex-direction: column; grid-row: auto; }
+  .gp-stage-panel .gp-invoice-wrap { overflow-x: visible; }
+  .gp-invoice { min-width: 0; width: 100%; border: 0; background: transparent; }
+  .gp-invoice thead { display: none; }
+  .gp-invoice tbody { display: flex; flex-direction: column; gap: 12px; }
+  .gp-invoice tr { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; padding: 12px; border: 1px solid #e3e8ef; border-radius: 12px; background: #fff; }
+  .gp-invoice th:nth-child(2), .gp-invoice td:nth-child(2),
+  .gp-invoice th:nth-child(3), .gp-invoice td:nth-child(3) { width: auto; min-width: 0; white-space: normal; }
+  .gp-invoice td { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .gp-invoice td::before { content: attr(data-label); font-size: 12px; font-weight: 700; color: #64748b; }
+  .gp-invoice td:first-child { grid-column: 1 / -1; }
+  .gp-invoice td:nth-child(2), .gp-invoice td:nth-child(3) { grid-column: auto; }
+  .gp-invoice td:nth-child(4) { grid-column: 1; justify-content: center; }
+  .gp-invoice td.gp-invoice-del { grid-column: 2; align-items: flex-end; justify-content: flex-end; }
+  .gp-invoice td.gp-invoice-del::before { content: none; }
+  .gp-invoice input, .gp-invoice input[data-testid^="input-item-quantity-"] { width: 100%; min-width: 0; }
+}
+
 .gp-doc.signed { border-color: #bfe3da; }
 .gp-doc.rejected { border-color: #f5c6c6; }
 .gp-doc-meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: #64748b; margin-bottom: 8px; }
