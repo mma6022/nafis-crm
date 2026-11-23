@@ -56,6 +56,7 @@ const ERRORS: Record<string, string> = {
   purchase_not_found: 'خرید پیدا نشد.',
   Forbidden: 'دسترسی لازم برای این عملیات را ندارید.',
   positive_customer_payout_required: 'درصد پرداخت به مشتری باید بیشتر از صفر باشد.',
+  invalid_percent: 'درصد نامعتبر است. عددی بین ۰ و ۱۰۰ با حداکثر دو رقم اعشار وارد کنید.',
   template_not_found: 'قالب انتخاب‌شده پیدا نشد.',
   targets_must_increase: 'اهداف فروش باید مثبت و صعودی باشند.',
   template_values_invalid: 'مقادیر دستی قالب نامعتبر است.',
@@ -182,11 +183,13 @@ export type OrderCommission = {
   month?: string | null; revision: number; reversalMonth?: string | null; lastError?: string | null; rows: CommissionRow[];
   canRetry: boolean; canReturnCase: boolean; returnCaseMonth?: string | null;
 };
-export type GoodsDocument = { id: number; kind: string; version: number; status: string; providerStatus?: string | null; signed: boolean; pdfUrl?: string | null; error?: string | null; createdAt: string };
+export type GoodsDocument = { id: number; kind: string; version: number; invoiceVersion?: number; status: string; providerStatus?: string | null; signed: boolean; pdfUrl?: string | null; error?: string | null; createdAt: string };
 export type Purchase = {
   id: number; customerId: number; customerName: string; customerSalespersonName?: string | null; salespersonId?: number | null; planId: number; planName: string; stage: string;
   creditAmountToman: string; principalAmountToman?: string | null; payoutAmountToman?: string | null; developmentDiscountToman?: string | null; companyCreditToman?: string | null;
   basePayoutAmountToman?: string | null; feeDiscountToman?: string | null;
+  payoutBps?: number | null; developmentDiscountBps?: number | null;
+  customerPayoutPercent?: number | string | null; developmentDiscountPercent?: number | string | null;
   invoiceTotalToman?: string | null; createdAt: string; completedAt?: string | null; dischargedAt?: string | null; items?: PurchaseItem[]; events?: PurchaseEvent[];
   acknowledgement_template_id?: number | null; invoice_version?: number | null; invoiceDocument?: GoodsDocument | null; acknowledgementDocument?: GoodsDocument | null;
 };

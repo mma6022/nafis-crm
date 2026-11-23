@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useParams } from 'wouter';
 import { ArrowRight, Check, FileText, Printer, RefreshCw, Send, Plus, Trash2, Banknote, ShieldCheck, Truck } from 'lucide-react';
 import { ErrorState, SkeletonPanel, formatDateTime } from '@/components/CrmShell';
-import GoodsSettlementPreview from '@/components/GoodsSettlementPreview';
+import GoodsSettlementPreview, { normalizePercentInput, percentToBps } from '@/components/GoodsSettlementPreview';
 import { ConfirmDialog, Stepper, Toast } from '@/components/goods/GpKit';
 import { NEXT_STEP } from '@/pages/GoodsPurchases';
 import { getGetCompanyWalletQueryKey } from '@workspace/api-client-react';
@@ -127,19 +127,37 @@ function Fig({ label, v, tone }: { label: string; v?: string | null; tone?: stri
 }
 
 type Row = { title: string; quantity: string; unitPriceToman: string };
+const pctText = (v: unknown) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '';
+  return n.toFixed(2).replace(/\.?0+$/, '');
+};
+const faPct = (s: string) => s.replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]).replace('.', '٫');
+const floorPct = (amount: bigint, bps: number) => amount * BigInt(bps) / 10000n;
 function InvoicePanel({ p, editable, adminRevise, onSaved }: { p: Purchase; editable: boolean; adminRevise?: boolean; onSaved: (t: string) => void }) {
   const [askReason, setAskReason] = useState(false);
   const init = (): Row[] => (p.items?.length ? p.items.map((i: PurchaseItem) => ({ title: i.title, quantity: String(i.quantity), unitPriceToman: String(i.unitPriceToman) })) : [{ title: '', quantity: '1', unitPriceToman: '' }]);
   const [rows, setRows] = useState<Row[]>(init);
-  const initFor = useRef(p.id);
-  useEffect(() => { if (initFor.current !== p.id) { initFor.current = p.id; setRows(init()); } }, [p.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [payoutPct, setPayoutPct] = useState(() => pctText(p.customerPayoutPercent));
+  const [discountPct, setDiscountPct] = useState(() => pctText(p.developmentDiscountPercent));
+  const initFor = useRef(`${p.id}:${p.invoice_version ?? 0}`);
+  useEffect(() => {
+    const key = `${p.id}:${p.invoice_version ?? 0}`;
+    if (initFor.current !== key) {
+      initFor.current = key;
+      setRows(init());
+      setPayoutPct(pctText(p.customerPayoutPercent));
+      setDiscountPct(pctText(p.developmentDiscountPercent));
+    }
+  }, [p.id, p.invoice_version]); // eslint-disable-line react-hooks/exhaustive-deps
   const qty = (r: Row) => digitsOnly(r.quantity);
   const itemsBody = () => rows.map((r) => ({ title: r.title.trim(), quantity: Number(qty(r) || 0), unitPriceToman: digitsOnly(r.unitPriceToman) }));
+  const percentsBody = () => ({ customerPayoutPercent: payoutPct, developmentDiscountPercent: discountPct });
   const save = useMutation({
     mutationFn: (reason?: string) => adminRevise
-      ? postAdminInvoice(p.id, itemsBody(), reason || 'ویرایش اقلام فاکتور', p.stage)
+      ? postAdminInvoice(p.id, itemsBody(), reason || 'ویرایش اقلام فاکتور', p.stage, percentsBody())
       : api.put<Purchase>(`/goods-purchases/${p.id}/invoice`, { items: itemsBody() }),
-    onSuccess: () => { setAskReason(false); onSaved('اقلام فاکتور ذخیره شد.'); },
+    onSuccess: () => { setAskReason(false); onSaved(adminRevise ? 'اقلام و درصدهای فاکتور ذخیره شد.' : 'اقلام فاکتور ذخیره شد.'); },
   });
   const total = rows.reduce((s, r) => s + toBig(digitsOnly(r.unitPriceToman)) * BigInt(Math.max(0, Math.floor(Number(qty(r) || '0') || 0))), 0n);
   const credit = toBig(p.creditAmountToman);
@@ -161,11 +179,23 @@ function InvoicePanel({ p, editable, adminRevise, onSaved }: { p: Purchase; edit
       {editable ? <button className="btn btn-ghost" type="button" onClick={() => setRows([...rows, { title: '', quantity: '1', unitPriceToman: '' }])}><Plus size={14} />ردیف تازه</button> : <span />}
       <div className="gp-totals"><span>جمع فاکتور <b>{toman(total.toString())}</b></span><span>اعتبار <b>{toman(p.creditAmountToman)}</b></span><span className={diff === 0n ? 'ok' : 'bad'}>{diff === 0n ? 'برابر با کل اعتبار' : diff > 0n ? `${toman(diff.toString())} کمتر از اعتبار` : `${toman((-diff).toString())} بیشتر از اعتبار`}</span></div>
     </div>
+    {adminRevise || !editable ? <div className="gp-percents" data-testid="invoice-percents">
+      <div className="field"><label htmlFor={`invoice-discount-pct-${p.id}`}>درصد کسر از مبلغ فاکتور (تخفیف توسعه)</label>
+        {editable ? <input id={`invoice-discount-pct-${p.id}`} dir="ltr" inputMode="decimal" value={faPct(discountPct)} onChange={(e) => setDiscountPct(normalizePercentInput(e.target.value).slice(0, 6))} data-testid="input-invoice-discount-percent" /> : <b data-testid="invoice-discount-percent">{faPct(discountPct) || '—'}٪</b>}
+      </div>
+      <div className="field"><label htmlFor={`invoice-payout-pct-${p.id}`}>درصد پرداخت به مشتری</label>
+        {editable ? <input id={`invoice-payout-pct-${p.id}`} dir="ltr" inputMode="decimal" value={faPct(payoutPct)} onChange={(e) => setPayoutPct(normalizePercentInput(e.target.value).slice(0, 6))} data-testid="input-invoice-payout-percent" /> : <b data-testid="invoice-payout-percent">{faPct(payoutPct) || '—'}٪</b>}
+      </div>
+      <div className="gp-totals">
+        <span>تخفیف توسعه <b>{(() => { const bps = percentToBps(discountPct); return bps == null ? '—' : toman(floorPct(credit, bps).toString()); })()}</b></span>
+        <span>واریزی پیش‌فرض <b>{(() => { const bps = percentToBps(payoutPct); const principal = toBig(p.principalAmountToman); return bps == null ? '—' : toman(floorPct(principal, bps).toString()); })()}</b></span>
+      </div>
+    </div> : null}
     {save.isError ? <div className="gp-alert">{errText(save.error)}</div> : null}
-    {editable ? <div className="form-footer"><button className="btn btn-primary" disabled={save.isPending || diff !== 0n || rows.some((r) => !r.title.trim() || !(Number(qty(r) || '0') > 0) || !digitsOnly(r.unitPriceToman))} onClick={() => adminRevise ? setAskReason(true) : save.mutate(undefined)} data-testid="button-save-invoice">{save.isPending ? 'در حال ذخیره…' : 'ذخیره فاکتور'}</button></div> : null}
+    {editable ? <div className="form-footer"><button className="btn btn-primary" disabled={save.isPending || diff !== 0n || rows.some((r) => !r.title.trim() || !(Number(qty(r) || '0') > 0) || !digitsOnly(r.unitPriceToman)) || (Boolean(adminRevise) && ((percentToBps(payoutPct) ?? 0) <= 0 || (percentToBps(payoutPct) ?? 0) > 10000 || percentToBps(discountPct) == null || (percentToBps(discountPct) ?? -1) < 0 || (percentToBps(discountPct) ?? 0) > 10000))} onClick={() => adminRevise ? setAskReason(true) : save.mutate(undefined)} data-testid="button-save-invoice">{save.isPending ? 'در حال ذخیره…' : 'ذخیره فاکتور'}</button></div> : null}
     {askReason ? <ConfirmDialog title="ذخیره اقلام فاکتور" testId="admin-invoice" confirmLabel="ذخیره فاکتور" tone="primary" busy={save.isPending} error={save.isError ? errText(save.error) : null}
       reason={{ label: 'دلیل ویرایش', min: 5, placeholder: 'مثلاً اصلاح شرح کالا' }}
-      onConfirm={(reason) => save.mutate(reason)} onClose={() => setAskReason(false)}><p>نسخهٔ تازه از اقلام ذخیره می‌شود. فاکتورهای امضاشدهٔ قبلی در سابقه می‌مانند.</p></ConfirmDialog> : null}
+      onConfirm={(reason) => save.mutate(reason)} onClose={() => setAskReason(false)}><p>نسخهٔ تازه از اقلام و درصدها ذخیره می‌شود. فاکتورهای امضاشدهٔ قبلی در سابقه می‌مانند.</p></ConfirmDialog> : null}
   </div>;
 }
 

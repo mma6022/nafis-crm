@@ -4594,6 +4594,11 @@
 .gp-totals { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; }
 .gp-totals .ok { color: var(--teal); font-weight: 700; }
 .gp-totals .bad { color: #b42318; font-weight: 700; }
+.gp-percents { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; margin-top: 14px; align-items: end; }
+.gp-percents .field { margin: 0; }
+.gp-percents .field input { direction: ltr; text-align: left; max-width: 8rem; }
+.gp-percents .gp-totals { grid-column: 1 / -1; }
+@media (max-width: 480px) { .gp-percents { grid-template-columns: 1fr; } }
 .gp-doc.signed { border-color: #bfe3da; }
 .gp-doc.rejected { border-color: #f5c6c6; }
 .gp-doc-meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: #64748b; margin-bottom: 8px; }

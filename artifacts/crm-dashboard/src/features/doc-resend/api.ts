@@ -77,8 +77,8 @@ export function postPaymentStage(id: number, stage: string, reason: string, expe
 export function postGoodsResend(id: number, kind: 'invoice' | 'acknowledgement', reason: string, expectedStage: string, values?: Record<string, string>) {
   return api.post<{ document: GoodsDocument; purchase: Purchase; kind: string }>(`/goods-purchases/${id}/admin-resend/${kind}`, { reason, confirmed: true, expectedStage, values: values ?? {} });
 }
-export function postAdminInvoice(id: number, items: unknown[], reason: string, expectedStage: string) {
-  return api.post<Purchase>(`/goods-purchases/${id}/admin-invoice`, { items, reason, confirmed: true, expectedStage });
+export function postAdminInvoice(id: number, items: unknown[], reason: string, expectedStage: string, percents?: { customerPayoutPercent?: string; developmentDiscountPercent?: string }) {
+  return api.post<Purchase>(`/goods-purchases/${id}/admin-invoice`, { items, reason, confirmed: true, expectedStage, ...percents });
 }
 
 export const BLOCK_REASON: Record<string, string> = {
