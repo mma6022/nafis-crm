@@ -76,7 +76,10 @@ router.post("/goods-purchases/:id/admin-stage", requireAuth, requireActor, guard
 router.post("/goods-purchases/:id/admin-invoice", requireAuth, requireActor, guarded, (req, res) => {
   try {
     const { reason, expectedStage } = parseReason(req.body);
-    const purchase = reviseGoodsInvoice(Number(req.params.id), req.body?.items, res.locals.authUser, reason, expectedStage);
+    const purchase = reviseGoodsInvoice(Number(req.params.id), req.body?.items, res.locals.authUser, reason, expectedStage, {
+      customerPayoutPercent: req.body?.customerPayoutPercent,
+      developmentDiscountPercent: req.body?.developmentDiscountPercent,
+    });
     res.json(purchase);
   } catch (e) { handleError(res, e); }
 });

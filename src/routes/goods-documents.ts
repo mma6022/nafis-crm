@@ -2,7 +2,7 @@ import { Router, type RequestHandler } from "express";
 import type { AuthUser } from "../lib/auth";
 import { assertGoodsPurchaseScope, getGoodsPurchase, setGoodsDocumentStatus, goodsEvent } from "../lib/goods-finance";
 import { sendUpdatedGoodsAcknowledgement } from "../lib/contract-template-updates";
-import { generateGoodsDocument, goodsDocumentState, goodsDocumentRequirements, goodsPdf, sendGoodsDocument, refreshGoodsDocument, queryGoodsDocumentSignatureStatus, type GoodsDocumentKind, type GoodsDocumentSource } from "../lib/goods-documents";
+import { generateGoodsDocument, goodsDocumentState, goodsDocumentRequirements, goodsPdf, sendGoodsDocument, refreshGoodsDocument, queryGoodsDocumentSignatureStatus, goodsDocumentSourceFromPurchase, type GoodsDocumentKind, type GoodsDocumentSource } from "../lib/goods-documents";
 
 const router = Router();
 const guard: RequestHandler = (req, res, next) => {
@@ -25,13 +25,7 @@ const guard: RequestHandler = (req, res, next) => {
   } catch { res.status(404).json({ error: "purchase_not_found" }); }
 };
 function source(p: any): GoodsDocumentSource {
-  return {
-    id: p.id, customerId: p.customerId, planId: p.planId,
-    creditAmountToman: p.creditAmountToman, principalAmountToman: p.principalAmountToman,
-    payoutAmountToman: p.payoutAmountToman, acknowledgementTemplateId: p.acknowledgement_template_id,
-    invoiceVersion: p.invoice_version,
-    items: p.items.map((i: any) => ({ title: i.title, quantity: i.quantity, unitPriceToman: i.unitPriceToman })),
-  };
+  return goodsDocumentSourceFromPurchase(p);
 }
 function documentStage(p: any, kind: GoodsDocumentKind) {
   if (kind === "invoice") {

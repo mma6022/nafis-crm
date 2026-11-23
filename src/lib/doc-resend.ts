@@ -7,8 +7,8 @@
 import type { AuthUser } from "./auth";
 import { execute, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
 import { isSalesManagerUser } from "./sales-manager";
-import { assertGoodsPurchaseScope, getGoodsPurchase, goodsEvent, saveGoodsInvoice } from "./goods-finance";
-import { goodsDocumentHistory, generateGoodsDocument, type GoodsDocumentKind } from "./goods-documents";
+import { applyGoodsPurchasePercents, assertGoodsPurchaseScope, getGoodsPurchase, goodsEvent, saveGoodsInvoice } from "./goods-finance";
+import { goodsDocumentHistory, generateGoodsDocument, goodsDocumentSourceFromPurchase, type GoodsDocumentKind } from "./goods-documents";
 import { paymentEvent, paymentOrder } from "./payment-orders";
 import { revertPaidPaymentOrder } from "./payment-order-unpay";
 import { cancelEmzameContract } from "./emzame-client";
@@ -404,14 +404,21 @@ export function paymentStageBack(orderId: number, toStage: string, actor: AuthUs
   });
 }
 
-export function reviseGoodsInvoice(purchaseId: number, items: any[], actor: AuthUser, reason: string, expectedStage?: string) {
+export function reviseGoodsInvoice(purchaseId: number, items: any[], actor: AuthUser, reason: string, expectedStage?: string, percents?: { customerPayoutPercent?: unknown; developmentDiscountPercent?: unknown }) {
   assertGoodsPurchaseScope(purchaseId, actor);
   const p = getGoodsPurchase(purchaseId);
   if (expectedStage && p.stage !== expectedStage) fail(409, "admin_case_revision_conflict");
   if (p.stage !== "invoice_draft") fail(409, "invalid_purchase_stage");
   const updated = saveGoodsInvoice(purchaseId, items, actor.id, { adminResend: true });
-  goodsEvent(purchaseId, "admin_invoice_revised", actor.id, { reason, actorUserId: actor.id, invoiceVersion: updated.invoice_version });
-  return getGoodsPurchase(purchaseId);
+  if (percents && (percents.customerPayoutPercent != null && percents.customerPayoutPercent !== "" || percents.developmentDiscountPercent != null && percents.developmentDiscountPercent !== "")) {
+    applyGoodsPurchasePercents(purchaseId, percents);
+  }
+  const after = getGoodsPurchase(purchaseId);
+  goodsEvent(purchaseId, "admin_invoice_revised", actor.id, {
+    reason, actorUserId: actor.id, invoiceVersion: after.invoice_version,
+    customerPayoutPercent: after.customerPayoutPercent, developmentDiscountPercent: after.developmentDiscountPercent,
+  });
+  return after;
 }
 
 export async function resendGoodsDocument(purchaseId: number, kind: GoodsDocumentKind, actor: AuthUser, reason: string, expectedStage?: string, manual: Record<string, string> = {}) {
@@ -419,13 +426,7 @@ export async function resendGoodsDocument(purchaseId: number, kind: GoodsDocumen
   const p = getGoodsPurchase(purchaseId);
   if (expectedStage && p.stage !== expectedStage) fail(409, "admin_case_revision_conflict");
   if (!resendKinds(p.stage).includes(kind)) fail(409, "invalid_purchase_stage");
-  const source = {
-    id: p.id, customerId: p.customerId, planId: p.planId,
-    creditAmountToman: p.creditAmountToman, principalAmountToman: p.principalAmountToman,
-    payoutAmountToman: p.payoutAmountToman, acknowledgementTemplateId: p.acknowledgement_template_id,
-    invoiceVersion: p.invoice_version,
-    items: (p.items ?? []).map((i: any) => ({ title: i.title, quantity: i.quantity, unitPriceToman: i.unitPriceToman })),
-  };
+  const source = goodsDocumentSourceFromPurchase(p);
   if (kind === "invoice" && !(p.items ?? []).length) fail(409, "invoice_items_required");
   const cancelled = await cancelPreviousUnsignedGoodsRequests(purchaseId, kind);
   const generate = generateGoodsDocumentFn ?? generateGoodsDocument;

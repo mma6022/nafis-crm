@@ -1,6 +1,6 @@
 import { crmDb, execute, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
 import type { AuthUser } from "./auth";
-import { goodsDocumentState, assertInvoiceEditable, invalidateGoodsInvoice } from "./goods-documents";
+import { goodsDocumentState, currentGoodsDocumentState, assertInvoiceEditable, invalidateGoodsInvoice } from "./goods-documents";
 import { assertArchivedCustomerSurvivorAccess } from "./customer-merge-access";
 import { postCompanyPurchaseReceipt } from "./company-purchase-receipts";
 import { goodsSettlementAmounts } from "./goods-settlement-amounts";
@@ -137,7 +137,10 @@ export function getGoodsPurchase(id: number): any {
     creditAmountToman: p.credit_amount_toman, principalAmountToman: p.principal_amount_toman, payoutAmountToman: p.payout_amount_toman,
     basePayoutAmountToman: p.base_payout_amount_toman, feeDiscountToman: p.fee_discount_toman,
     developmentDiscountToman: p.development_discount_toman, companyCreditToman: p.company_credit_toman, createdAt: p.created_at, completedAt: p.completed_at,
-    invoiceDocument: goodsDocumentState(id,"invoice"), acknowledgementDocument: goodsDocumentState(id,"acknowledgement"),
+    payoutBps: p.payout_bps, developmentDiscountBps: p.development_discount_bps,
+    customerPayoutPercent: p.payout_bps / 100, developmentDiscountPercent: p.development_discount_bps / 100,
+    invoiceDocument: currentGoodsDocumentState(id,"invoice", p.invoice_version) ?? (p.invoice_version ? null : goodsDocumentState(id,"invoice")),
+    acknowledgementDocument: currentGoodsDocumentState(id,"acknowledgement", p.invoice_version) ?? goodsDocumentState(id,"acknowledgement"),
     items: queryRows<any>("SELECT id,title,quantity,unit_price_toman unitPriceToman,total_toman totalToman FROM goods_invoice_items WHERE purchase_id=? ORDER BY id", [id]),
     events: queryRows<any>(`SELECT e.action,e.actor_user_id actorUserId,COALESCE(NULLIF(u.full_name,''),u.username) actorName,e.detail,e.created_at createdAt FROM goods_purchase_events e LEFT JOIN users u ON u.id=e.actor_user_id WHERE e.purchase_id=? ORDER BY e.id`, [id]) };
 }
@@ -188,6 +191,24 @@ export function saveGoodsInvoice(id: number, items: any[], actorId: number, opts
     goodsEvent(id,"invoice_saved",actorId);
     return getGoodsPurchase(id);
   });
+}
+
+/** Update the purchase's snapshotted payout / development-discount percents (not the plan). Pre-settlement only. */
+export function applyGoodsPurchasePercents(id: number, input: { customerPayoutPercent?: unknown; developmentDiscountPercent?: unknown }): void {
+  const p = queryRow<any>("SELECT * FROM goods_purchases WHERE id=?", [id]);
+  if (!p) throw new Error("purchase_not_found");
+  if (p.stage !== "invoice_draft") throw new Error("invalid_purchase_stage");
+  const payoutBps = input.customerPayoutPercent != null && input.customerPayoutPercent !== ""
+    ? percentBps(input.customerPayoutPercent) : p.payout_bps;
+  const discountBps = input.developmentDiscountPercent != null && input.developmentDiscountPercent !== ""
+    ? percentBps(input.developmentDiscountPercent) : p.development_discount_bps;
+  if (payoutBps <= 0) throw new Error("positive_customer_payout_required");
+  const credit = money(p.credit_amount_toman), principal = money(p.principal_amount_toman);
+  const discount = percentage(credit, discountBps);
+  const basePayout = percentage(principal, payoutBps);
+  if (basePayout > principal) throw new Error("payout_exceeds_principal");
+  executeChanges(`UPDATE goods_purchases SET payout_bps=?,development_discount_bps=?,development_discount_toman=?,company_credit_toman=?,payout_amount_toman=?,base_payout_amount_toman=?,fee_discount_toman='0' WHERE id=?`,
+    [payoutBps, discountBps, discount.toString(), (credit - discount).toString(), basePayout.toString(), basePayout.toString(), id]);
 }
 export function setGoodsDocumentStatus(id: number, kind: "invoice" | "acknowledgement", status: "pending" | "signed" | "rejected", version: number, actorId: number | null): void {
   runTransaction(() => {

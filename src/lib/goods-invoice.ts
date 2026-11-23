@@ -14,6 +14,7 @@ type InvoiceSource = {
   creditAmountToman: string;
   invoiceVersion?: number;
   invoiceNumber: string;
+  developmentDiscountBps?: number;
   items: Array<{ title: string; quantity: number; unitPriceToman: string }>;
 };
 const latinDigits = (value: unknown) => String(value ?? "")
@@ -54,15 +55,29 @@ export async function createInvoiceDocx(source: InvoiceSource, buyer: InvoiceBuy
   const customer = typeof buyer === "string" ? { name: buyer } : buyer;
   const value = (text?: string | null) => text?.trim() || "—";
   const widths = [650, 4700, 600, 1800, 1800, 1000, 1800, 1250, 2000];
-  let total = 0n;
-  const itemRows = source.items.map((item, index) => {
+  const amounts = source.items.map((item) => {
     if (!item.title.trim() || !Number.isSafeInteger(item.quantity) || item.quantity < 1 || !/^\d+$/.test(item.unitPriceToman)) throw new Error("invoice_item_invalid");
-    const amount = BigInt(item.unitPriceToman) * BigInt(item.quantity);
-    total += amount;
-    return row([formatNumber(index + 1), item.title, formatNumber(item.quantity), formatNumber(BigInt(item.unitPriceToman)), formatNumber(amount),
-      "0", formatNumber(amount), "—", formatNumber(amount)].map((text, i) => cell(text, widths[i], { align: i === 1 ? "right" : "center" })));
+    return BigInt(item.unitPriceToman) * BigInt(item.quantity);
   });
+  const total = amounts.reduce((sum, amount) => sum + amount, 0n);
   if (total !== BigInt(source.creditAmountToman)) throw new Error("invoice_total_mismatch");
+  const discountBps = Number.isSafeInteger(source.developmentDiscountBps) ? Number(source.developmentDiscountBps) : 0;
+  if (discountBps < 0 || discountBps > 10000) throw new Error("invoice_item_invalid");
+  const discountTotal = total * BigInt(discountBps) / 10000n;
+  let allocated = 0n;
+  const discounts = amounts.map((amount, index) => {
+    if (index === amounts.length - 1) return discountTotal - allocated;
+    const part = total === 0n ? 0n : amount * discountTotal / total;
+    allocated += part;
+    return part;
+  });
+  const itemRows = source.items.map((item, index) => {
+    const amount = amounts[index];
+    const discount = discounts[index];
+    const after = amount - discount;
+    return row([formatNumber(index + 1), item.title, formatNumber(item.quantity), formatNumber(BigInt(item.unitPriceToman)), formatNumber(amount),
+      formatNumber(discount), formatNumber(after), "—", formatNumber(after)].map((text, i) => cell(text, widths[i], { align: i === 1 ? "right" : "center" })));
+  });
   const headers = ["ردیف", "شرح کالا", "تعداد", "مبلغ واحد", "مبلغ کل", "تخفیف اقلام",
     "مبلغ پس از تخفیف", "مالیات و عوارض", "جمع کل"];
   const header = row(headers.map((text, i) => cell(text, widths[i], { bold: true, shade: true, align: "center" })), true);

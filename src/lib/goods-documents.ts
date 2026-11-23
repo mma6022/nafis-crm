@@ -22,9 +22,34 @@ export type GoodsDocumentSource = {
   id: number; customerId: number; planId: number; creditAmountToman: string;
   principalAmountToman: string; payoutAmountToman: string;
   invoiceVersion?: number;
+  payoutBps?: number;
+  developmentDiscountBps?: number;
   items: Array<{ title: string; quantity: number; unitPriceToman: string }>;
   acknowledgementTemplateId?: number | null;
 };
+/** Build the document source from a getGoodsPurchase (or equivalent) row. */
+export function goodsDocumentSourceFromPurchase(p: any): GoodsDocumentSource {
+  return {
+    id: p.id, customerId: p.customerId ?? p.customer_id, planId: p.planId ?? p.plan_id,
+    creditAmountToman: p.creditAmountToman ?? p.credit_amount_toman,
+    principalAmountToman: p.principalAmountToman ?? p.principal_amount_toman,
+    payoutAmountToman: p.payoutAmountToman ?? p.payout_amount_toman,
+    acknowledgementTemplateId: p.acknowledgementTemplateId ?? p.acknowledgement_template_id ?? null,
+    invoiceVersion: p.invoiceVersion ?? p.invoice_version,
+    payoutBps: p.payoutBps ?? p.payout_bps,
+    developmentDiscountBps: p.developmentDiscountBps ?? p.development_discount_bps,
+    items: (p.items ?? []).map((i: any) => ({ title: i.title, quantity: i.quantity, unitPriceToman: i.unitPriceToman })),
+  };
+}
+/** Latest document for this purchase+kind whose source matches the current invoice version, if any. */
+export function currentGoodsDocumentState(purchaseId: number, kind: GoodsDocumentKind, invoiceVersion: number | null | undefined) {
+  if (invoiceVersion == null || !Number.isSafeInteger(Number(invoiceVersion)) || Number(invoiceVersion) < 1) return null;
+  const row = queryRow<any>(
+    "SELECT * FROM goods_purchase_documents WHERE purchase_id=? AND kind=? AND source_invoice_version=? ORDER BY version DESC LIMIT 1",
+    [purchaseId, kind, Number(invoiceVersion)],
+  );
+  return publicState(row);
+}
 const root = path.resolve(process.env.CONTRACTS_STORAGE_DIR || path.join(path.dirname(databasePath), "contracts"));
 const store = path.join(root, "goods");
 const now = () => new Date().toISOString();
@@ -200,13 +225,21 @@ export function startGoodsDocumentGeneration(source: GoodsDocumentSource, kind: 
     throw new Error("document_delivery_locked");
   }
   // Explicit generation renews unsent documents from an older rendering policy.
-  // Sent/signed documents and their original bytes stay intact.
-  const renewPrevious = previous?.status === "generated" && !previous.provider_contract_id && !previous.provider_file_id &&
-    (opts.forceNew || (previous.source_hash !== fingerprint && (compatibleDocumentSource(source, kind, previous.source_hash) ||
-      (kind === "acknowledgement" && previous.source_hash === sourceHash(source)))));
-  if (!opts.forceNew && previous && !renewPrevious && !["failed", "rejected", "superseded"].includes(previous.status)) {
-    if (!compatibleDocumentSource(source, kind, previous.source_hash)) throw new Error("document_source_changed");
-    return { reused: publicState(previous) };
+  // Sent/signed/cancelled documents and their original bytes stay intact.
+  // t901: a cancelled previous request must never be reused as "the" invoice; open a new version.
+  // A changed source (new items or percents) after stage-back also opens a new version instead of
+  // throwing document_source_changed, which blocked the on-page «تولید نسخه تازه» button.
+  const unsentGenerated = previous?.status === "generated" && !previous.provider_contract_id && !previous.provider_file_id;
+  const renewPrevious = Boolean(unsentGenerated && (opts.forceNew || previous.source_hash !== fingerprint));
+  const finishedWithoutDoc = ["failed", "rejected", "superseded", "cancelled"];
+  if (!opts.forceNew && previous && !renewPrevious && !finishedWithoutDoc.includes(previous.status)) {
+    if (compatibleDocumentSource(source, kind, previous.source_hash)) {
+      return { reused: publicState(previous) };
+    }
+    if (["generating", "sending"].includes(previous.status) && Date.parse(previous.updated_at) >= Date.now() - 120000) {
+      throw new Error("document_delivery_locked");
+    }
+    // Fall through and insert a new version; the previous sent/signed/generated-incompatible row is kept.
   }
   const issuedAt = new Date();
   const issuedAtIso = issuedAt.toISOString();
@@ -235,7 +268,7 @@ export async function generateGoodsDocument(source: GoodsDocumentSource, kind: G
     const customer = queryRow<any>("SELECT c.*,s.name salesperson_name FROM customers c LEFT JOIN salespersons s ON s.id=c.salesperson_id WHERE c.id=?", [source.customerId]);
     const plan = queryRow<any>("SELECT * FROM loan_plans WHERE id=?", [source.planId]);
     if (!customer || !plan) throw new Error("document_parties_missing");
-    const bytes = kind === "invoice" ? await createInvoiceDocx({ ...source, invoiceNumber: invoiceNumber! }, customer, String(plan.platform_company_name ?? ""), issuedAt) : await acknowledgementDocx(source, customer, plan, manual);
+    const bytes = kind === "invoice" ? await createInvoiceDocx({ ...source, invoiceNumber: invoiceNumber!, developmentDiscountBps: source.developmentDiscountBps }, customer, String(plan.platform_company_name ?? ""), issuedAt) : await acknowledgementDocx(source, customer, plan, manual);
     const file = await convertPdf(bytes);
     crmDb.prepare("UPDATE goods_purchase_documents SET status='generated',pdf_path=?,pdf_sha256=?,updated_at=? WHERE id=?").run(file, sha(await fsp.readFile(file)), now(), id);
     return goodsDocumentState(source.id, kind);

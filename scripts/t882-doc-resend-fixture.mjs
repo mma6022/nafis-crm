@@ -706,6 +706,80 @@ await ok("stage-back from invoice_signature notifies on Bale only when an unsign
   }
 });
 
+
+await ok("after stage-back, regular generate does not reuse a cancelled invoice", async () => {
+  setFlag("1");
+  resend.setCancelEmzameContractForTests(async () => {});
+  const stage = queryRow("SELECT stage FROM goods_purchases WHERE id=69").stage;
+  assert.equal(stage, "invoice_signature");
+  await resend.goodsStageBack(69, "invoice_draft", admin, "بازگشت برای اصلاح فاکتور و درصدها", "invoice_signature");
+  const cancelled = snapDocs(69).find((d) => d.kind === "invoice" && d.status === "cancelled");
+  assert.ok(cancelled, "stage-back should cancel the unsigned invoice");
+  const p = (await import("../src/lib/goods-finance.ts")).getGoodsPurchase(69);
+  const started = docs.startGoodsDocumentGeneration(docs.goodsDocumentSourceFromPurchase(p), "invoice", admin.id, { forceNew: false });
+  assert.ok(!("reused" in started), "cancelled invoice must not be reused: " + JSON.stringify(started));
+  assert.equal(typeof started.id, "number");
+  const after = snapDocs(69);
+  assert.equal(after.find((d) => d.id === cancelled.id).status, "cancelled");
+  assert.equal(after.find((d) => d.id === started.id).status, "generating");
+  executeChanges("UPDATE goods_purchase_documents SET status='failed',error='fixture_stop_before_pdf',updated_at=? WHERE id=?", [new Date().toISOString(), started.id]);
+});
+
+await ok("after item edit, the regular generate button opens a new invoice instead of document_source_changed", async () => {
+  const items = queryRows("SELECT title,quantity,unit_price_toman unitPriceToman FROM goods_invoice_items WHERE purchase_id=69 ORDER BY id");
+  assert.ok(items.length);
+  items[0] = { ...items[0], title: String(items[0].title) + " اصلاح‌شده" };
+  resend.reviseGoodsInvoice(69, items, admin, "ویرایش اقلام برای تولید فاکتور تازه", "invoice_draft");
+  const p = (await import("../src/lib/goods-finance.ts")).getGoodsPurchase(69);
+  assert.equal(p.items[0].title, items[0].title);
+  const started = docs.startGoodsDocumentGeneration(docs.goodsDocumentSourceFromPurchase(p), "invoice", admin.id, { forceNew: false });
+  assert.ok(!("reused" in started), "expected a new version, got reuse: " + JSON.stringify(started));
+  const neu = snapDocs(69).find((d) => d.id === started.id);
+  assert.equal(neu.status, "generating");
+  assert.equal(Number(neu.source_invoice_version ?? p.invoice_version), Number(p.invoice_version));
+  const cancelled = snapDocs(69).filter((d) => d.kind === "invoice" && d.status === "cancelled");
+  assert.ok(cancelled.length >= 1);
+  executeChanges("UPDATE goods_purchase_documents SET status='failed',error='fixture_stop_before_pdf',updated_at=? WHERE id=?", [new Date().toISOString(), started.id]);
+});
+
+await ok("edited invoice deduction percent is saved, recomputed, and used in the new invoice", async () => {
+  const before = queryRow("SELECT credit_amount_toman, principal_amount_toman, payout_bps, development_discount_bps, payout_amount_toman, development_discount_toman, company_credit_toman, invoice_version FROM goods_purchases WHERE id=69");
+  assert.ok(Number(before.development_discount_bps) !== 2000);
+  const items = queryRows("SELECT title,quantity,unit_price_toman unitPriceToman FROM goods_invoice_items WHERE purchase_id=69 ORDER BY id");
+  const updated = resend.reviseGoodsInvoice(69, items, admin, "اصلاح درصد کسر از مبلغ فاکتور", "invoice_draft", {
+    customerPayoutPercent: 50, developmentDiscountPercent: 20,
+  });
+  assert.equal(Number(updated.payoutBps), 5000);
+  assert.equal(Number(updated.developmentDiscountBps), 2000);
+  assert.equal(Number(updated.customerPayoutPercent), 50);
+  assert.equal(Number(updated.developmentDiscountPercent), 20);
+  const credit = BigInt(before.credit_amount_toman);
+  const principal = BigInt(before.principal_amount_toman);
+  const expectDiscount = (credit * 2000n / 10000n).toString();
+  const expectPayout = (principal * 5000n / 10000n).toString();
+  assert.equal(String(updated.developmentDiscountToman), expectDiscount);
+  assert.equal(String(updated.companyCreditToman), (credit - BigInt(expectDiscount)).toString());
+  assert.equal(String(updated.payoutAmountToman), expectPayout);
+  assert.equal(String(updated.basePayoutAmountToman), expectPayout);
+  assert.notEqual(String(updated.developmentDiscountToman), String(before.development_discount_toman));
+  const plan = queryRow("SELECT customer_payout_bps, development_discount_bps FROM goods_plan_settings WHERE plan_id=?", [updated.planId]);
+  assert.notEqual(Number(plan.development_discount_bps), 2000, "plan settings must stay untouched");
+  const { createInvoiceDocx } = await import("../src/lib/goods-invoice.ts");
+  const bytes = await createInvoiceDocx({
+    id: 69, creditAmountToman: String(updated.creditAmountToman), invoiceVersion: updated.invoice_version,
+    invoiceNumber: "140409015", developmentDiscountBps: 2000,
+    items: items.map((i) => ({ title: i.title, quantity: i.quantity, unitPriceToman: i.unitPriceToman })),
+  }, { name: "مشتری آزمون" }, "شرکت تأمین آزمون");
+  const zip = await (await import("jszip")).default.loadAsync(bytes);
+  const xml = await zip.file("word/document.xml").async("string");
+  const formatted = BigInt(expectDiscount).toLocaleString("en-US");
+  assert.ok(xml.includes(formatted), "invoice must show the deducted amount, missing " + formatted);
+  assert.equal(queryRow("SELECT development_discount_bps FROM goods_plan_settings WHERE plan_id=?", [updated.planId]).development_discount_bps, plan.development_discount_bps);
+  const started = docs.startGoodsDocumentGeneration(docs.goodsDocumentSourceFromPurchase(updated), "invoice", admin.id, { forceNew: false });
+  assert.ok(!("reused" in started), "percent change must not reuse the previous invoice");
+  executeChanges("UPDATE goods_purchase_documents SET status='failed',error='fixture_stop_before_pdf',updated_at=? WHERE id=?", [new Date().toISOString(), started.id]);
+});
+
 await ok("no goods_purchase_documents rows were deleted in this fixture copy", async () => {
   // Compared with the source masked file, the copy may have added generating/failed rows, never fewer signed/sent.
   const srcDbPath = src;
