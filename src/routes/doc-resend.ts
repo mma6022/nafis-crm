@@ -28,7 +28,7 @@ function handleError(res: Response, error: unknown) {
   if (error instanceof TeamCommissionError || error instanceof AccountingError) return fail(res, error.status, error.message);
   if (error instanceof GlPostingError) return fail(res, 409, "gl_posting_failed");
   const code = error instanceof Error ? error.message : "doc_resend_failed";
-  const status = /not_found/.test(code) ? 404 : /Forbidden|forbidden/.test(code) ? 403 : /lock|conflict|stage|changed|locked|required/.test(code) ? 409 : 500;
+  const status = /not_found/.test(code) ? 404 : /Forbidden|forbidden/.test(code) ? 403 : /lock|conflict|stage|changed|locked|required|percent|payout/.test(code) ? 409 : 500;
   return fail(res, status, code);
 }
 

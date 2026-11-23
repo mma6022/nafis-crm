@@ -755,8 +755,10 @@ await ok("edited invoice deduction percent is saved, recomputed, and used in the
   assert.equal(Number(updated.developmentDiscountPercent), 20);
   const credit = BigInt(before.credit_amount_toman);
   const principal = BigInt(before.principal_amount_toman);
+  assert.notEqual(credit, principal, "purchase 69 must distinguish invoice vs principal basis");
   const expectDiscount = (credit * 2000n / 10000n).toString();
-  const expectPayout = (principal * 5000n / 10000n).toString();
+  const expectPayout = (credit * 5000n / 10000n).toString();
+  assert.notEqual(expectPayout, (principal * 5000n / 10000n).toString());
   assert.equal(String(updated.developmentDiscountToman), expectDiscount);
   assert.equal(String(updated.companyCreditToman), (credit - BigInt(expectDiscount)).toString());
   assert.equal(String(updated.payoutAmountToman), expectPayout);
@@ -779,6 +781,31 @@ await ok("edited invoice deduction percent is saved, recomputed, and used in the
   assert.ok(!("reused" in started), "percent change must not reuse the previous invoice");
   executeChanges("UPDATE goods_purchase_documents SET status='failed',error='fixture_stop_before_pdf',updated_at=? WHERE id=?", [new Date().toISOString(), started.id]);
 });
+
+await ok("payout percent basis is the full invoice amount and is easy to switch", async () => {
+  const finance = await import("../src/lib/goods-finance.ts");
+  assert.equal(finance.GOODS_PAYOUT_PERCENT_BASIS, "invoice");
+  assert.equal(finance.goodsPayoutBasisAmount(10000n, 2000n).toString(), "10000");
+  assert.equal(finance.goodsPayoutBasisAmount(10000n, 2000n, "invoice").toString(), "10000");
+  assert.equal(finance.goodsPayoutBasisAmount(10000n, 2000n, "after_discount").toString(), "8000");
+});
+
+await ok("empty invoice percents and percents summing over 100 are rejected", async () => {
+  const { applyGoodsPurchasePercents } = await import("../src/lib/goods-finance.ts");
+  const before = queryRow("SELECT payout_bps, development_discount_bps, payout_amount_toman, development_discount_toman FROM goods_purchases WHERE id=69");
+  assert.equal(Number(before.payout_bps), 5000);
+  assert.equal(Number(before.development_discount_bps), 2000);
+  assert.throws(() => applyGoodsPurchasePercents(69, { customerPayoutPercent: "", developmentDiscountPercent: 20 }), (e) => e instanceof Error && e.message === "invoice_percent_required");
+  assert.throws(() => applyGoodsPurchasePercents(69, { customerPayoutPercent: 50, developmentDiscountPercent: "" }), (e) => e instanceof Error && e.message === "invoice_percent_required");
+  assert.throws(() => applyGoodsPurchasePercents(69, { customerPayoutPercent: 60, developmentDiscountPercent: 50 }), (e) => e instanceof Error && e.message === "invoice_percents_exceed_100");
+  assert.throws(() => applyGoodsPurchasePercents(69, { customerPayoutPercent: 0, developmentDiscountPercent: 20 }), (e) => e instanceof Error && e.message === "positive_customer_payout_required");
+  const after = queryRow("SELECT payout_bps, development_discount_bps, payout_amount_toman, development_discount_toman FROM goods_purchases WHERE id=69");
+  assert.equal(String(after.payout_bps), String(before.payout_bps));
+  assert.equal(String(after.development_discount_bps), String(before.development_discount_bps));
+  assert.equal(String(after.payout_amount_toman), String(before.payout_amount_toman));
+  assert.equal(String(after.development_discount_toman), String(before.development_discount_toman));
+});
+
 
 await ok("no goods_purchase_documents rows were deleted in this fixture copy", async () => {
   // Compared with the source masked file, the copy may have added generating/failed rows, never fewer signed/sent.

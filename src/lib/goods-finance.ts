@@ -193,19 +193,32 @@ export function saveGoodsInvoice(id: number, items: any[], actorId: number, opts
   });
 }
 
+/**
+ * Mohammad t902s3186: the customer payout percent is of the full invoice amount (credit),
+ * not of the amount after the development discount. Flip to "after_discount" only after
+ * a further owner decision; labels must then name the new basis.
+ */
+export const GOODS_PAYOUT_PERCENT_BASIS: "invoice" | "after_discount" = "invoice";
+export function goodsPayoutBasisAmount(invoiceAmount: bigint, developmentDiscount: bigint, basis: "invoice" | "after_discount" = GOODS_PAYOUT_PERCENT_BASIS): bigint {
+  return basis === "after_discount" ? invoiceAmount - developmentDiscount : invoiceAmount;
+}
+
 /** Update the purchase's snapshotted payout / development-discount percents (not the plan). Pre-settlement only. */
 export function applyGoodsPurchasePercents(id: number, input: { customerPayoutPercent?: unknown; developmentDiscountPercent?: unknown }): void {
   const p = queryRow<any>("SELECT * FROM goods_purchases WHERE id=?", [id]);
   if (!p) throw new Error("purchase_not_found");
   if (p.stage !== "invoice_draft") throw new Error("invalid_purchase_stage");
-  const payoutBps = input.customerPayoutPercent != null && input.customerPayoutPercent !== ""
+  if (input.customerPayoutPercent === "" || input.developmentDiscountPercent === "") throw new Error("invoice_percent_required");
+  const payoutBps = input.customerPayoutPercent != null
     ? percentBps(input.customerPayoutPercent) : p.payout_bps;
-  const discountBps = input.developmentDiscountPercent != null && input.developmentDiscountPercent !== ""
+  const discountBps = input.developmentDiscountPercent != null
     ? percentBps(input.developmentDiscountPercent) : p.development_discount_bps;
   if (payoutBps <= 0) throw new Error("positive_customer_payout_required");
+  if (discountBps < 0 || discountBps > 10000 || payoutBps > 10000) throw new Error("invalid_percent");
+  if (payoutBps + discountBps > 10000) throw new Error("invoice_percents_exceed_100");
   const credit = money(p.credit_amount_toman), principal = money(p.principal_amount_toman);
   const discount = percentage(credit, discountBps);
-  const basePayout = percentage(principal, payoutBps);
+  const basePayout = percentage(goodsPayoutBasisAmount(credit, discount), payoutBps);
   if (basePayout > principal) throw new Error("payout_exceeds_principal");
   executeChanges(`UPDATE goods_purchases SET payout_bps=?,development_discount_bps=?,development_discount_toman=?,company_credit_toman=?,payout_amount_toman=?,base_payout_amount_toman=?,fee_discount_toman='0' WHERE id=?`,
     [payoutBps, discountBps, discount.toString(), (credit - discount).toString(), basePayout.toString(), basePayout.toString(), id]);

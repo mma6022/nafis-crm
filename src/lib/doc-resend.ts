@@ -410,7 +410,7 @@ export function reviseGoodsInvoice(purchaseId: number, items: any[], actor: Auth
   if (expectedStage && p.stage !== expectedStage) fail(409, "admin_case_revision_conflict");
   if (p.stage !== "invoice_draft") fail(409, "invalid_purchase_stage");
   const updated = saveGoodsInvoice(purchaseId, items, actor.id, { adminResend: true });
-  if (percents && (percents.customerPayoutPercent != null && percents.customerPayoutPercent !== "" || percents.developmentDiscountPercent != null && percents.developmentDiscountPercent !== "")) {
+  if (percents && (percents.customerPayoutPercent !== undefined || percents.developmentDiscountPercent !== undefined)) {
     applyGoodsPurchasePercents(purchaseId, percents);
   }
   const after = getGoodsPurchase(purchaseId);
