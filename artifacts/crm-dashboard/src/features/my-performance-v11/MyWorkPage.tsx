@@ -1,5 +1,5 @@
 /** عملکرد من v1.1 (flag.my_performance_v1). Own work report; «استعلام» only as a placeholder when its flag is ON. */
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
@@ -61,6 +61,8 @@ export default function MyWorkPage() {
   const [from, setFrom] = useState(() => toJalaliValue(parsed.from) || '');
   const [to, setTo] = useState(() => toJalaliValue(parsed.to) || '');
 
+  useEffect(() => { document.title = 'عملکرد من | نفیس وام'; }, []);
+
   const go = (period: Period, f?: string, t?: string) => {
     const p = new URLSearchParams();
     p.set('period', period);
@@ -77,10 +79,6 @@ export default function MyWorkPage() {
 
   return (
     <div className="mpv11" dir="rtl" lang="fa" data-testid="page-my-work">
-      <div className="ttl">
-        <h1>عملکرد من</h1>
-        <p>{longDate(data?.range.to)}</p>
-      </div>
       <div className="kicker">
         <div className="who">{data?.self.name ?? me.data?.self?.name ?? ''}{data?.self.teamName ? ` · ${data.self.teamName}` : ''}</div>
       </div>
@@ -109,8 +107,8 @@ export default function MyWorkPage() {
       {report.isError ? <p className="err" role="alert">گزارش الان در دسترس نیست. دوباره تلاش کنید.</p> : null}
 
       {data ? <>
-        <section className="grid" aria-label="شاخص‌های شما">
-          <article className="card wide">
+        <section className="grid" data-inquiry={inquiry ? 'on' : 'off'} aria-label="شاخص‌های شما">
+          <article className="card calls">
             <h3>تماس‌ها</h3>
             <div className="num">{faNum(data.self.calls.value)}<span className="u">تماس</span></div>
             <Delta d={data.self.calls.delta} />
@@ -135,7 +133,7 @@ export default function MyWorkPage() {
             <Card title="مشتری جدید" metric={data.self.newCustomers} avg={data.team?.averages.newCustomers} />
           )}
 
-          <Card title="پروندهٔ بازشده" metric={data.self.filed} />
+          <Card title="پروندهٔ بازشده" metric={data.self.filed} avg={data.team?.averages.filed} />
           <Card title="رسیده به قرارداد" metric={data.self.signed} />
           <article className="card">
             <h3>گفتگوی بله</h3>

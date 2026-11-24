@@ -14,9 +14,6 @@
 }
 .mpv11::-webkit-scrollbar,.mpv11 *::-webkit-scrollbar{width:0;height:0;display:none;background:transparent}
 .mpv11 *{scrollbar-width:none}
-.mpv11 .ttl{display:flex;align-items:baseline;gap:12px;margin:0 0 8px;flex-wrap:wrap}
-.mpv11 .ttl h1{font-size:18px;font-weight:800;color:var(--nf-ink);margin:0;white-space:nowrap}
-.mpv11 .ttl p{font-size:14px;color:var(--nf-ink-muted);margin:0;white-space:nowrap}
 .mpv11 .kicker{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 8px}
 .mpv11 .kicker .who{font-size:14px;font-weight:700;color:var(--nf-ink)}
 .mpv11 .range{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px}
@@ -29,14 +26,12 @@
 .mpv11 .fld label{font-size:14px;font-weight:700;color:var(--nf-ink)}
 .mpv11 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;min-width:44px;padding:0 16px;border-radius:12px;font-weight:700;font-size:14px;line-height:1.4;border:1px solid transparent;cursor:pointer;font:inherit}
 .mpv11 .btn.pri{background:var(--nf-brand-600);color:#fff;border-color:var(--nf-brand-600);box-shadow:var(--nf-shadow-button);min-width:120px}
-.mpv11 .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0 0 16px;align-items:stretch}
-.mpv11 .stack{grid-column:span 2;display:flex;flex-direction:column;gap:12px;min-width:0}
-.mpv11 .stack .card{flex:1}
+.mpv11 .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:0 0 16px;align-items:start}
+.mpv11 .stack{display:flex;flex-direction:column;gap:12px;min-width:0}
 .mpv11 .lower{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:12px;margin:0 0 8px;align-items:stretch}
 .mpv11 .lower .block{margin:0}
 .mpv11 .lower .chart,.mpv11 .lower .team{height:100%}
 .mpv11 .card{background:#fff;border:1px solid var(--nf-line);border-radius:var(--nf-radius-card);padding:12px 14px;min-width:0;box-shadow:var(--nf-shadow-card)}
-.mpv11 .card.wide{grid-column:span 2}
 .mpv11 .card h3{font-size:13px;font-weight:700;color:var(--nf-ink-muted);margin:0 0 6px}
 .mpv11 .num{font-size:26px;font-weight:800;color:var(--nf-ink);line-height:1.25}
 .mpv11 .num .u{font-size:14px;font-weight:700;color:var(--nf-ink-muted);margin-inline-start:6px}
@@ -74,12 +69,9 @@
 .mpv11 .err{color:var(--nf-danger);font-weight:700}
 @media (max-width:1023.98px){
   .mpv11{padding:12px 12px calc(var(--ss-dock-h, 72px) + 16px)}
-  .mpv11 .ttl{flex-direction:column;align-items:flex-start;gap:0;line-height:1.3}
-  .mpv11 .ttl h1{font-size:16px}
-  .mpv11 .ttl p{font-size:12px}
   .mpv11 .grid{grid-template-columns:1fr 1fr;gap:10px}
-  .mpv11 .card.wide{grid-column:span 2}
-  .mpv11 .stack{grid-column:span 2;display:grid;grid-template-columns:1fr 1fr;flex-direction:unset}
+  .mpv11 .card.calls{grid-column:span 2}
+  .mpv11 .stack{grid-column:span 2;display:grid;grid-template-columns:1fr 1fr}
   .mpv11 .lower{grid-template-columns:1fr;gap:16px}
   .mpv11 .num{font-size:24px}
   .mpv11 .custom{grid-template-columns:1fr}
@@ -89,7 +81,8 @@
   .mpv11 .col span{font-size:10px}
 }
 @media (min-width:1024px) and (max-width:1279.98px){
-  .mpv11 .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .mpv11 .grid{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}
+  .mpv11 .card.calls{grid-column:auto}
 }
 @media (min-width:1440px){
   .mpv11{padding-left:32px;padding-right:32px}
