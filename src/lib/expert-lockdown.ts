@@ -53,7 +53,7 @@ export const EL_SEARCH_WINDOW_MS = 10 * 60_000;
 export const EL_BELL_WINDOW_MS = 30 * 60_000; // at most one owner bell per caller + customer in this window
 export const EL_ADMIN_USER_IDS = [1, 5];
 /** Dashboard routes (hrefs) the locked experts keep. */
-export const EL_ALLOWED_PAGES = ["/today", "/loan-applications", "/payment-orders", "/goods-purchases", "/messengers", "/internal-chat", "/bale-bot", "/sales-performance", "/customer-segments", "/sales-kpi"];
+export const EL_ALLOWED_PAGES = ["/today", "/loan-applications", "/payment-orders", "/goods-purchases", "/messengers", "/internal-chat", "/bale-bot", "/sales-performance", "/customer-segments", "/sales-kpi", "/my-work"];
 /** SALES-FIXES 480000 (t810u «محدودیت … مشتریان من رو فعلا بردار»): «مشتریان من» (/customers, own customers only) opens at any step.
  *  Only these pages change; the rest of the lockdown stays. flag.sf480_open_lists = '0' → the old list. */
 export const elAllowedPages = (): string[] => sf480OpenLists() ? [...EL_ALLOWED_PAGES, "/customers"] : [...EL_ALLOWED_PAGES];
@@ -187,6 +187,8 @@ const ALLOW: RegExp[] = [
   /^\/customer-segments(\/|$)/,
   // sales-kpi v1: own + team totals only (handlers re-check; other experts stay 403).
   /^\/sales-kpi(\/|$)/,
+  // عملکرد من v1.1: own report only (handlers re-check; no colleague names).
+  /^\/my-work(\/|$)/,
   // SALES-FIXES 480000: centred search + «مشتریان من» (handlers scope to the caller's own customers).
   /^\/sales-fixes\/(search|my-customers|cases|me)$/,
   // «فضای کار بله» v1.0 (flag.bale_workspace_v1; OFF → the route 404s): own chats / own customers only, handlers re-check.

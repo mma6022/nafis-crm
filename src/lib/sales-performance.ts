@@ -261,7 +261,7 @@ export type Counts = {
   answered: number; noAnswer: number; answeredInbound: number; noAnswerInbound: number;
   filed: number; advanced: number; done: number; wallet: number; walletRial: number;
 };
-const emptyCounts = (): Counts => ({
+export const emptyCounts = (): Counts => ({
   calls: 0, unique: 0, duration: 0, inbound: 0, outbound: 0,
   answered: 0, noAnswer: 0, answeredInbound: 0, noAnswerInbound: 0,
   filed: 0, advanced: 0, done: 0, wallet: 0, walletRial: 0,
@@ -560,7 +560,7 @@ export function listTeams(db: DatabaseSync): { teamId: number; name: string; mem
 
 /* ---------------- assemble counts + scoring ---------------- */
 
-function countsForWindow(db: DatabaseSync, w: Window, excludeTest: boolean): { bySp: Map<number, Counts>; calls: CallFact[] } {
+export function countsForWindow(db: DatabaseSync, w: Window, excludeTest: boolean): { bySp: Map<number, Counts>; calls: CallFact[] } {
   const calls = performanceCallRows(db, w.fromIso, w.toIso, excludeTest);
   const filed = filedByExpert(db, w.fromIso, w.toIso, excludeTest);
   const adv = advancedByExpert(db, w.fromIso, w.toIso, excludeTest);
