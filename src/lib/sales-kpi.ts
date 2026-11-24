@@ -799,7 +799,7 @@ export function writeSettings(db: DatabaseSync, patch: SettingsPatch, actor: Aut
   return readSettings(db, periodKey);
 }
 
-type Counts = {
+export type Counts = {
   sales: number; amount: number; assigned: number; called: number;
   docsElig: number; docsDone: number; cancelled: number; registered: number;
   fuDue: number; fuOnTime: number;
@@ -1231,3 +1231,5 @@ export function isKpiEditor(u: AuthUser, db: TraineeQueryDb): boolean {
 }
 
 export { completedByExpert, accessOf };
+/** Reused by عملکرد من v1.2 (no formula fork). */
+export { kpisFor, gatherWindow, targetFor };

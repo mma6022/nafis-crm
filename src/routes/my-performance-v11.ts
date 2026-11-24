@@ -7,12 +7,13 @@ import { Router, type IRouter, type NextFunction, type Request, type Response } 
 import { getAuthenticatedUser, type AuthUser } from "../lib/auth";
 import { crmDb } from "../lib/crm-db";
 import { mpFlagOnDb, myWorkMePayload, myWorkReport } from "../lib/my-performance-v11";
+import { mpV12FlagOnDb } from "../lib/my-performance-v12";
 
 const router: IRouter = Router();
 const me = (res: Response) => res.locals.authUser as AuthUser;
 
 function gate(req: Request, res: Response, next: NextFunction) {
-  if (!mpFlagOnDb(crmDb)) {
+  if (!mpFlagOnDb(crmDb) && !mpV12FlagOnDb(crmDb)) {
     res.status(404).json({ error: "not_found" });
     return;
   }

@@ -66,6 +66,12 @@ export function mpInquiryOnDb(db: DatabaseSync): boolean {
   catch { return false; }
 }
 
+/** Local read of flag.my_performance_v12 so v1.1 does not import the v1.2 module (cycle). */
+function mpV12FlagOnDb(db: DatabaseSync): boolean {
+  try { return (db.prepare("SELECT value FROM call_queue_settings WHERE key=?").get("flag.my_performance_v12") as { value?: string } | undefined)?.value === "1"; }
+  catch { return false; }
+}
+
 function appSpSql(db: DatabaseSync): string {
   return cols(db, "loan_applications").has("salesperson_id_snapshot")
     ? "COALESCE(a.salesperson_id_snapshot, c.salesperson_id)"
@@ -227,20 +233,21 @@ function mean(nums: number[]): number {
 }
 
 export function myWorkMePayload(db: DatabaseSync, actor: AuthUser) {
-  const enabled = mpFlagOnDb(db);
+  const enabled = mpFlagOnDb(db) || mpV12FlagOnDb(db);
   const access = accessOf(actor, db);
   const experts = enabled ? listExperts(db) : [];
   const self = actor.salespersonId ? experts.find((e) => e.salespersonId === actor.salespersonId) ?? null : null;
   return {
     enabled,
     access,
+    v12: mpV12FlagOnDb(db),
     canView: enabled && access !== "none" && Boolean(self),
     self: self ? { salespersonId: self.salespersonId, name: self.name, trainee: self.trainee, teamName: self.teamName } : null,
   };
 }
 
 export function myWorkReport(db: DatabaseSync, actor: AuthUser, query: { period?: string; from?: string; to?: string; anchor?: string }, now = new Date()): MpReport {
-  if (!mpFlagOnDb(db)) {
+  if (!mpFlagOnDb(db) && !mpV12FlagOnDb(db)) {
     const err = new Error("not_found") as Error & { status: number };
     err.status = 404;
     throw err;
