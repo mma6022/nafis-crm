@@ -4,12 +4,14 @@ import { Check, Copy, X } from 'lucide-react';
 import { fa } from './api';
 
 /** «۰۹۱۲ ۰۰۰ ۰۰۸۳»: full number, Persian digits, LTR island. */
-export const faPhone = (p: string) => { const d = String(p ?? '').replace(/\D/g, ''); const g = d.length === 11 ? `${d.slice(0, 4)} ${d.slice(4, 7)} ${d.slice(7)}` : d; return fa(g); };
+/** 4-3-4 with non-breaking spaces (Armita r2 §2); the copied value stays digits only. */
+export const faPhone = (p: string) => { const d = String(p ?? '').replace(/\D/g, ''); const g = d.length === 11 ? `${d.slice(0, 4)}\u00A0${d.slice(4, 7)}\u00A0${d.slice(7)}` : d; return fa(g); };
+export const PhoneText = ({ p }: { p: string }) => <bdi dir="ltr" className="sh-pt">{faPhone(p)}</bdi>;
 export function copyText(t: string, done?: () => void) { void navigator.clipboard?.writeText(t).then(() => done?.()).catch(() => undefined); }
 export function PhoneNum({ p, big, copy = true, testId }: { p: string; big?: boolean; copy?: boolean; testId?: string }) {
   const [ok, setOk] = useState(false);
-  return <span className={`sh-ph${big ? ' big' : ''}`} data-testid={testId}><bdi>{faPhone(p)}</bdi>
-    {copy ? <button type="button" className="sh-ib" aria-label="کپی شماره" onClick={() => copyText(p, () => { setOk(true); window.setTimeout(() => setOk(false), 1500); })}>{ok ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}</button> : null}</span>;
+  return <span className={`sh-ph${big ? ' big' : ''}`} data-testid={testId}><bdi dir="ltr">{faPhone(p)}</bdi>
+    {copy ? <button type="button" className="sh-ib" aria-label="کپی شماره" onClick={() => copyText(String(p).replace(/\D/g, ''), () => { setOk(true); window.setTimeout(() => setOk(false), 1500); })}>{ok ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}</button> : null}</span>;
 }
 export function IdBadge({ id }: { id: number }) {
   const [ok, setOk] = useState(false);

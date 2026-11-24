@@ -49,8 +49,7 @@ function SendWizard({ d, name, onClose, onSent }: { d: ShToday; name: string; on
   const head = <span className="sh-row" style={{ gap: 6 }}>ارسال پیام به <Name name={name} id={d.customerId} /></span>;
   if (unreach) return <Wizard title={title} head={head} short onClose={onClose} testId="sh-send-unreach"
     foot={<><button type="button" className="sh-btn pri" disabled={!d.botLink} onClick={() => d.botLink && copyText(d.botLink, () => setCopied(true))} data-testid="sh-send-copylink">{copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}{copied ? 'پیوند کپی شد' : 'کپی پیوند ربات'}</button><button type="button" className="sh-btn ghost" onClick={onClose}>بستن</button></>}>
-    <div className="sh-stack"><div className="sh-msg amber">این مشتری هنوز ربات {d.botName} را شروع نکرده؛ پیام نمی‌رود.</div>
-      <p className="sh-sub" style={{ margin: 0 }}>{d.botLink ? 'پیوند ربات را برای مشتری بفرستید تا ربات را شروع کند.' : 'نشانی ربات هنوز ثبت نشده؛ پس از اتصال ربات، پیوند آن اینجا می‌آید.'}</p></div></Wizard>;
+    <div className="sh-stack"><div className="sh-msg amber">این مشتری هنوز ربات {d.botName} را شروع نکرده؛ پیام نمی‌رود.</div></div></Wizard>;
   return <Wizard title={title} head={head} steps={steps} cur={step} onClose={onClose} testId={`sh-send-${step}`}
     foot={step === 2 ? <><button type="button" className="sh-btn pri" disabled={busy} onClick={() => void send()} data-testid="sh-send-go"><Send aria-hidden="true" />ارسال</button><button type="button" className="sh-btn ghost" onClick={() => setStep(1)}>قبلی</button></>
       : <><button type="button" className="sh-btn pri" disabled={step === 1 && !m} onClick={() => setStep(step + 1)} data-testid="sh-send-next">ادامه</button><button type="button" className="sh-btn ghost" onClick={() => (step === 0 || !d.plans.length ? onClose() : setStep(step - 1))}>{step === 0 || !d.plans.length ? 'انصراف' : 'قبلی'}</button></>}>

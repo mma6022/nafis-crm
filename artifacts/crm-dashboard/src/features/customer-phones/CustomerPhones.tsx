@@ -26,7 +26,7 @@ function Dialog({ title, testId, children, onClose }: { title: string; testId: s
   );
 }
 
-function AddDialog({ customerId, onClose, onSaved }: { customerId: number; onClose: () => void; onSaved: (view: PhoneList) => void }) {
+export function AddDialog({ customerId, onClose, onSaved }: { customerId: number; onClose: () => void; onSaved: (view: PhoneList) => void }) {
   const [phone, setPhone] = useState("");
   const [label, setLabel] = useState("");
   const [err, setErr] = useState("");

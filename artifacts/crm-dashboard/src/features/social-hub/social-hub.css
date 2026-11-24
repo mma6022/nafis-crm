@@ -134,14 +134,27 @@ body:has(.topbar.sh-compact) .diag-floating{display:none!important}
 .topbar.sh-compact .ss-ttl,.topbar.sh-compact > div:first-child{min-width:0;flex:1 1 auto}
 .sh-dtools{display:flex;gap:8px;padding:8px 16px;border-bottom:1px solid #E3E7F2}
 .sh-dtools .side-link{flex:1;min-height:44px;justify-content:center}
-/* today card phone actions (Armita build-r1 §2). Scoped to a today card that shows .sh-today, i.e. only while flag.social_hub_v1 is ON. */
-.dci-head:has(.sh-today) [data-testid$="-copy-primary"]{display:none!important}
-.dci-head:has(.sh-today) .cph-item .cph-del,.dci-head:has(.sh-today) .cph-item .cph-add,.dci-head:has(.sh-today) .cph-row>.cph-add{
-  min-height:44px!important;min-width:44px!important;padding:0 14px!important;border:1px solid rgb(41,54,155)!important;border-radius:12px!important;
-  background:#fff!important;color:rgb(41,54,155)!important;font-size:14px!important;font-weight:700!important;display:inline-flex!important;align-items:center;justify-content:center}
-.dci-head:has(.sh-today) .cph-item [data-testid*="-del-"]{color:#B42318!important;border-color:#E8A39B!important}
-.dci-head:has(.sh-today) .cph-row>.cph-add{align-self:flex-start;width:auto!important}
+/* today card numbers (Armita build-r2 §1): card per number; ≥1024 one row per number. Rendered only while flag.social_hub_v1 is ON. */
+.sh-tph{display:flex;flex-direction:column;gap:8px;width:100%;margin:4px 0 8px}
+.sh-tph-c{border:1px solid var(--sh-line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px;background:#fff}
+.sh-tph-n{display:flex;flex-direction:column;gap:2px;min-width:0}
+.sh-tph-n b{font-size:18px;font-weight:800;white-space:nowrap;color:var(--sh-navy-d)}
+.sh-tph-a{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.sh-tph-c.n3 .sh-tph-a{grid-template-columns:repeat(3,minmax(0,1fr))}
+.sh .sh-tph-a .sh-btn{width:100%;min-height:44px;padding:0 8px}
+.sh .sh-btn.sh-del{background:#fff;color:#B42318;border-color:#E8A39B}
+.sh .sh-tph-add{width:100%}
+.sh-pt{unicode-bidi:isolate;white-space:nowrap}
+@media (min-width:1024px){
+  .sh-tph-c{flex-direction:row;align-items:center;justify-content:space-between;padding:8px 12px}
+  .sh-tph-n{flex-direction:row;align-items:baseline;gap:10px}
+  .sh-tph-a,.sh-tph-c.n3 .sh-tph-a{display:flex;gap:8px}
+  .sh .sh-tph-a .sh-btn{width:auto;padding:0 14px}
+  .sh .sh-tph-add{width:auto;align-self:flex-start}
+}
 .sh-after{background:#EEF0F6;color:#5B6480;font-weight:700;font-size:12px;white-space:nowrap}
 .sh-off{opacity:.55}
 .sh-ctl{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
 .sh-attach-btn{width:100%;margin-top:8px}
+/* unknown-number card «جست‌وجو», outlined full width (flag ON only; class is not set while OFF) */
+.s1b-acts .s1b-search-sh{width:100%;min-height:44px;margin-top:8px;border:1px solid rgb(41,54,155)!important;color:rgb(41,54,155)!important;background:#fff!important;border-radius:12px;justify-content:center;font-weight:800}
