@@ -5,7 +5,9 @@ import NotFound from '@/pages/not-found';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { toApiDay, toJalaliValue } from '@/features/sales-performance/sales-performance-dates';
 import { useMyWorkCalls, useMyWorkKpis, useMyWorkMe, useMyWorkReport, type MpCallRow, type MpKpiItem, type MpKpiReport, type MpReport } from './api';
-import { deltaText, faDuration, faNum } from './format';
+import { faPhone } from '../social-hub/ui';
+import { deltaText, faDuration } from '../my-performance-v11/format';
+import { faNum } from './format';
 import '../my-performance-v11/my-performance-v11.css';
 import './my-performance-v12.css';
 
@@ -66,17 +68,21 @@ function FormulaSheet({ title, text, onClose }: { title: string; text: string; o
 }
 
 function KpiCard({ item, onFormula }: { item: MpKpiItem; onFormula: (item: MpKpiItem) => void }) {
+  const formulaBtn = (extra?: string) => (
+    <button type="button" className={extra ? `fbtn ${extra}` : 'fbtn'} onClick={() => onFormula(item)}>فرمول</button>
+  );
   return (
     <article className="kc card">
       <div className="kc-a">
         <h3>{item.label}</h3>
-        <button type="button" className="fbtn" onClick={() => onFormula(item)}>فرمول</button>
+        {formulaBtn()}
       </div>
       <div className="kc-b">
         <div className="num">{item.display}{item.incomplete ? <span className="u">داده‌ی ناقص</span> : null}</div>
       </div>
       <p className="avg">میانگین تیم: {item.teamAvgDisplay ?? '—'}</p>
       <p className="avg">رتبهٔ شما: {item.rank != null ? `${faNum(item.rank)} از ${faNum(item.of)}` : '—'}</p>
+      {formulaBtn('fm')}
     </article>
   );
 }
@@ -270,7 +276,7 @@ export default function MyWorkV12Page() {
           {calls.isLoading ? <p className="range-note">در حال بارگذاری…</p> : null}
           {callData ? (
             <>
-              <div className="cmp-grid grid" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))' }}>
+              <div className="cmp-grid">
                 {([
                   ['تماس‌ها', callData.totals.calls, callData.teamAvg.calls, false],
                   ['جواب‌داده', callData.totals.answered, callData.teamAvg.answered, false],
@@ -310,7 +316,7 @@ export default function MyWorkV12Page() {
                     <tr key={r.id} className={r.waitingCallback ? 'wait-row' : undefined}>
                       <td>{r.atLabel}</td>
                       <td>{r.customerName || '—'}{r.customerId != null ? <span className="idb">#{faNum(r.customerId)}</span> : null}</td>
-                      <td className="phone">{r.phone ? faDigitsPhone(r.phone) : '—'}</td>
+                      <td><bdi dir="ltr" className="phone">{r.phone ? faPhone(r.phone) : '—'}</bdi></td>
                       <td>{r.direction === 'incoming' ? 'ورودی' : r.direction === 'outgoing' ? 'خروجی' : '—'}</td>
                       <td>{r.resultLabel}</td>
                       <td>{r.durationSec != null ? faDuration(r.durationSec) : '—'}</td>
@@ -324,7 +330,7 @@ export default function MyWorkV12Page() {
                   <article key={r.id} className={`mcall${r.waitingCallback ? ' wait-row' : ''}`}>
                     <div className="topr"><span>{r.atLabel}</span><span>{r.direction === 'incoming' ? 'ورودی' : r.direction === 'outgoing' ? 'خروجی' : '—'}</span></div>
                     <div className="who-c">{r.customerName || '—'}{r.customerId != null ? <span className="idb">#{faNum(r.customerId)}</span> : null}</div>
-                    <div className="row2"><span className="phone">{r.phone ? faDigitsPhone(r.phone) : '—'}</span><span>{r.resultLabel} · {r.durationSec != null ? faDuration(r.durationSec) : '—'}</span></div>
+                    <div className="row2"><bdi dir="ltr" className="phone">{r.phone ? faPhone(r.phone) : '—'}</bdi><span>{r.resultLabel} · {r.durationSec != null ? faDuration(r.durationSec) : '—'}</span></div>
                     {r.waitingCallback && r.hasVoip ? <div className="acts"><button type="button" className="btn pri">تماس</button></div> : null}
                   </article>
                 ))}
@@ -364,7 +370,4 @@ export default function MyWorkV12Page() {
   );
 }
 
-function faDigitsPhone(phone: string): string {
-  return phone.replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]!);
-}
 
