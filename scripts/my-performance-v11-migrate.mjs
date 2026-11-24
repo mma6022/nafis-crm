@@ -1,5 +1,6 @@
 /**
  * Additive only: insert flag.my_performance_v1 and flag.my_performance_inquiry as '0' if absent.
+ * The inquiry key is kept as an unused OFF row; /my-work no longer reads it.
  * Never updates an existing value. Never touches sales_performance_v1, expert_lockdown, multi_team_v1.
  */
 import fs from "node:fs";

@@ -1,6 +1,6 @@
 /**
  * عملکرد من v1.1 (flag.my_performance_v1) — own report, team rank without colleague
- * names, inquiry flag OFF by default, flag OFF = 404. Does not toggle
+ * names, no inquiry metric, flag OFF = 404. Does not toggle
  * sales_performance_v1 / expert_lockdown / multi_team_v1.
  *
  * Part A: synthetic DatabaseSync.
@@ -59,6 +59,7 @@ function buildSynth(target = ":memory:") {
     INSERT INTO call_queue_settings(key,value,updated_at) VALUES('flag.sales_performance_v1','1','2026-11-10T00:00:00Z');
     INSERT INTO call_queue_settings(key,value,updated_at) VALUES('flag.expert_lockdown','1','2026-11-10T00:00:00Z');
     INSERT INTO call_queue_settings(key,value,updated_at) VALUES('flag.my_performance_v1','1','2026-11-10T00:00:00Z');
+    INSERT INTO call_queue_settings(key,value,updated_at) VALUES('flag.my_performance_inquiry','0','2026-11-10T00:00:00Z');
   `);
   const created = "2026-10-01T00:00:00.000Z";
   const at = "2026-11-10T00:00:00.000Z";
@@ -196,10 +197,10 @@ await ok("flag helpers: only '1' is ON", () => {
   assert.equal(mp.mpFlagOnDb(syn), true);
 });
 
-await ok("me payload for expert; inquiry off", () => {
+await ok("me payload for expert; no inquiry field", () => {
   const me = mp.myWorkMePayload(syn, kazemi);
   assert.equal(me.enabled, true);
-  assert.equal(me.inquiry, false);
+  assert.ok(!("inquiry" in me));
   assert.equal(me.canView, true);
   assert.equal(me.self.salespersonId, 6);
   assert.equal(me.self.teamName, "تیم فروش ۱");
@@ -280,9 +281,15 @@ await ok("registrar has no access", () => {
   catch (e) { assert.equal(e.status, 403); }
 });
 
-await ok("inquiry flag stays off on the report", () => {
-  assert.equal(report.inquiry, false);
+await ok("inquiry is not a report or comparison metric; unused flag stays off", () => {
+  assert.ok(!("inquiry" in report));
   assert.ok(!("inquiryValue" in report.self));
+  assert.ok(!("inquiry" in (report.team?.averages ?? {})));
+  const blob = JSON.stringify(report);
+  assert.ok(!blob.includes("استعلام"), blob.slice(0, 200));
+  assert.equal(mp.mpInquiryOnDb(syn), false);
+  const row = syn.prepare("SELECT value v FROM call_queue_settings WHERE key=?").get(mp.MP_INQUIRY_FLAG);
+  assert.equal(row.v, "0");
 });
 
 /* -------- HTTP on the masked copy (crmDb) -------- */
@@ -326,7 +333,7 @@ await ok("HTTP expert report hides colleague names", async () => {
   assert.ok(!blob.includes("قاسمی"));
   const me = await call("kazemi", "/my-work/me");
   assert.equal(me.s, 200);
-  assert.equal(me.b.inquiry, false);
+  assert.ok(!("inquiry" in me.b));
 });
 
 await ok("HTTP flag OFF returns 404 and does not change other flags", async () => {

@@ -2,7 +2,7 @@
 import { Router, type IRouter, type Response } from "express";
 import type { AuthUser } from "../lib/auth";
 import { bnv2On } from "../lib/bottom-nav-v2";
-import { mpFlagOn, mpInquiryOn } from "../lib/my-performance-v11";
+import { mpFlagOn } from "../lib/my-performance-v11";
 import { ssNavBadges, ssOn } from "../lib/sales-shell";
 import { perfCacheGetOrSet } from "../lib/perf-poll-cache";
 
@@ -11,7 +11,7 @@ const me = (res: Response) => res.locals.authUser as AuthUser | undefined;
 router.get("/sales-shell/me", (_req, res) => {
   const u = me(res); if (!u) { res.status(401).json({ error: "unauthorized" }); return; }
   res.setHeader("Cache-Control", "private, no-store");
-  res.json(perfCacheGetOrSet(`sales-shell-me:${u.id}`, 5_000, () => ({ v2: ssOn(Number(u.id)), bottomNavV2: bnv2On(), myPerformanceV1: mpFlagOn(), myPerformanceInquiry: mpInquiryOn() })));
+  res.json(perfCacheGetOrSet(`sales-shell-me:${u.id}`, 5_000, () => ({ v2: ssOn(Number(u.id)), bottomNavV2: bnv2On(), myPerformanceV1: mpFlagOn() })));
 });
 router.get("/nav-badges", (_req, res) => {
   const u = me(res); if (!u) { res.status(401).json({ error: "unauthorized" }); return; }

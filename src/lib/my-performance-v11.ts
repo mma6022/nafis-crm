@@ -3,8 +3,8 @@
  * Expert's own work report. Reuses sales-performance windows, call facts, filed counts,
  * and role weights for team rank. Never returns colleagues' names.
  *
- * «استعلام» is gated by flag.my_performance_inquiry (default OFF). Meaning is still
- * open with Mohammad; this flag must not treat the metric as a credit inquiry.
+ * flag.my_performance_inquiry stays as an unused OFF row (additive migrate only).
+ * It is not read by /my-work and is not a credit-inquiry metric.
  *
  * Does not write or toggle flag.sales_performance_v1, flag.expert_lockdown, or flag.multi_team_v1.
  */
@@ -160,7 +160,6 @@ export type MpTrendCol = { key: string; label: string; value: number; current: b
 
 export type MpReport = {
   access: AccessKind;
-  inquiry: boolean;
   period: PeriodKind;
   range: {
     from: string; to: string; fromIso: string; toIso: string;
@@ -234,7 +233,6 @@ export function myWorkMePayload(db: DatabaseSync, actor: AuthUser) {
   const self = actor.salespersonId ? experts.find((e) => e.salespersonId === actor.salespersonId) ?? null : null;
   return {
     enabled,
-    inquiry: enabled && mpInquiryOnDb(db),
     access,
     canView: enabled && access !== "none" && Boolean(self),
     self: self ? { salespersonId: self.salespersonId, name: self.name, trainee: self.trainee, teamName: self.teamName } : null,
@@ -315,7 +313,6 @@ export function myWorkReport(db: DatabaseSync, actor: AuthUser, query: { period?
 
   return {
     access,
-    inquiry: mpInquiryOnDb(db),
     period: bounds.period,
     range: {
       from: isoDay(bounds.current.startDay), to: isoDay(bounds.current.endDay),
