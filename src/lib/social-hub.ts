@@ -294,9 +294,7 @@ export function shBots() {
     managers: queryRows<{ id: number; full_name: string | null; username: string }>("SELECT u.id,u.full_name,u.username FROM sh_bot_access a JOIN users u ON u.id=a.user_id WHERE a.bot_id=? AND a.manage=1 ORDER BY u.id", [b.id]).map(userName),
     lastMessageAt: null as string | null,
   }));
-  return { bots, legacy: shLegacy(), networks: SH_NETWORKS, redirectText: shRedirectText(), connectEnabled: shConnectOn(), legacyFinish: shLegacyFinishOn(),
-    /** display only: the existing per-expert Bale bots are live (no token is read or used here). */
-    baleLive: shLegacy().some((l) => l.liveStatus === "on") };
+  return { bots, legacy: shLegacy(), networks: SH_NETWORKS, redirectText: shRedirectText(), connectEnabled: shConnectOn(), legacyFinish: shLegacyFinishOn() };
 }
 /** Old per-expert Bale bots (bale_bots, read only) with migration progress from sh_legacy_moves. */
 export function shLegacy() {
