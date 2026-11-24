@@ -7,6 +7,15 @@ import type { AuthUser } from "./auth";
 import { crmDb, execute, queryRow, queryRows } from "./crm-db";
 import { isAdminRole, normalizeCustomerMobile } from "./customer-integrity";
 
+/** social-hub v1.1 (flag.social_hub_phone_attach_v1, Mohammad t418s1654): any expert may add numbers to any customer, several extras.
+ *  Read here directly (not via social-hub.ts) to keep this module free of new imports. OFF → exactly the t853u rules. */
+const SH_PHONE_FLAG = "flag.social_hub_phone_attach_v1";
+const SH_TOTAL_MAX = 10; // primary + 9 extras (social-hub SH_EXTRA_PHONES_MAX)
+function shPhoneAttachOn(): boolean {
+  try { return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [SH_PHONE_FLAG])?.value === "1"; } catch { return false; }
+}
+export function customerPhonesMax(): number { return shPhoneAttachOn() ? SH_TOTAL_MAX : CUSTOMER_PHONES_MAX; }
+
 export const CUSTOMER_PHONES_MAX = 3;
 export const CUSTOMER_PHONE_LABEL_MAX = 20;
 export const INVALID_PHONE_MESSAGE = "شماره‌ی موبایل کامل ۱۱ رقمی را بنویس (مثلاً ۰۹۱۲۱۲۳۴۵۶۷).";
@@ -217,6 +226,7 @@ export function canManageCustomerPhones(user: AuthUser, customerId: number, lock
   if (isAdminRole(user.role)) return true;
   if (!user.permissions.includes("customers.update")) return false;
   if (user.customerScope === "all") return true;
+  if (shPhoneAttachOn()) return true;
   if (user.salespersonId != null && row.salespersonId === Number(user.salespersonId)) return true;
   return Boolean(lockdownAccess);
 }
@@ -226,6 +236,7 @@ export function canViewCustomerPhones(user: AuthUser, customerId: number, lockdo
   if (!row) return false;
   if (isAdminRole(user.role) || user.customerScope === "all") return true;
   if (user.salespersonId != null && row.salespersonId === Number(user.salespersonId)) return true;
+  if (shPhoneAttachOn() && user.permissions.includes("customers.update")) return true;
   return Boolean(lockdownAccess);
 }
 
@@ -252,8 +263,8 @@ export function listCustomerPhones(user: AuthUser, customerId: number, lockdownA
       primary: { phone: primary.ok ? primary.phone : row.phone, label: "شماره اصلی" },
       extras,
       total: 1 + extras.length,
-      max: CUSTOMER_PHONES_MAX,
-      canAdd: can && 1 + extras.length < CUSTOMER_PHONES_MAX,
+      max: customerPhonesMax(),
+      canAdd: can && 1 + extras.length < customerPhonesMax(),
       canDelete: can,
     },
   };
@@ -285,8 +296,8 @@ export function addCustomerPhone(user: AuthUser, customerId: number, rawPhone: u
     };
   }
   const extras = listExtraPhones(customerId);
-  if (1 + extras.length >= CUSTOMER_PHONES_MAX) {
-    return { ok: false, status: 409, error: "phone_limit", message: LIMIT_MESSAGE };
+  if (1 + extras.length >= customerPhonesMax()) {
+    return { ok: false, status: 409, error: "phone_limit", message: shPhoneAttachOn() ? "برای هر مشتری حداکثر ۱۰ شماره می‌توان ثبت کرد." : LIMIT_MESSAGE };
   }
   const at = now.toISOString();
   try {
