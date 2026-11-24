@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { Check, Copy, FileText, Send } from 'lucide-react';
 import { fa, faDate, fileSize, messageError, shApi, useShMe, type ShToday } from './api';
-import { CheckBox, Radio, Wizard, copyText, useShToast } from './ui';
+import { CheckBox, Name, Radio, Wizard, copyText, shRenderPreview, useShToast } from './ui';
 import './social-hub.css';
 
 const bidi = (s: string) => fa(s);
@@ -46,27 +46,28 @@ function SendWizard({ d, name, onClose, onSent }: { d: ShToday; name: string; on
     try { await shApi(`/customers/${d.customerId}/send`, 'POST', { messageId: m.id, docIds: m.kind === 'plan' ? docs : [] }); void qc.invalidateQueries({ queryKey: ['sh-today', d.customerId] }); onSent('پیام در صف ارسال ثبت شد.'); }
     catch (e: any) { if (e?.code === 'unreachable') setUnreach(true); else setErr(messageError(e)); } finally { setBusy(false); } };
   const title = `ارسال پیام به ${name}`; const steps = ['طرح', 'پیام', 'ارسال'];
-  if (unreach) return <Wizard title={title} short onClose={onClose} testId="sh-send-unreach"
+  const head = <span className="sh-row" style={{ gap: 6 }}>ارسال پیام به <Name name={name} id={d.customerId} /></span>;
+  if (unreach) return <Wizard title={title} head={head} short onClose={onClose} testId="sh-send-unreach"
     foot={<><button type="button" className="sh-btn pri" disabled={!d.botLink} onClick={() => d.botLink && copyText(d.botLink, () => setCopied(true))} data-testid="sh-send-copylink">{copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}{copied ? 'پیوند کپی شد' : 'کپی پیوند ربات'}</button><button type="button" className="sh-btn ghost" onClick={onClose}>بستن</button></>}>
     <div className="sh-stack"><div className="sh-msg amber">این مشتری هنوز ربات {d.botName} را شروع نکرده؛ پیام نمی‌رود.</div>
       <p className="sh-sub" style={{ margin: 0 }}>{d.botLink ? 'پیوند ربات را برای مشتری بفرستید تا ربات را شروع کند.' : 'نشانی ربات هنوز ثبت نشده؛ پس از اتصال ربات، پیوند آن اینجا می‌آید.'}</p></div></Wizard>;
-  return <Wizard title={title} steps={steps} cur={step} onClose={onClose} testId={`sh-send-${step}`}
+  return <Wizard title={title} head={head} steps={steps} cur={step} onClose={onClose} testId={`sh-send-${step}`}
     foot={step === 2 ? <><button type="button" className="sh-btn pri" disabled={busy} onClick={() => void send()} data-testid="sh-send-go"><Send aria-hidden="true" />ارسال</button><button type="button" className="sh-btn ghost" onClick={() => setStep(1)}>قبلی</button></>
       : <><button type="button" className="sh-btn pri" disabled={step === 1 && !m} onClick={() => setStep(step + 1)} data-testid="sh-send-next">ادامه</button><button type="button" className="sh-btn ghost" onClick={() => (step === 0 || !d.plans.length ? onClose() : setStep(step - 1))}>{step === 0 || !d.plans.length ? 'انصراف' : 'قبلی'}</button></>}>
     {step === 0 ? <div className="sh-stack" role="radiogroup" aria-label="طرح">{d.plans.map((x) => <Radio key={x.id} on={plan === x.id} title={x.name} sub={x.current ? 'طرح فعلی مشتری' : `${fa(x.messages.length)} پیام`} onClick={() => { setPlan(x.id); setMsg(null); setDocs([]); }} />)}
       <Radio on={plan == null} title="بدون طرح" sub="فقط پیام‌های آزاد" onClick={() => { setPlan(null); setMsg(null); setDocs([]); }} /></div>
     : step === 1 ? <div className="sh-stack">
-      {p ? <><span className="sh-chip tint" style={{ alignSelf: 'flex-start' }}>{p.name}</span><div className="sh-lbl">پیام‌های {p.name}</div>
-        <div className="sh-stack" role="radiogroup" aria-label={`پیام‌های ${p.name}`}>{p.messages.map((x) => <Radio key={x.id} on={msg === x.id} title={x.title} sub={x.body} onClick={() => setMsg(x.id)} testId="sh-send-msg" />)}</div>
+      {p ? <><span className="sh-chip tint" style={{ alignSelf: 'flex-start' }}>{p.name}</span>{p.messages.length ? <><div className="sh-lbl">پیام‌های {p.name}</div>
+        <div className="sh-stack" role="radiogroup" aria-label={`پیام‌های ${p.name}`}>{p.messages.map((x) => <Radio key={x.id} on={msg === x.id} title={x.title} sub={shRenderPreview(x.body, { customer: d.customerName || name, expert: d.expertName, plan: p.publicLabel })} onClick={() => setMsg(x.id)} testId="sh-send-msg" />)}</div></>
+          : <p className="sh-sub" style={{ margin: 0 }}>پیامی برای این طرح نیست.</p>}
         {p.docs.length ? <><div className="sh-lbl">فایل‌های طرح (اختیاری)</div>{p.docs.map((f) => <CheckBox key={f.id} on={docs.includes(f.id)} label={`${f.title}، ${f.fileType === 'pdf' ? 'پی‌دی‌اف' : f.fileType === 'video' ? 'ویدیو' : 'تصویر'}، ${fileSize(f.sizeBytes)}`} onChange={(v) => setDocs((s) => v ? [...s, f.id] : s.filter((z) => z !== f.id))} />)}</> : null}</> : null}
       {d.free.length ? <><div className="sh-lbl">پیام‌های آزاد</div><div className="sh-stack" role="radiogroup" aria-label="پیام‌های آزاد">{d.free.map((x) => <Radio key={x.id} on={msg === x.id} title={x.title} onClick={() => { setMsg(x.id); setDocs([]); }} testId="sh-send-msg" />)}</div></> : null}
       {!all.length ? <p className="sh-sub">پیامی برای کارهای امروز روشن نیست.</p> : null}</div>
     : <div className="sh-stack"><div className="sh-sumbox">
-        <div className="sh-sumr"><span className="sh-lbl">به</span><b>{name}</b></div>
+        <div className="sh-sumr"><span className="sh-lbl">به</span><Name name={name} id={d.customerId} /></div>
         <div className="sh-sumr"><span className="sh-lbl">از</span><b>ربات {d.botName}</b></div>
-        {m ? <div className="sh-sumr col"><span className="sh-lbl">{m.title}</span><span style={{ whiteSpace: 'pre-wrap' }}>{m.body}</span></div> : null}
+        {m ? <div className="sh-sumr col"><span className="sh-lbl">{m.title}</span><span style={{ whiteSpace: 'pre-wrap' }} data-testid="sh-send-preview">{shRenderPreview(m.body, { customer: d.customerName || name, expert: d.expertName, plan: m.kind === 'plan' ? p?.publicLabel : '' })}</span></div> : null}
         {docs.length ? <div className="sh-sumr"><span className="sh-lbl">فایل‌ها</span><span className="sh-row"><FileText size={16} aria-hidden="true" />{fa(docs.length)} فایل</span></div> : null}</div>
-      <p className="sh-sub" style={{ margin: 0 }}>‹نام مشتری›، ‹نام کارشناس› و ‹نام طرح› هنگام ارسال پر می‌شوند.</p>
       {err ? <p className="sh-err" role="alert">{err}</p> : null}</div>}
   </Wizard>;
 }

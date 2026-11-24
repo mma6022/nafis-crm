@@ -30,12 +30,12 @@ export const CheckBox = ({ on, label, onChange, testId }: { on: boolean; label: 
 export const Radio = ({ on, title, sub, right, onClick, disabled, testId }: { on: boolean; title: string; sub?: string; right?: ReactNode; onClick?: () => void; disabled?: boolean; testId?: string }) =>
   <button type="button" role="radio" aria-checked={on} className={`sh-rd${on ? ' on' : ''}`} onClick={onClick} disabled={disabled} data-testid={testId}><i /><span className="rb"><b>{title}</b>{sub ? <span>{sub}</span> : null}</span>{right}</button>;
 
-export function Wizard({ title, steps, cur, children, foot, onClose, short, testId }: { title: string; steps?: string[]; cur?: number; children: ReactNode; foot: ReactNode; onClose: () => void; short?: boolean; testId?: string }) {
+export function Wizard({ title, head, steps, cur, children, foot, onClose, short, testId }: { title: string; head?: ReactNode; steps?: string[]; cur?: number; children: ReactNode; foot: ReactNode; onClose: () => void; short?: boolean; testId?: string }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => { const prev = document.activeElement as HTMLElement | null; box.current?.querySelector<HTMLElement>('button')?.focus(); return () => prev?.focus?.(); }, []);
   return createPortal(<div className="sh sh-ov" onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }} data-testid={testId ? `${testId}-wrap` : undefined}>
     <div className={`sh-wz${short ? ' short' : ''}`} role="dialog" aria-modal="true" aria-label={title} ref={box} data-testid={testId}>
-      <div className="sh-wz-h"><h2 className="sh-h3">{title}</h2><button type="button" className="sh-ib" aria-label="بستن" onClick={onClose}><X aria-hidden="true" /></button></div>
+      <div className="sh-wz-h"><h2 className="sh-h3">{head ?? title}</h2><button type="button" className="sh-ib" aria-label="بستن" onClick={onClose}><X aria-hidden="true" /></button></div>
       {steps?.length ? <ol className="sh-steps" aria-label={`گام ${fa((cur ?? 0) + 1)} از ${fa(steps.length)}`} style={{ listStyle: 'none', margin: 0 }}>
         {steps.map((s, i) => <li key={s} style={{ display: 'contents' }}><span className={`sh-stp${i === cur ? ' on' : i < (cur ?? 0) ? ' done' : ''}`} aria-current={i === cur ? 'step' : undefined}><b>{i < (cur ?? 0) ? <Check aria-hidden="true" /> : fa(i + 1)}</b><span>{s}</span></span>{i < steps.length - 1 ? <i className="sh-stl" aria-hidden="true" /> : null}</li>)}
       </ol> : null}
@@ -48,3 +48,10 @@ export function useShToast() {
   useEffect(() => { if (!t) return; const h = window.setTimeout(() => setT(''), 3000); return () => window.clearTimeout(h); }, [t]);
   return { toast: setT, node: t ? createPortal(<div className="sh sh-toast" role="status" data-testid="sh-toast"><Check aria-hidden="true" />{t}</div>, document.body) : null };
 }
+/** Same rule as the server's shRender: ‹نام مشتری› / ‹نام کارشناس› / ‹نام طرح› → real values (preview = what the customer sees). */
+export const shRenderPreview = (text: string, v: { customer?: string; expert?: string; plan?: string }) => {
+  const map: Record<string, string> = { 'نام مشتری': v.customer ?? '', 'نام کارشناس': v.expert ?? '', 'نام طرح': v.plan ?? '' };
+  return text.replace(/[‹«{]\s*(نام مشتری|نام کارشناس|نام طرح)\s*[›»}]/g, (_m, k: string) => map[k] || '');
+};
+/** Small muted chip on controls that only act once the unified bot is connected (flag.social_hub_bot_connect_v1 OFF). */
+export const AfterConnect = () => <span className="sh-chip sh-after" data-testid="sh-after-connect">پس از اتصال ربات</span>;

@@ -12,5 +12,5 @@ ok(/<AttachPhoneButton phone=\{c\.phone\} callEventId=\{c\.id\}/.test(r("feature
 const all = readdirSync(new URL("../src/features/social-hub/", import.meta.url)).map((f) => r(`features/social-hub/${f}`)).join("\n");
 ok(!all.includes("الان مشتری جدید دارم"), "dock item «الان مشتری جدید دارم» not reintroduced");
 ok(!/token/i.test(r("features/social-hub/Bots.tsx").replace(/کلید/g, "")), "add-bot wizard never asks for a bot token");
-ok(!/className="(?!sh)[a-z]/.test(all.replace(/className="(btn btn-ghost|rb|rl|hd|t|l)"/g, "")), "only sh-* classes (and sh-scoped child names) inside the feature, plus the incoming card's own btn");
+ok(!/className="(?!sh)[a-z]/.test(all.replace(/className="(btn btn-ghost|rb|rl|hd|t|l|side-link)"/g, "")), "only sh-* classes (and sh-scoped child names) inside the feature, plus the incoming card's own btn and the shell drawer's side-link (ShellTools)");
 console.log(`social-hub UI fixture ${n}/${n}`);

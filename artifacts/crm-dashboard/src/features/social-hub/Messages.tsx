@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { FileText, MessageCircle, Plus } from 'lucide-react';
-import { fa, messageError, shApi, type ShMessage, type ShPlan } from './api';
-import { CheckBox, Switch, Wizard } from './ui';
+import { fa, messageError, shApi, useShMe, type ShMessage, type ShPlan } from './api';
+import { AfterConnect, CheckBox, Switch, Wizard } from './ui';
 
 type Data = { free: ShMessage[]; plans: { plan: ShPlan; messages: ShMessage[] }[]; vars: string[] };
 export function MessagesTab({ toast }: { toast: (t: string) => void }) {
   const q = useQuery<Data>({ queryKey: ['sh-messages'], queryFn: () => shApi('/messages'), retry: false });
   const [edit, setEdit] = useState<{ m?: ShMessage; planId?: number | null } | null>(null);
-  const [err, setErr] = useState('');
+  const [err, setErr] = useState(''); const connect = Boolean(useShMe().data?.connectEnabled);
   const patch = async (m: ShMessage, b: Partial<ShMessage>) => { setErr(''); try { await shApi(`/messages/${m.id}`, 'PATCH', b); await q.refetch(); } catch (e) { setErr(messageError(e)); } };
   if (q.isLoading) return <p className="sh-sub">در حال دریافت…</p>;
   if (!q.data) return <p className="sh-err" role="alert">دریافت پیام‌ها انجام نشد.</p>;
@@ -16,7 +16,7 @@ export function MessagesTab({ toast }: { toast: (t: string) => void }) {
     <button type="button" className="t" style={{ border: 0, background: 'none', textAlign: 'right', minWidth: 0, cursor: 'pointer', padding: 0 }} onClick={() => setEdit({ m })} data-testid={`sh-msg-edit-${m.id}`}>
       <b>{m.title}</b><span>{m.body}</span></button>
     <Switch on={m.showToday} label="نمایش در کارهای امروز" onChange={(v) => void patch(m, { showToday: v })} testId={`sh-msg-today-${m.id}`} />
-    {!free ? <CheckBox on={m.autoSend} label="ارسال خودکار" onChange={(v) => void patch(m, { autoSend: v })} testId={`sh-msg-auto-${m.id}`} /> : null}</div>;
+    {!free ? <span className={`sh-ctl${connect ? '' : ' sh-off'}`}><CheckBox on={m.autoSend} label="ارسال خودکار" onChange={(v) => void patch(m, { autoSend: v })} testId={`sh-msg-auto-${m.id}`} />{connect ? null : <AfterConnect />}</span> : null}</div>;
   return <>
     <div className="sh-sech"><span /> <button type="button" className="sh-btn pri sm" onClick={() => setEdit({})} data-testid="sh-msg-new"><Plus aria-hidden="true" />پیام تازه</button></div>
     {err ? <p className="sh-err" role="alert">{err}</p> : null}

@@ -89,7 +89,7 @@
 .sh-tr:last-child{border-bottom:0}.sh-tr.hd{background:var(--sh-tint);font-size:12px;font-weight:700;color:var(--sh-navy-d);min-height:36px}
 .sh-tr.leg{grid-template-columns:minmax(90px,1fr) 104px minmax(120px,1.2fr) auto auto}.sh-legp{display:flex;flex-direction:column;align-items:stretch;gap:6px}.sh-legp .sh-bar{flex:none;width:100%}
 .sh-tr.acc{grid-template-columns:minmax(160px,1fr) 150px 220px minmax(240px,1.2fr)}
-.sh-tr.msg{grid-template-columns:minmax(0,1fr) 200px 150px}.sh-tr.msg.free{grid-template-columns:minmax(0,1fr) 200px}
+.sh-tr.msg{grid-template-columns:minmax(0,1fr) 200px 250px}.sh-tr.msg.free{grid-template-columns:minmax(0,1fr) 200px}
 .sh-tr .t b{display:block;color:var(--sh-navy-d);font-weight:800}.sh-tr .t span{display:block;font-size:12px;color:var(--sh-mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sh-grp{display:flex;align-items:center;gap:8px;background:var(--sh-tint);border-radius:12px;padding:8px 14px;font-weight:800;color:var(--sh-navy-d)}
 .sh-grp svg{width:18px;height:18px}
@@ -128,3 +128,20 @@
   .sh-toast{bottom:84px;width:calc(100% - 32px);justify-content:center}
 }
 .dci-head > .sh-today{flex:1 0 100%;width:100%}
+/* compact 390 top bar (flag.social_hub_v1 only; the class is never set while OFF) */
+body:has(.topbar.sh-compact) .diag-floating{display:none!important}
+.topbar.sh-compact h1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:100%}
+.topbar.sh-compact .ss-ttl,.topbar.sh-compact > div:first-child{min-width:0;flex:1 1 auto}
+.sh-dtools{display:flex;gap:8px;padding:8px 16px;border-bottom:1px solid #E3E7F2}
+.sh-dtools .side-link{flex:1;min-height:44px;justify-content:center}
+/* today card phone actions (Armita build-r1 §2). Scoped to a today card that shows .sh-today, i.e. only while flag.social_hub_v1 is ON. */
+.dci-head:has(.sh-today) [data-testid$="-copy-primary"]{display:none!important}
+.dci-head:has(.sh-today) .cph-item .cph-del,.dci-head:has(.sh-today) .cph-item .cph-add,.dci-head:has(.sh-today) .cph-row>.cph-add{
+  min-height:44px!important;min-width:44px!important;padding:0 14px!important;border:1px solid rgb(41,54,155)!important;border-radius:12px!important;
+  background:#fff!important;color:rgb(41,54,155)!important;font-size:14px!important;font-weight:700!important;display:inline-flex!important;align-items:center;justify-content:center}
+.dci-head:has(.sh-today) .cph-item [data-testid*="-del-"]{color:#B42318!important;border-color:#E8A39B!important}
+.dci-head:has(.sh-today) .cph-row>.cph-add{align-self:flex-start;width:auto!important}
+.sh-after{background:#EEF0F6;color:#5B6480;font-weight:700;font-size:12px;white-space:nowrap}
+.sh-off{opacity:.55}
+.sh-ctl{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.sh-attach-btn{width:100%;margin-top:8px}
