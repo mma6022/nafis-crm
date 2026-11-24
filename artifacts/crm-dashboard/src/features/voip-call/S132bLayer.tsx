@@ -12,6 +12,7 @@ import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 import { IncomingWizard } from '@/features/expert-lockdown/IncomingWizard';
 import { s132bApi, useS132bLive, VcError, VC_ME_KEY, S132B_LIVE_KEY, S132B_MISSED_KEY, type S132bCard } from './api';
 import './s132b.css';
+import { AttachPhoneButton } from '@/features/social-hub/AttachPhone';
 
 /** Passive: true only while the cached /voip/after-call/pending payload says B is on for this user. Never fetches by itself. */
 export function useS132bOn(): boolean {
@@ -127,6 +128,7 @@ function InCard({ c, onClose, onNew }: { c: S132bCard; onClose: () => void; onNe
         <div className="s1b-nm"><b>شماره ناشناس</b></div>
         {c.phone ? <PhoneRow p={c.phone} /> : null}
         <div className="s1b-acts">{c.phone ? <button type="button" className="btn btn-primary" onClick={() => onNew(c.phone!)} data-testid="s1b-new"><UserPlus size={16} aria-hidden="true" />ثبت مشتری جدید</button> : null}
+          {c.phone ? <AttachPhoneButton phone={c.phone} callEventId={c.id} onNew={onNew} /> : null}
           <Link href="/customers" className="btn btn-ghost" data-testid="s1b-search"><Search size={16} aria-hidden="true" />جست‌وجو</Link></div>
       </>}
       {c.live && c.cls === 'own' ? <p className="s1b-foot"><Lock size={13} aria-hidden="true" />کار جاری و نوبت عوض نمی‌شود. این تماس خودکار به پرونده‌ی {cu?.name} وصل می‌شود.</p> : null}
