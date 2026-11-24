@@ -392,7 +392,8 @@ export function shAccess(botId: number) {
   if (rest.length) groups.push({ key: "no-team", name: "بدون تیم", rows: rest.map(row) });
   const mgrs = users.filter((x) => x.role !== "salesperson");
   if (mgrs.length) groups.push({ key: "managers", name: "مدیریت", rows: mgrs.map(row) });
-  return { bot: { id: Number(bot.id), name: bot.name, handle: bot.handle ?? null, status: bot.status }, groups };
+  const nl = SH_NETWORKS.find((n) => n.key === bot.network)?.label ?? bot.network;
+  return { bot: { id: Number(bot.id), name: String(bot.name).includes(nl) ? bot.name : `${bot.name}، ${nl}`, network: bot.network, networkLabel: nl, handle: bot.handle ?? null, status: bot.status }, groups };
 }
 export function shSaveAccess(u: AuthUser, botId: number, rows: unknown) {
   if (!queryRow("SELECT 1 x FROM sh_bots WHERE id=?", [botId])) throw new ShError(404, "not_found", "این ربات پیدا نشد.");
