@@ -406,13 +406,31 @@ function Composer({ me, chat, reply, edit, clear, toast, err, refresh }: { me: B
   const [rec, setRec] = useState<{ r: MediaRecorder; start: number; chunks: Blob[] } | null>(null);
   const [recS, setRecS] = useState(0); const [recB, setRecB] = useState(0);
   const pick = useRef<HTMLInputElement>(null); const kindRef = useRef('document');
+  const taRef = useRef<HTMLTextAreaElement>(null);
   const bw = useBw();
+  const growComposer = () => {
+    const el = taRef.current; if (!el) return;
+    el.style.height = 'auto';
+    const max = parseFloat(getComputedStyle(el).maxHeight);
+    const min = parseFloat(getComputedStyle(el).minHeight);
+    el.style.height = `${Math.max(min, Math.min(el.scrollHeight, max))}px`;
+  };
   useEffect(() => { setText(edit?.text ?? ''); }, [edit]);
   useEffect(() => { setText(''); setFile(null); setPop(null); }, [chat.id]);
   useEffect(() => { if (!rec) return; const h = setInterval(() => { setRecS(Math.floor((Date.now() - rec.start) / 1000)); setRecB(rec.chunks.reduce((a, c) => a + c.size, 0)); }, 250); return () => clearInterval(h); }, [rec]);
+  useEffect(() => { if (bw.on) growComposer(); }, [bw.on, text, rec]);
+  useEffect(() => {
+    if (!bw.on) return;
+    const onResize = () => growComposer();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [bw.on]);
   // bot off/err: the design's disabled state. Read-only bot (server-enforced no_send): the design has no wording → disabled silently.
   if (!chat.canWrite && chat.sendBlocked !== 'no_send') return <div className="cz"><p className="czoff"><I n="alert" />ربات قطع است؛ تا وصل شدن دوباره پیامی فرستاده نمی‌شود.</p></div>;
-  if (!chat.canWrite) return <div className="cz"><div className="row"><button className="ib" type="button" aria-label="پیوست" disabled><I n="clip" /></button><button className="ib" type="button" aria-label="پاسخ‌های آماده" disabled><I n="note" /></button>
+  if (!chat.canWrite) return bw.on
+    ? <div className="cz"><textarea ref={taRef} className="ta3" rows={1} aria-label={`پیام به ${chat.name}`} placeholder="پیام بنویسید" disabled data-testid="bws-composer" />
+      <div className="row crowbar"><button className="ib" type="button" aria-label="پیوست" disabled><I n="clip" /></button><button className="ib" type="button" aria-label="پاسخ‌های آماده" disabled><I n="note" /></button><span className="sp" /><button className="snd" type="button" aria-label="ارسال" aria-disabled="true"><I n="send" /></button></div></div>
+    : <div className="cz"><div className="row"><button className="ib" type="button" aria-label="پیوست" disabled><I n="clip" /></button><button className="ib" type="button" aria-label="پاسخ‌های آماده" disabled><I n="note" /></button>
     <textarea className="ta3" rows={1} aria-label={`پیام به ${chat.name}`} placeholder="پیام بنویسید" disabled /><button className="snd" type="button" aria-label="ارسال" aria-disabled="true"><I n="send" /></button></div></div>;
   const n = [...text].length;
   const limit = file ? (file.kind === 'photo' ? L.photoBytes : L.fileBytes) : 0;
@@ -461,11 +479,16 @@ function Composer({ me, chat, reply, edit, clear, toast, err, refresh }: { me: B
     <button className="snd" type="button" aria-label="پایان ضبط" onClick={() => stopRec(true)}><I n="check" /></button></>
     : <>{bw.on ? <ToolsButton open={bw.tray} onClick={() => { setPop(null); bw.setTray(!bw.tray); }} /> : null}<button className="ib" type="button" aria-label="پیوست" aria-expanded={pop === 'attach'} onClick={() => setPop(pop === 'attach' ? null : 'attach')} disabled={!!edit}><I n="clip" /></button>
       <button className="ib" type="button" aria-label="پاسخ‌های آماده" aria-expanded={pop === 'canned'} onClick={() => setPop(pop === 'canned' ? null : 'canned')}><I n="note" /></button>
-      <textarea className={`ta3${n > 600 ? ' lng' : ''}`} rows={1} aria-label={`پیام به ${chat.name}`} placeholder={file ? 'توضیح (اختیاری)' : 'پیام بنویسید'} value={text} onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void send(); } }} />
+      {bw.on ? <span className="sp" /> : null}
+      {bw.on ? null : <textarea className={`ta3${n > 600 ? ' lng' : ''}`} rows={1} aria-label={`پیام به ${chat.name}`} placeholder={file ? 'توضیح (اختیاری)' : 'پیام بنویسید'} value={text} onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void send(); } }} />}
       {!n && !file && !edit && typeof MediaRecorder !== 'undefined' ? <button className="ib" type="button" aria-label="ضبط پیام صوتی" onClick={startRec}><I n="mic" /></button> : null}
       <button className="snd" type="button" aria-label={edit ? 'ذخیره‌ی ویرایش' : 'ارسال'} aria-disabled={!canSend} onClick={send}><I n={edit ? 'check' : 'send'} /></button></>;
-  return <div className="cz">{top}{!bw.on && !top && !rec && !edit && !file ? <QuickBar chatId={chat.id} toast={toast} err={err} refresh={refresh} /> : null}<div className="row">{row}</div>
+  const ta = <textarea ref={taRef} className={`ta3${n > 600 ? ' lng' : ''}`} rows={1} aria-label={`پیام به ${chat.name}`} placeholder={file ? 'توضیح (اختیاری)' : 'پیام بنویسید'} value={text} onChange={(e) => setText(e.target.value)}
+        onInput={growComposer} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void send(); } }} data-testid="bws-composer" />;
+  return <div className="cz">{top}{!bw.on && !top && !rec && !edit && !file ? <QuickBar chatId={chat.id} toast={toast} err={err} refresh={refresh} /> : null}
+    {bw.on && !rec ? ta : null}
+    <div className={bw.on ? 'row crowbar' : 'row'}>{row}</div>
     <input ref={pick} type="file" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { const k = kindRef.current === 'document' && /^video\//.test(f.type) ? 'video' : kindRef.current === 'document' && /^image\//.test(f.type) ? 'photo' : kindRef.current; setFile({ f, kind: k }); setPop(null); } }} />
     {rec ? <p className="recm"><b>{fd((recB / 1048576).toFixed(1)).replace('.', '٫')} از {fa(L.voiceBytes / 1048576)} مگابایت</b>؛ اگر بیشتر شود، به‌صورت فایل صوتی فرستاده می‌شود.</p>
       : n >= warn ? <p className="cnt" role="status">{fd(n)} از {fd(L.textMax)} نویسه</p>

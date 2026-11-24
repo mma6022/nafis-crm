@@ -1,4 +1,5 @@
-/* «فضای کار بله» v1.0 — only applies under .bw-on (inbox), .bws-today (Today card) and .bws-page / .bws-adm (مدیریت فروش). Flag OFF → no class → no effect. */
+/* «فضای کار بله» v1.1 — only applies under .bw-on (inbox), .bws-today (Today card) and .bws-page / .bws-adm (مدیریت فروش). Flag OFF → no class → no effect.
+   Layout: hidden scrollbars, full-width 3-col grid (gap 0), large auto-growing composer. Behaviour otherwise matches v1.0. */
 .bws-star{width:18px;height:18px;fill:none;stroke:#C9A227;stroke-width:1.6;stroke-linejoin:round;flex:none}
 .bws-star.on{fill:#E8B931;stroke:#C9A227}
 .bws-stars{display:inline-flex;gap:1px;align-items:center;vertical-align:middle;margin-inline-start:6px}
@@ -20,10 +21,130 @@
 .bws-chips{display:flex;flex-wrap:wrap;gap:6px}
 .bws-err{color:var(--nf-bad,#B42318)}
 
-/* inbox: three columns at ≥1200 (list · chat · context) */
-.bbt.bw-on .bx{grid-template-columns:300px minmax(0,1fr) 340px}
-.bbt.bw-on .bx.np{grid-template-columns:300px minmax(0,1fr)}
-.bbt.bw-on .bws-ctx.pane{padding:14px;gap:12px;max-height:calc(100vh - var(--top-h,64px) - 32px);overflow-y:auto}
+/* v1.1 inbox: hide scrollbars, keep scrolling (list, thread, context, tabs, queue strip, composer) */
+.bbt.bw-on,.bbt.bw-on *{scrollbar-width:none;-ms-overflow-style:none}
+.bbt.bw-on *::-webkit-scrollbar{width:0;height:0;display:none;background:transparent}
+
+.bbt.bw-on{--composer-min:120px;--composer-max:240px}
+
+/* Full-width main: drop the shell's 32px/14px side padding and the 20px gap under the top bar so columns reach the edges and the top bar. */
+.app-shell:has(.bbt.bw-on) .app-main,
+.app-shell.ssv2:has(.bbt.bw-on) .app-main{
+  padding:0;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+.app-shell:has(.bbt.bw-on) .topbar,
+.app-shell.ssv2:has(.bbt.bw-on) .topbar.ss-top{
+  margin-inline:0;
+  margin-bottom:0;
+  flex:none;
+}
+.bbt.bw-on{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;width:100%;background:#fff;overflow:hidden}
+.bbt.bw-on .pg,
+.bbt.bw-on .pg.bbpg,
+.bbt.bw-on .pg.chv{
+  display:flex;
+  flex-direction:column;
+  flex:1 1 auto;
+  min-height:0;
+  max-width:none;
+  width:100%;
+  margin:0;
+  padding:0;
+  overflow:hidden;
+}
+
+/* Three-column grid, gap 0, columns to the top bar; dock clearance is inside each pane. */
+.app-main .bbt.bw-on .pg.bbpg .bx,
+.bbt.bw-on .bx,
+.bbt.bw-on .bx.np{
+  display:grid;
+  grid-template-columns:minmax(300px,.92fr) minmax(0,1.7fr) minmax(320px,1.05fr);
+  gap:0;
+  padding:0;
+  width:100%;
+  align-items:stretch;
+  flex:1 1 auto;
+  min-height:0;
+  height:auto;
+  max-height:none;
+}
+.bbt.bw-on .bx.np{grid-template-columns:minmax(300px,.92fr) minmax(0,2.75fr)}
+.app-main .bbt.bw-on .pg.bbpg .bx>.pane,
+.bbt.bw-on .bx>.pane,
+.bbt.bw-on .bx>.pane.ch,
+.bbt.bw-on .bx>.bws-ctx.pane,
+.bbt.bw-on .bx>.lst.pane{
+  background:#fff;
+  border:0;
+  border-inline-end:1px solid var(--nf-line,#E3E6F0);
+  border-radius:0;
+  box-shadow:none;
+  min-width:0;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  height:100%;
+  max-height:none;
+  padding-bottom:calc(var(--ss-dock-h, 90px) + var(--ss-gap, 16px) + 16px);
+}
+.bbt.bw-on .bx>.pane.cp,
+.bbt.bw-on .bx>.bws-ctx.pane,
+.bbt.bw-on .bx>.pane:last-child{border-inline-end:0;position:relative;top:auto}
+@media (min-width:1024px){.bbt.bw-on .bx .cp,.bbt.bw-on .bx .bws-ctx.pane{display:flex}}
+.bbt.bw-on .ch{min-height:0}
+.bbt.bw-on .bws-ctx.pane{padding:14px 16px calc(var(--ss-dock-h, 90px) + var(--ss-gap, 16px) + 16px);gap:12px;overflow-y:auto}
+
+/* Composer: full-width textarea above the 44px tool row; grows from --composer-min to --composer-max. */
+.bbt.bw-on .cz{
+  border-top:1px solid var(--nf-line,#E3E6F0);
+  background:#fff;
+  padding:10px 16px 12px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  flex:none;
+  position:relative;
+  bottom:auto;
+  z-index:2;
+  border-radius:0;
+}
+.bbt.bw-on .cz .ta3,
+.bbt.bw-on .cz .ta3.lng{
+  display:block;
+  width:100%;
+  flex:none;
+  min-height:var(--composer-min);
+  max-height:var(--composer-max);
+  min-width:0;
+  padding:12px 14px;
+  border-radius:14px;
+  border:1px solid var(--nf-line-strong,#C9CEDF);
+  background:var(--nf-surface,#F7F8FC);
+  font-size:16px;
+  line-height:1.7;
+  font-weight:600;
+  color:var(--nf-ink,#0B1450);
+  resize:none;
+  overflow:auto;
+  scrollbar-width:none;
+  -ms-overflow-style:none;
+}
+.bbt.bw-on .cz .ta3::-webkit-scrollbar{width:0;height:0;display:none;background:transparent}
+.bbt.bw-on .cz .crowbar,
+.bbt.bw-on .cz .row{display:flex;align-items:center;gap:6px}
+.bbt.bw-on .cz .crowbar .sp{flex:1;min-width:0}
+.bbt.bw-on .cz .ib,
+.bbt.bw-on .cz .snd{width:44px;height:44px;flex:none}
+
+@media (min-width:1440px){
+  .bbt.bw-on .bx{grid-template-columns:minmax(320px,.85fr) minmax(0,1.85fr) minmax(340px,1fr)}
+  .bbt.bw-on .bx.np{grid-template-columns:minmax(320px,.85fr) minmax(0,2.85fr)}
+}
+
 .bws-h2{margin:0;font-size:16px;font-weight:800;color:var(--nf-ink,#0B1450)}
 .bws-blk{display:flex;flex-direction:column;gap:6px;padding-bottom:12px;border-bottom:1px solid var(--nf-line,#E4E7F0)}
 .bws-blk:last-child{border-bottom:0;padding-bottom:0}
@@ -80,20 +201,49 @@
 .bbt .sys.bws-sys{background:#E7F6EC;color:#1B7F3B}
 .bws-tabs{display:none}
 .bws-mpane{display:none}
-@media (min-width:1024px) and (max-width:1199px){.bbt.bw-on .bx{grid-template-columns:280px minmax(0,1fr)}.bbt.bw-on .bx .bws-ctx.pane{display:none}}
+/* v1.1: three columns from 1024 (handoff); undo the v1.0 1024–1199 hide of the context pane and bale-bot.css .cp{display:none}. */
+@media (min-width:1024px) and (max-width:1199px){.bbt.bw-on .bx .cp,.bbt.bw-on .bx .bws-ctx.pane{display:flex}}
 
 /* < 1024: tabs fixed above the live dock; the chat pane stops above them (dock never covers content) */
-@media (max-width:1023px){
-  .bbt.bw-on .pg.chv .pane.ch{bottom:calc(var(--bws-dock,0px) + 56px);height:auto}
+@media (max-width:1023.98px){
+  :root, .bbt.bw-on, body:has(.bbt.bw-on){--composer-min:88px;--composer-max:160px}
   body:has(.ss-tb) .bbt.bw-on{--bws-dock:var(--ss-dock-h,72px)}
+  .app-main .bbt.bw-on .pg.bbpg .bx,
+  .bbt.bw-on .bx,.bbt.bw-on .bx.np{display:flex;flex-direction:column;gap:0;padding:0;height:100%;max-height:none}
+  .app-main .bbt.bw-on .pg.bbpg .bx>.pane,
+  .bbt.bw-on .bx>.pane,.bbt.bw-on .bx>.pane.ch,.bbt.bw-on .bx>.bws-ctx.pane,.bbt.bw-on .bx>.lst.pane{
+    padding-bottom:0;border-inline-end:0;height:auto;max-height:none;box-shadow:none;border-radius:0
+  }
+  /* Keep v1.0 mobile: only the open chat (or a tab pane) is on screen; list and desktop context stay hidden. */
+  .app-main .bbt.bw-on .pg.bbpg .bx[data-m=chat]>.lst.pane,
+  .bbt.bw-on .bx[data-m=chat]>.lst.pane{display:none}
+  .app-main .bbt.bw-on .pg.bbpg .bx>.pane.cp,
+  .app-main .bbt.bw-on .pg.bbpg .bx>.bws-ctx.pane,
+  .bbt.bw-on .bx>.pane.cp,
+  .bbt.bw-on .bx>.bws-ctx.pane{display:none}
+
+  /* Chat stays under the top bar (title + Jalali date stay visible) and above the tabs + dock. */
+  .bbt.bw-on .pg.chv{padding-bottom:calc(var(--bws-dock,0px) + 56px)}
+  .app-main .bbt.bw-on .pg.bbpg.chv .bx>.pane.ch,
+  .bbt.bw-on .pg.chv .pane.ch,
+  .bbt.bw-on .pg.chv .bx>.pane.ch{
+    position:relative;inset:auto;top:auto;left:auto;right:auto;bottom:auto;
+    z-index:auto;flex:1 1 auto;min-height:0;height:100%;width:100%;
+    overflow:hidden;display:flex;flex-direction:column
+  }
+  .bbt.bw-on .pg.chv .pane.ch>.th,
+  .bbt.bw-on .pg.chv .bx>.pane.ch>.th{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+  .bbt.bw-on .pg.chv .chh{position:relative;flex:none;background:#fff;z-index:1}
+  .bbt.bw-on .pg.chv .cz{position:relative;flex:none;background:#fff}
   .bbt.bw-on .pg.chv .bws-tabs{display:grid;grid-template-columns:repeat(4,1fr);position:fixed;left:0;right:0;bottom:var(--bws-dock,0px);z-index:61;height:56px;padding:6px 8px;background:#fff;border-top:1px solid var(--nf-line,#E4E7F0);gap:4px;direction:rtl}
   .bws-tabs button{min-height:44px;border-radius:12px;border:0;background:none;font-family:inherit;font-weight:700;font-size:14px;color:var(--nf-ink-muted,#5F6B85)}
   .bws-tabs button[aria-selected=true]{background:var(--nf-brand-50,#EEF0FA);color:var(--nf-brand-700,#212C85)}
   .bws-tabs button[disabled]{opacity:.4}
   .bbt.bw-on:not(.bw-t-chat) .pg.chv .pane.ch{display:none}
-  .bbt.bw-on:not(.bw-t-chat) .pg.chv .bws-mpane{display:block;position:fixed;top:0;left:0;right:0;bottom:calc(var(--bws-dock,0px) + 56px);z-index:60;overflow-y:auto;border-radius:0;border:0;padding:14px 14px 24px;background:#fff}
+  .bbt.bw-on:not(.bw-t-chat) .pg.chv .bws-mpane{display:flex;position:relative;inset:auto;top:auto;left:auto;right:auto;bottom:auto;z-index:auto;flex:1 1 auto;min-height:0;height:100%;overflow-y:auto;border-radius:0;border:0;padding:14px 14px 24px;background:#fff}
   .bws-ctx.tab{display:flex;flex-direction:column;gap:12px}
-  .bbt.bw-on .pg.chv .cz{padding-bottom:8px}
+  .bbt.bw-on .cz{padding:8px 12px 10px}
+  .bbt.bw-on .pg.chv .cz{padding-bottom:10px}
   .bws-tgrid{grid-template-columns:repeat(3,minmax(0,1fr))}
   .bws-tray{max-height:42vh}
   .bbt.bw-on .chh .bws-hd{gap:4px}
@@ -135,23 +285,26 @@
 .smc-root .bcard .smc-lbl,.smc-root .smc-bcard>.smc-lbl{display:flex;flex-direction:column;gap:6px}
 @media (max-width:640px){.smc-root .smc-wbar.bws-w5{grid-template-columns:repeat(5,minmax(44px,1fr)) !important}.smc-root .smc-wbar.bws-w5 button{font-size:0;gap:0;padding:0}.smc-root .smc-wbar.bws-w5 button .smc-wn{font-size:12px}.smc-root .smc-wbar.bws-w5 button.smc-on{grid-column:span 1}}
 @media (prefers-reduced-motion:reduce){.smc-root .bws-prog i{transition:none}}
-/* ≥1024: the chat pane is a fixed-height column; the thread scrolls inside it and the tray/composer sit below it in flow (nothing overlays a bubble) */
+/* ≥1024: columns fill the grid; the thread scrolls inside the chat pane; tray and composer stay in flow above the dock padding. */
 @media (min-width:1024px){
   .bbt.bw-on .bx{align-items:stretch}
-  .bbt.bw-on .bx>.pane.ch{height:calc(100vh - var(--bws-top,150px) - var(--ss-dock-h,90px));height:calc(100dvh - var(--bws-top,150px) - var(--ss-dock-h,90px));min-height:460px;overflow:hidden}
+  .bbt.bw-on .bx>.pane.ch{overflow:hidden}
   .bbt.bw-on .bx>.pane.ch>*{flex:none}
-  .bbt.bw-on .bx>.pane.ch>.th{flex:1 1 auto;min-height:0;overflow-y:auto}
+  .bbt.bw-on .bx>.pane.ch>.th{flex:1 1 auto;min-height:72px;overflow-y:auto}
   .bbt.bw-on .bx>.pane.ch .chh{position:relative;top:auto}
   .bbt.bw-on .bx>.pane.ch .cz{position:relative;bottom:auto}
-  .bbt.bw-on .bx>.bws-ctx.pane{position:relative;top:auto;height:calc(100vh - var(--bws-top,150px) - var(--ss-dock-h,90px));height:calc(100dvh - var(--bws-top,150px) - var(--ss-dock-h,90px));min-height:460px;max-height:none}
-  .bbt.bw-on .bws-tray{max-height:min(290px,calc(100dvh - var(--bws-top,150px) - var(--ss-dock-h,90px) - 300px))}
-  .bbt.bw-on .bx>.pane.ch>.th{min-height:72px}
+  .bbt.bw-on .bx>.lst.pane{overflow:hidden}
+  .bbt.bw-on .bx>.lst.pane .lh{flex:none}
+  .bbt.bw-on .bx>.lst.pane .cvl,
+  .bbt.bw-on .bx>.lst.pane .lempty{flex:1 1 auto;min-height:0;overflow-y:auto}
+  .bbt.bw-on .bx>.bws-ctx.pane{position:relative;top:auto;overflow-y:auto}
+  .bbt.bw-on .bws-tray{max-height:min(290px,calc(100dvh - 280px))}
 }
 .bws-tabhd{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;padding-bottom:8px;border-bottom:1px solid var(--nf-line,#E4E7F0);font-size:13px;color:var(--nf-ink-muted,#5F6B85)}
 .bws-tabhd b{font-size:16px;color:var(--nf-ink,#0B1450);font-weight:800}
 .bws-steplbl{display:none;margin:0;font-weight:800;color:var(--ink,#0B1450);font-size:14px}
 @media (max-width:640px){.bws-steplbl{display:block}}
-@media (min-width:1024px){.bbt.bw-on .bws-tray:has(.bws-sheet){max-height:min(520px,calc(100dvh - var(--bws-top,150px) - var(--ss-dock-h,90px) - 300px))}}
+@media (min-width:1024px){.bbt.bw-on .bws-tray:has(.bws-sheet){max-height:min(520px,calc(100dvh - 280px))}}
 
 /* «شرایط طرح در بله» on the plans page edit view (only rendered while the flag is ON, for managers) */
 .bws-ptb{margin:14px 0 4px;padding:14px;border:1px solid #DCE1F5;border-radius:14px;background:#F7F8FD;display:flex;flex-direction:column;gap:8px}
