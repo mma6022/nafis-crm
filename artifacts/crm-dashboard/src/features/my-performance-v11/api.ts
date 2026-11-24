@@ -14,6 +14,7 @@ export type MpMetric = { value: number; delta: MpDelta };
 export type MpMe = {
   enabled: boolean;
   access: 'manager' | 'expert' | 'trainee' | 'none';
+  v12?: boolean;
   canView: boolean;
   self: { salespersonId: number; name: string; trainee: boolean; teamName: string | null } | null;
 };

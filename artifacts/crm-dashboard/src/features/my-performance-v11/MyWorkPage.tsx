@@ -7,6 +7,7 @@ import { formatSpJalaliField, toApiDay, toJalaliValue } from '@/features/sales-p
 import { useMyWorkMe, useMyWorkReport, type MpDelta, type MpMetric, type MpReport } from './api';
 import { deltaText, faDuration, faNum } from './format';
 import './my-performance-v11.css';
+import MyWorkV12Page from '../my-performance-v12/MyWorkV12Page';
 
 type Period = 'day' | 'week' | 'month' | 'custom';
 
@@ -72,6 +73,7 @@ export default function MyWorkPage() {
 
   if (me.isFetched && (me.failureReason as { status?: number } | undefined)?.status === 404) return <NotFound />;
   if (me.isFetched && !me.isError && me.data && !me.data.canView) return <NotFound />;
+  if (me.data?.v12) return <MyWorkV12Page />;
 
   const data = report.data;
   const maxBar = Math.max(1, ...(data?.trend.columns.map((c) => c.value) ?? [1]));
