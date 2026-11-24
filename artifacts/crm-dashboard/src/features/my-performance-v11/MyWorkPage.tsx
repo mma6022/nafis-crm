@@ -1,4 +1,4 @@
-/** عملکرد من v1.1 (flag.my_performance_v1). Own work report; «استعلام» only as a placeholder when its flag is ON. */
+/** عملکرد من v1.1 (flag.my_performance_v1). Own work report. «استعلام» is not a metric on this page. */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
@@ -74,7 +74,6 @@ export default function MyWorkPage() {
   if (me.isFetched && !me.isError && me.data && !me.data.canView) return <NotFound />;
 
   const data = report.data;
-  const inquiry = Boolean(data?.inquiry || me.data?.inquiry);
   const maxBar = Math.max(1, ...(data?.trend.columns.map((c) => c.value) ?? [1]));
 
   return (
@@ -107,7 +106,7 @@ export default function MyWorkPage() {
       {report.isError ? <p className="err" role="alert">گزارش الان در دسترس نیست. دوباره تلاش کنید.</p> : null}
 
       {data ? <>
-        <section className="grid" data-inquiry={inquiry ? 'on' : 'off'} aria-label="شاخص‌های شما">
+        <section className="grid" aria-label="شاخص‌های شما">
           <article className="card calls">
             <h3>تماس‌ها</h3>
             <div className="num">{faNum(data.self.calls.value)}<span className="u">تماس</span></div>
@@ -121,17 +120,7 @@ export default function MyWorkPage() {
             <p className="dur">مدت کل مکالمه: {faDuration(data.self.durationSec.value)}</p>
           </article>
 
-          {inquiry ? (
-            <div className="stack">
-              <Card title="مشتری جدید" metric={data.self.newCustomers} avg={data.team?.averages.newCustomers} />
-              <article className="card" data-testid="mp-inquiry-placeholder">
-                <h3>استعلام</h3>
-                <p className="ph">معنی این شاخص هنوز از محمد مشخص نشده است. این کارت عدد اعتبارسنجی نیست.</p>
-              </article>
-            </div>
-          ) : (
-            <Card title="مشتری جدید" metric={data.self.newCustomers} avg={data.team?.averages.newCustomers} />
-          )}
+          <Card title="مشتری جدید" metric={data.self.newCustomers} avg={data.team?.averages.newCustomers} />
 
           <Card title="پروندهٔ بازشده" metric={data.self.filed} avg={data.team?.averages.filed} />
           <Card title="رسیده به قرارداد" metric={data.self.signed} />

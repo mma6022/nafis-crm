@@ -13,14 +13,12 @@ export type MpDelta = { kind: 'up' | 'down' | 'flat' | 'none' | 'unit'; pct: num
 export type MpMetric = { value: number; delta: MpDelta };
 export type MpMe = {
   enabled: boolean;
-  inquiry: boolean;
   access: 'manager' | 'expert' | 'trainee' | 'none';
   canView: boolean;
   self: { salespersonId: number; name: string; trainee: boolean; teamName: string | null } | null;
 };
 export type MpReport = {
   access: MpMe['access'];
-  inquiry: boolean;
   period: 'day' | 'week' | 'month' | 'custom';
   range: { from: string; to: string; fromIso: string; toIso: string; label: string; previousLabel: string; complete: boolean };
   incomplete: boolean;
@@ -43,9 +41,9 @@ export function useMyWorkFlags(uid: number | null | undefined, enabled: boolean)
     enabled: Boolean(uid) && enabled,
     queryFn: async () => {
       const r = await fetch('/api/sales-shell/me', { credentials: 'include' });
-      if (!r.ok) return { on: false, inquiry: false };
-      const b = (await r.json()) as { myPerformanceV1?: boolean; myPerformanceInquiry?: boolean };
-      return { on: b.myPerformanceV1 === true, inquiry: b.myPerformanceInquiry === true };
+      if (!r.ok) return { on: false };
+      const b = (await r.json()) as { myPerformanceV1?: boolean };
+      return { on: b.myPerformanceV1 === true };
     },
     staleTime: 60_000,
     refetchInterval: 5 * 60_000,
