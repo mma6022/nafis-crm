@@ -207,6 +207,7 @@ process.env.SESSION_SECRET ||= `fixture-only-${Math.random().toString(36).slice(
 const { crmDb, execute } = await import("../src/lib/crm-db.ts");
 const v11 = await import("../src/lib/my-performance-v11.ts");
 const v12 = await import("../src/lib/my-performance-v12.ts");
+const kpiFmt = await import("../src/lib/sales-kpi.ts");
 const router11 = (await import("../src/routes/my-performance-v11.ts")).default;
 const router12 = (await import("../src/routes/my-performance-v12.ts")).default;
 
@@ -220,6 +221,26 @@ let passed = 0;
 const ok = async (name, fn) => { await fn(); passed++; console.log("ok -", name); };
 
 const syn = new DatabaseSync(dbPath);
+
+await ok("amounts use U+066C thousands separator, not comma; drop zero decimals on percents", () => {
+  const amount = kpiFmt.faToman(12_400_000);
+  assert.equal(amount, "۱۲" + "\u066C" + "۴۰۰" + "\u066C" + "۰۰۰ تومان");
+  for (const ch of amount) {
+    assert.notEqual(ch, ",");
+    assert.notEqual(ch.charCodeAt(0), 0x002C);
+    assert.notEqual(ch.charCodeAt(0), 0x060C);
+  }
+  const seps = [...amount].filter((ch) => ch === "\u066C" || ch === kpiFmt.FA_THOUSANDS);
+  assert.equal(seps.length, 2);
+  assert.equal(seps[0].codePointAt(0), 0x066C);
+  assert.equal(kpiFmt.FA_THOUSANDS.codePointAt(0), 0x066C);
+  assert.equal(kpiFmt.faNum(12_400_000).codePointAt(2), 0x066C);
+  assert.equal(kpiFmt.faPct(0), "۰٪");
+  assert.equal(kpiFmt.faPct(10), "۱۰٪");
+  assert.equal(kpiFmt.faPct(10.0), "۱۰٪");
+  assert.equal(kpiFmt.faPct(8.2), "۸٫۲٪");
+  assert.equal(kpiFmt.faPct(66.7), "۶۶٫۷٪");
+});
 
 await ok("v12 flag: only '1' is ON; v1 stays on in this fixture", () => {
   assert.equal(v12.mpV12FlagOnDb(syn), true);
