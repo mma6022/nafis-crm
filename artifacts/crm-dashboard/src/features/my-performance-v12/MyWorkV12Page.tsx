@@ -290,11 +290,13 @@ export default function MyWorkV12Page() {
                 </button>
                 <input className="search fld" aria-label="جست‌وجو" placeholder="نام، موبایل یا شناسه" value={q} onChange={(e) => setQ(e.target.value)} />
                 <div className="fg desk" role="group" aria-label="جهت">
+                  <span className="lbl">جهت</span>
                   {([['all', 'همه'], ['incoming', 'ورودی'], ['outgoing', 'خروجی']] as const).map(([k, l]) => (
                     <button key={k} type="button" className="chip" aria-pressed={dir === k} onClick={() => setDir(k)}>{l}</button>
                   ))}
                 </div>
                 <div className="fg desk" role="group" aria-label="نتیجه">
+                  <span className="lbl">نتیجه</span>
                   {([['all', 'همه'], ['missed', 'پاسخ نداد'], ['ok', 'موفق'], ['later', 'بازگشت']] as const).map(([k, l]) => (
                     <button key={k} type="button" className="chip" aria-pressed={result === k} onClick={() => setResult(k)}>{l}</button>
                   ))}
