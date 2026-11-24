@@ -49,10 +49,10 @@ function DocWizard({ plans, doc, onClose, onSaved }: { plans: ShPlan[]; doc: ShD
       <Upload aria-hidden="true" /><b>فایل را اینجا بیندازید یا انتخاب کنید</b><span className="sh-sub">پی‌دی‌اف، ویدیو یا تصویر، حداکثر ۲۰۰ مگابایت</span>
       <input ref={inp} type="file" hidden accept="application/pdf,image/*,video/*" onChange={(e) => pick(e.target.files?.[0])} data-testid="sh-doc-file" />
       <button type="button" className="sh-btn sec sm" onClick={() => inp.current?.click()}>انتخاب فایل</button>
-      {file ? <span className="sh-chip ok"><Check aria-hidden="true" /><bdi dir="ltr">{file.name}</bdi>، {fileSize(file.size)}</span> : null}
+      {file ? <span className="sh-chip ok"><Check aria-hidden="true" /><FileLabel name={file.name} />، {fileSize(file.size)}</span> : null}
       {err ? <p className="sh-err" role="alert">{err}</p> : null}</div>
     : step === 1 ? <div className="sh-stack" style={{ gap: 14 }}>
-      {file ? <div className="sh-row sh-card" style={{ padding: 12 }}><span className="sh-fic pdf"><FileText aria-hidden="true" /></span><div className="sh-sp"><b><bdi dir="ltr">{file.name}</bdi></b><div className="sh-sub">{fileSize(file.size)}</div></div><span className="sh-chip ok"><Check aria-hidden="true" />آمادهٔ بارگذاری</span></div> : null}
+      {file ? <div className="sh-row sh-card" style={{ padding: 12 }}><span className="sh-fic pdf"><FileText aria-hidden="true" /></span><div className="sh-sp"><b><FileLabel name={file.name} /></b><div className="sh-sub">{fileSize(file.size)}</div></div><span className="sh-chip ok"><Check aria-hidden="true" />آمادهٔ بارگذاری</span></div> : null}
       <label className="sh-frow"><span className="sh-lbl">نام</span><div className={`sh-fld${err ? ' err' : ''}`}><input value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} data-testid="sh-doc-title" /></div>{err ? <p className="sh-err" role="alert">{err}</p> : null}</label>
       <label className="sh-frow"><span className="sh-lbl">توضیح</span><textarea className="sh-ta" style={{ minHeight: 96 }} value={desc} maxLength={400} onChange={(e) => setDesc(e.target.value)} /></label></div>
     : <div className="sh-stack" role="radiogroup" aria-label="اتصال به طرح (اختیاری)"><div className="sh-lbl">اتصال به طرح (اختیاری)</div>
@@ -60,4 +60,11 @@ function DocWizard({ plans, doc, onClose, onSaved }: { plans: ShPlan[]; doc: ShD
       {plans.map((p) => <Radio key={p.id} on={plan === p.id} title={p.name} sub={`در بله: ${p.publicLabel}`} onClick={() => setPlan(p.id)} />)}
       {err ? <p className="sh-err" role="alert">{err}</p> : null}</div>}
   </Wizard>;
+}
+
+/** «راهنما (پی‌دی‌اف)»: the name is an isolated run and the extension is a Persian word, so no Latin dot flips the order (Armita build-r2). */
+const EXT_FA: Record<string, string> = { pdf: 'پی‌دی‌اف', jpg: 'عکس', jpeg: 'عکس', png: 'عکس', webp: 'عکس', doc: 'ورد', docx: 'ورد', xls: 'اکسل', xlsx: 'اکسل', mp4: 'ویدیو', mov: 'ویدیو', mp3: 'صوت', m4a: 'صوت', zip: 'فشرده' };
+function FileLabel({ name }: { name: string }) {
+  const i = name.lastIndexOf('.'); const base = i > 0 ? name.slice(0, i) : name; const ext = i > 0 ? name.slice(i + 1).toLowerCase() : '';
+  return <span data-testid="sh-file-label"><bdi>{base}</bdi>{ext ? <> ({EXT_FA[ext] ?? <bdi dir="ltr">{ext}</bdi>})</> : null}</span>;
 }

@@ -25,6 +25,8 @@ import { PlanAdvisorBox } from "@/features/plan-advisor/PlanAdvisorBox";
 import { CustomerPhonesBlock, useCallPhonePicker } from "@/features/customer-phones/CustomerPhones";
 import { BwsTodayBox } from "@/features/bale-workspace/Today"; // «فضای کار بله» ه‍ (flag.bale_workspace_v1; renders nothing while OFF)
 import { ShTodayBox } from "@/features/social-hub/TodayBox";
+import { ShTodayPhones } from "@/features/social-hub/TodayPhones";
+import { useShMe } from "@/features/social-hub/api";
 import { DciIcon, DciSprites } from "./icons";
 import { withPlanPrefix } from "@/lib/multi-case-plan-label";
 import "./dci.css";
@@ -411,6 +413,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onCallPhone, onResult, onPromo
   </div>;
   const shownName = nameOv ?? m.customer.name;
   const callPick = useCallPhonePicker(m.customer.id, m.customer.phone ?? "", (phone) => onCallPhone(phone));
+  const shPhones = useShMe().data?.enabled === true;
   return <section className="dci-col dci-mid" aria-label="اطلاعات تماس و پرونده‌ها">
     {dq?.top ?? null}
     <div className="dci-head">
@@ -427,9 +430,10 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onCallPhone, onResult, onPromo
         <CallActs ext={ext} place="head" narrow={narrow} onCall={callPick.requestCall} onResult={onResult} />
       </div>
       <div className="dci-idrow dci-idrow-phone">
-        <CustomerPhonesBlock customerId={m.customer.id} primary={m.customer.phone ?? ""} onCopy={onCopy} onCall={onCallPhone}
+        {shPhones ? <ShTodayPhones customerId={m.customer.id} primary={m.customer.phone ?? ""} onCopy={onCopy} onCall={onCallPhone} />
+          : <CustomerPhonesBlock customerId={m.customer.id} primary={m.customer.phone ?? ""} onCopy={onCopy} onCall={onCallPhone}
           testPrefix="dci-cph"
-          renderPrimary={(ph) => ph ? <Phone raw={ph} big={!ext} onCopy={onCopy} /> : null} />
+          renderPrimary={(ph) => ph ? <Phone raw={ph} big={!ext} onCopy={onCopy} /> : null} />}
       </div>
     </div>
     <ShTodayBox customerId={m.customer.id} customerName={shownName} />

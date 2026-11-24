@@ -13,6 +13,8 @@ import { IncomingWizard } from '@/features/expert-lockdown/IncomingWizard';
 import { s132bApi, useS132bLive, VcError, VC_ME_KEY, S132B_LIVE_KEY, S132B_MISSED_KEY, type S132bCard } from './api';
 import './s132b.css';
 import { AttachPhoneButton } from '@/features/social-hub/AttachPhone';
+import { useShMe } from '@/features/social-hub/api';
+import { faPhone as shFaPhone } from '@/features/social-hub/ui';
 
 /** Passive: true only while the cached /voip/after-call/pending payload says B is on for this user. Never fetches by itself. */
 export function useS132bOn(): boolean {
@@ -30,7 +32,13 @@ export function CopyBtn({ text, testId = 's1b-copy' }: { text: string; testId?: 
     onClick={() => { void navigator.clipboard?.writeText(text).then(() => { setOk(true); window.setTimeout(() => setOk(false), 1500); }).catch(() => undefined); }}>
     {ok ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}</button>;
 }
-export const PhoneRow = ({ p }: { p: string }) => <div className="s1b-ph"><span className="s1b-phl">شماره</span><bdi dir="ltr">{faNum(p)}</bdi><CopyBtn text={p} /></div>;
+export const PhoneRow = ({ p }: { p: string }) => { const sh = useShMe().data; const on = Boolean(sh?.enabled || sh?.phoneAttach);
+  /* flag.social_hub_* ON → 4-3-4 with non-breaking spaces (Armita build-r2 §2); OFF → unchanged. Copy stays digits only. */
+  return <div className="s1b-ph"><span className="s1b-phl">شماره</span><bdi dir="ltr">{on ? shFaPhone(p) : faNum(p)}</bdi><CopyBtn text={on ? p.replace(/\D/g, '') : p} /></div>; };
+
+/** «جست‌وجو» on the unknown-number card: outlined full width like the attach button while flag.social_hub_* is ON (Armita build-r2); OFF → unchanged. */
+function SearchLink() { const sh = useShMe().data; const on = Boolean(sh?.enabled || sh?.phoneAttach);
+  return <Link href="/customers" className={on ? 'btn btn-ghost s1b-search-sh' : 'btn btn-ghost'} data-testid="s1b-search"><Search size={16} aria-hidden="true" />جست‌وجو</Link>; }
 
 export function S132bLayer() {
   const on = useS132bOn();
@@ -129,7 +137,7 @@ function InCard({ c, onClose, onNew }: { c: S132bCard; onClose: () => void; onNe
         {c.phone ? <PhoneRow p={c.phone} /> : null}
         <div className="s1b-acts">{c.phone ? <button type="button" className="btn btn-primary" onClick={() => onNew(c.phone!)} data-testid="s1b-new"><UserPlus size={16} aria-hidden="true" />ثبت مشتری جدید</button> : null}
           {c.phone ? <AttachPhoneButton phone={c.phone} callEventId={c.id} onNew={onNew} /> : null}
-          <Link href="/customers" className="btn btn-ghost" data-testid="s1b-search"><Search size={16} aria-hidden="true" />جست‌وجو</Link></div>
+          <SearchLink /></div>
       </>}
       {c.live && c.cls === 'own' ? <p className="s1b-foot"><Lock size={13} aria-hidden="true" />کار جاری و نوبت عوض نمی‌شود. این تماس خودکار به پرونده‌ی {cu?.name} وصل می‌شود.</p> : null}
     </div>
