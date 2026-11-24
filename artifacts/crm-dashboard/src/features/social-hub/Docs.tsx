@@ -12,7 +12,7 @@ export function DocsTab({ plans, toast }: { plans: ShPlan[]; toast: (t: string) 
   const [add, setAdd] = useState(false); const [edit, setEdit] = useState<ShDoc | null>(null); const [err, setErr] = useState('');
   const del = async (d: ShDoc) => { setErr(''); try { await shApi(`/docs/${d.id}`, 'DELETE'); void q.refetch(); toast('فایل حذف شد.'); } catch (e) { setErr(messageError(e)); } };
   return <>
-    <div className="sh-sech"><div><h2 className="sh-h2">آموزش‌ها و مستندات</h2><div className="sh-sub">پی‌دی‌اف، ویدیو و تصویر؛ اتصال به طرح اختیاری است</div></div>
+    <div className="sh-sech"><span className="sh-sp" />
       <button type="button" className="sh-btn pri sm" onClick={() => setAdd(true)} data-testid="sh-doc-add"><Upload aria-hidden="true" />بارگذاری فایل</button></div>
     <div className="sh-row sh-wrap" style={{ marginBottom: 16 }}>
       {(['', 'pdf', 'video', 'image'] as const).map((t) => <button type="button" key={t || 'all'} className={`sh-fchip${type === t ? ' on' : ''}`} onClick={() => setType(t)}>{t ? TYPE_FA[t] : 'همه'}</button>)}
@@ -49,10 +49,10 @@ function DocWizard({ plans, doc, onClose, onSaved }: { plans: ShPlan[]; doc: ShD
       <Upload aria-hidden="true" /><b>فایل را اینجا بیندازید یا انتخاب کنید</b><span className="sh-sub">پی‌دی‌اف، ویدیو یا تصویر، حداکثر ۲۰۰ مگابایت</span>
       <input ref={inp} type="file" hidden accept="application/pdf,image/*,video/*" onChange={(e) => pick(e.target.files?.[0])} data-testid="sh-doc-file" />
       <button type="button" className="sh-btn sec sm" onClick={() => inp.current?.click()}>انتخاب فایل</button>
-      {file ? <span className="sh-chip ok"><Check aria-hidden="true" />{file.name}، {fileSize(file.size)}</span> : null}
+      {file ? <span className="sh-chip ok"><Check aria-hidden="true" /><bdi dir="ltr">{file.name}</bdi>، {fileSize(file.size)}</span> : null}
       {err ? <p className="sh-err" role="alert">{err}</p> : null}</div>
     : step === 1 ? <div className="sh-stack" style={{ gap: 14 }}>
-      {file ? <div className="sh-row sh-card" style={{ padding: 12 }}><span className="sh-fic pdf"><FileText aria-hidden="true" /></span><div className="sh-sp"><b>{file.name}</b><div className="sh-sub">{fileSize(file.size)}</div></div><span className="sh-chip ok"><Check aria-hidden="true" />آمادهٔ بارگذاری</span></div> : null}
+      {file ? <div className="sh-row sh-card" style={{ padding: 12 }}><span className="sh-fic pdf"><FileText aria-hidden="true" /></span><div className="sh-sp"><b><bdi dir="ltr">{file.name}</bdi></b><div className="sh-sub">{fileSize(file.size)}</div></div><span className="sh-chip ok"><Check aria-hidden="true" />آمادهٔ بارگذاری</span></div> : null}
       <label className="sh-frow"><span className="sh-lbl">نام</span><div className={`sh-fld${err ? ' err' : ''}`}><input value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} data-testid="sh-doc-title" /></div>{err ? <p className="sh-err" role="alert">{err}</p> : null}</label>
       <label className="sh-frow"><span className="sh-lbl">توضیح</span><textarea className="sh-ta" style={{ minHeight: 96 }} value={desc} maxLength={400} onChange={(e) => setDesc(e.target.value)} /></label></div>
     : <div className="sh-stack" role="radiogroup" aria-label="اتصال به طرح (اختیاری)"><div className="sh-lbl">اتصال به طرح (اختیاری)</div>

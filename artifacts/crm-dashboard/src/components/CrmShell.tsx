@@ -3,7 +3,7 @@ import { VcHeaderBadge } from '@/features/voip-call/VoipCall';
 import { VoipAnywhereFirstFormHost } from '@/features/voip-call/VoipAnywhere';
 import { useRmConfig } from '@/features/reminder-must/api';
 import { CustomerName } from '@/components/customer/CustomerName';
-import { Moon, Lock, AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, Filter, HandCoins, Headset, Landmark, Layers, LayoutDashboard, Link2, LifeBuoy, LogOut, Menu, MessageCircle, MoreHorizontal, Sparkles, MessagesSquare, MessageSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UserPlus, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, ListChecks, Share2, type LucideIcon } from 'lucide-react';
+import {  Moon, Lock, AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, Filter, HandCoins, Headset, Landmark, Layers, LayoutDashboard, Link2, LifeBuoy, LogOut, Menu, MessageCircle, MoreHorizontal, Sparkles, MessagesSquare, MessageSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UserPlus, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, ListChecks, Share2, Search, Bug, type LucideIcon } from 'lucide-react';
 import { UserAvatar, AvatarPicker } from '@/components/UserAvatar';
 import { useHealthCheck, getHealthCheckQueryKey, useGetAuthSession, useLogout, useUpdateAuthProfile, useListReminders, useAcknowledgeReminder, getListRemindersQueryKey, getGetAuthSessionQueryKey, type CrmUser, type Reminder } from '@workspace/api-client-react';
 import { Link, useLocation } from 'wouter';
@@ -54,6 +54,9 @@ import { useSalesKpiMe } from '@/features/sales-kpi/api';
 import { useMyWorkFlags, useMyWorkMe } from '@/features/my-performance-v11/api';
 import { applyMyWorkDock, MY_WORK_HREF } from '@/features/my-performance-v11/dock';
 import { useShMe } from '@/features/social-hub/api';
+import { ShDrawerTools, shMobileTitle } from '@/features/social-hub/ShellTools';
+import { openSfSearch } from '@/features/sales-fixes/api';
+import { useDiagnostics } from '@/diagnostics/DiagnosticsProvider';
 import { useBaleBotMe } from '@/features/bale-bot/api';
 import { useSalesShellV2, useNavBadges, ssRequestIncoming, tehranHm } from '@/features/sales-shell/api';
 import { useBottomNavV2 } from '@/features/bottom-nav-v2/api';
@@ -157,7 +160,7 @@ const readOpenGroups = (): string[] | null => {
 const titleFor = (location: string) => {
   const path = location.split("?")[0];
   if (path === "/today" || path.startsWith("/today/")) return "کارهای امروز من";
-  if (/^\/social-hub\/bots\/\d+\/access/.test(path)) return "دسترسی‌های ربات"; // social-hub v1.1
+  if (/^\/social-hub\/bots\/\d+\/access/.test(path)) return "دسترسی ربات"; // social-hub v1.1 (Armita build-r1 §1)
   const match = allNavItems
     .filter(item => item.href !== '/' && (location === item.href || location.startsWith(`${item.href}/`)))
     .sort((a, b) => b.href.length - a.href.length)[0];
@@ -375,6 +378,10 @@ export function CrmShell({ children }: { children: ReactNode }) {
     location === href || (href !== '/' && location.startsWith(href) && !(href === '/chat' && location.startsWith('/internal-chat')));
 
   const phone = useMediaQuery('(max-width: 640px)');
+  // social-hub v1.1 (Armita build-r1 §1): ONLY while flag.social_hub_v1 is ON, the 390 top bar keeps title + date + bell + avatar;
+  // search, «پنل محدود» and «گزارش خطا» move into «بیشتر» / «منو». Flag OFF → live bar unchanged.
+  const shCompact = Boolean(shMeNav?.enabled) && phone;
+  const shPage = location.startsWith('/social-hub');
   const [asSideSlot, setAsSideSlot] = useState<HTMLDivElement | null>(null);
   const [asTopSlot, setAsTopSlot] = useState<HTMLDivElement | null>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
@@ -388,7 +395,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const pageTitle = mcSurface && /^\/customers\/\d+/.test(location) ? 'پرونده‌ی مشتری'
     : mcSurface && location === '/loan-applications' ? 'ثبت درخواست تسهیلات'
     : (location === '/today' || location.startsWith('/today/')) ? 'کارهای امروز من'
-    : (ssV2 && ssMobile && pageTitleOv) || (roleTitle ?? basePageTitle);
+    : (ssV2 && ssMobile && pageTitleOv) || (shCompact && shMobileTitle(location)) || (roleTitle ?? basePageTitle);
   // «بیشتر» starts collapsed on every load (not persisted); it opens by itself only when the current page lives inside it.
   const moreActive = Boolean(roleLayout?.more.some(g => g.items.some(item => isNavItemActive(item.href))));
   const [moreOpen, setMoreOpen] = useState(false);
@@ -569,18 +576,18 @@ export function CrmShell({ children }: { children: ReactNode }) {
     <PlanAdvisorHost>
     <div className={`app-shell ssv2${bnv2 ? ' bnv2' : ''}`} data-testid="ss-shell" data-bnv2={bnv2 ? 'on' : 'off'}>
       <SsMain setMainEl={setMainEl} mainEl={mainEl} stickyTop={stickyTop}>
-        <header className="topbar ss-top" ref={setTopEl}>
+        <header className={`topbar ss-top${shCompact ? ' sh-compact' : ''}`} ref={setTopEl}>
           <Link href={navItems.some(i => i.href === '/today') ? '/today' : '/'} className="ss-brand" aria-label="گروه مالی نفیس — خانه"><img src={nafissLogoUrl} alt="" aria-hidden="true" /><small>پنل مشتریان</small></Link>
-          <div className="ss-ttl"><h1>{pageTitle}</h1><p>امروز، تمرکز روی قدم بعدی مشتری است.</p></div>
+          <div className="ss-ttl"><h1>{pageTitle}</h1>{shPage ? null : <p>امروز، تمرکز روی قدم بعدی مشتری است.</p>}</div>
           <ShellDate />
           <div className="top-actions">
-            {sf.openLists ? <SfSearchButton /> : null}
+            {sf.openLists && !shCompact ? <SfSearchButton /> : null}
             <VcHeaderBadge />
             <VoipAnywhereFirstFormHost />
-            {elLocked ? <span className="ss-lkchip" role="note" aria-label="پنل محدود" data-testid="ss-lkchip"><Lock size={16} aria-hidden="true" /><span className="lt" aria-hidden="true">پنل محدود</span></span> : null}
+            {elLocked && !shCompact ? <span className="ss-lkchip" role="note" aria-label="پنل محدود" data-testid="ss-lkchip"><Lock size={16} aria-hidden="true" /><span className="lt" aria-hidden="true">پنل محدود</span></span> : null}
             {dndUntil ? <button type="button" className="ss-dndchip" aria-label={`مزاحم نشو روشن است تا ${tehranHm(dndUntil)}؛ برای خاموش کردن بزن`} onClick={() => void dndOff()} data-testid="ss-dndchip"><Moon size={18} aria-hidden="true" /><span className="dl">مزاحم نشو </span>تا {tehranHm(dndUntil)}</button> : null}
             <span className={`ss-stx${health?.status === 'ok' ? '' : ' chk'}`} title="پشتیبانی تیم" data-testid="ss-health">{health?.status === 'ok' ? 'در دسترس' : 'در حال بررسی'}</span>
-            <DiagnosticsButton />
+            {shCompact ? null : <DiagnosticsButton />}
             {canRem ? <button type="button" className="icon-button ss-rembtn" aria-label="ثبت یادآور" title="ثبت یادآور" onClick={headerReminder.open} data-testid="button-header-reminder"><Bell size={20} /></button> : null}
             <NotificationBell user={user} />
             {hasAssistant && ssMobile ? <button type="button" className="icon-button ss-asttop" data-ss-ast="" aria-label={`چت دستیار (${astName})${astUnread ? `، ${faNum(astUnread)} پیام تازه` : ''}${astDnd ? '، مزاحم نشو روشن' : ''}`} onClick={openAst} data-testid="ss-ast-top">
@@ -615,7 +622,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
         overdue={ssBadges?.reminders.overdue ?? 0} drafts={pendingDrafts} draftsLate={(draftCounts.data?.paidOver24h ?? 0) > 0} team={team.data?.unreadCount ?? 0}
         pendingGoods={pendingGoods} pendingPayments={pendingPayments} callbacks={callbacksBadge.data?.new ?? 0}
         ast={hasAssistant ? { name: astName, unread: astUnread, dnd: astDnd, open: openAst } : null}
-        bnv2={bnv2} role={user?.role ?? null} baleUnread={bbMe?.unread ?? 0} hasOwnBaleInbox={Boolean(bbMe?.enabled && (bbMe.view === 'own' || bbMe.view === 'all'))} userId={user ? Number(user.id) : undefined} myWork={mpOn && Boolean(mpMe?.canView)} />
+        bnv2={bnv2} role={user?.role ?? null} baleUnread={bbMe?.unread ?? 0} hasOwnBaleInbox={Boolean(bbMe?.enabled && (bbMe.view === 'own' || bbMe.view === 'all'))} userId={user ? Number(user.id) : undefined} myWork={mpOn && Boolean(mpMe?.canView)}
+        shTools={shCompact ? { search: Boolean(sf.openLists), locked: Boolean(elLocked) } : null} />
       {user ? <AssistantDock user={user as { id: number; role?: string | null; salespersonId?: number | null }} phone={ssMobile} shellV2 slot={null} bottomOffset={0} /> : null}
       {profileOpen && user ? <ProfileModal user={user} onClose={() => setProfileOpen(false)} /> : null}
       {headerReminder.node}
@@ -680,22 +688,23 @@ export function CrmShell({ children }: { children: ReactNode }) {
               <strong id="mobile-nav-title">همهٔ بخش‌ها</strong>
               <button ref={closeButton} type="button" className="mobile-nav-close" onClick={() => setMobileMenuOpen(false)} aria-label="بستن منو" data-testid="button-mobile-nav-close"><X size={22} aria-hidden="true" /></button>
             </header>
+            {shCompact ? <ShDrawerTools search={Boolean(sf.openLists)} onPick={() => setMobileMenuOpen(false)} /> : null}
             <nav className="mobile-nav-groups" aria-label="همهٔ بخش‌های پنل">{renderGroups(true)}</nav>
           </section>
         </div>
       )}
       <main className={`app-main${stickyTop ? ' sticky-top' : ''}`} ref={setMainEl}>
-        <header className="topbar" ref={setTopEl}>
+        <header className={`topbar${shCompact ? ' sh-compact' : ''}`} ref={setTopEl}>
           <div>
             <h1>{pageTitle}</h1>
-            <p>امروز، تمرکز روی قدم بعدی مشتری است.</p>
+            {shPage ? null : <p>امروز، تمرکز روی قدم بعدی مشتری است.</p>}
           </div>
           <ShellDate />
           <div className="top-actions">
-            {sf.openLists ? <SfSearchButton /> : null}
+            {sf.openLists && !shCompact ? <SfSearchButton /> : null}
             <VcHeaderBadge />
             <VoipAnywhereFirstFormHost />
-            <DiagnosticsButton />
+            {shCompact ? null : <DiagnosticsButton />}
             <div className="nas-slot nas-slot-top" ref={setAsTopSlot} />
             <NotificationBell user={user} />
             {user?.role === 'admin' || user?.permissions?.includes('reminders.manage') ? <button type="button" className="icon-button" aria-label="ثبت یادآور" title="ثبت یادآور" onClick={headerReminder.open} data-testid="button-header-reminder"><Bell size={20} /></button> : null}
@@ -766,6 +775,8 @@ type SsHostProps = {
   bnv2: boolean; role: string | null; baleUnread: number; hasOwnBaleInbox: boolean;
   userId?: number;
   myWork?: boolean;
+  /** social-hub v1.1 compact 390 bar (flag.social_hub_v1 only): tools that left the top bar. null → live behaviour. */
+  shTools?: { search: boolean; locked: boolean } | null;
 };
 const SS_MAIN: Record<string, { key: string; label: string; full: string; testId: string }> = {
   '/today': { key: 'today', label: 'امروز', full: 'کارهای امروز من', testId: 'today' },
@@ -857,9 +868,16 @@ function SsNavHost(p: SsHostProps) {
     ...rest,
     ...(astInMore ? [astInMore] : []),
   ];
-  const groups: SsGroup[] = p.bnv2
+  const diag = useDiagnostics();
+  const shToolItems: SsItem[] = p.shTools ? [
+    ...(p.shTools.search ? [{ key: 'sh-search', label: 'جست‌وجو', full: 'جست‌وجوی مشتری یا پرونده', icon: ic(Search), testId: 'sh-search', onSelect: openSfSearch }] : []),
+    ...(diag ? [{ key: 'sh-diag', label: 'گزارش خطا', full: 'گزارش خطا', icon: ic(Bug), testId: 'sh-diag', onSelect: diag.open }] : []),
+    ...(p.shTools.locked ? [{ key: 'sh-lock', label: 'پنل محدود', full: 'پنل محدود است', icon: ic(Lock), testId: 'sh-lock', onSelect: () => undefined }] : []),
+  ] : [];
+  const groupsLive: SsGroup[] = p.bnv2
     ? [ ...(moreRest.length ? [{ title: 'فهرست‌ها', items: moreRest }] : []), { title: 'حساب من', items: account } ]
     : [{ title: 'پرونده و پرداخت', items: moreRest }, { title: 'حساب من', items: account }];
+  const groups: SsGroup[] = shToolItems.length ? [...groupsLive, { title: 'ابزارها', items: shToolItems }] : groupsLive;
   const primary = slots.primary ? () => { ssRequestIncoming(); if (p.location !== '/today') setLocation('/today'); } : null;
   const afterItems = [...toItems(slots.after), ...(paItem ? [paItem] : []), ...(showAst && astOnDock ? [astOnDock] : [])];
   const dailyItems = [
