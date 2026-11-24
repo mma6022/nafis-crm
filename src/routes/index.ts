@@ -86,6 +86,7 @@ import baleWorkspaceRouter from "./bale-workspace";
 import voipTaskHoldRouter from "./voip-task-hold";
 import customerNameEditRouter from "./customer-name-edit";
 import customerPhonesRouter from "./customer-phones";
+import socialHubRouter from "./social-hub";
 import { ensureCustomerPhonesSchema } from "../lib/customer-phones";
 import salesManagerConsoleRouter, { smcEnforceGuard, smcValidityRouter } from "./sales-manager-console";
 
@@ -150,6 +151,7 @@ router.use(loanRequestDraftsRouter);
 router.use(multiCaseRouter);
 router.use(customerNameEditRouter); // customer-name-edit (flag.customer_name_edit, default OFF → 404)
 router.use(customerPhonesRouter); // extra customer phones (t853u)
+router.use(socialHubRouter); // social-hub v1.1 (flag.social_hub_v1 / flag.social_hub_phone_attach_v1, OFF → /me enabled:false, others 404)
 router.use(dailyCustomerInlineRouter); // daily-customer-inline v1.1 (flag.daily_customer_inline_v1, default OFF → 404)
 router.use(loanApplicationsRouter);
 router.use(walletsRouter);

@@ -238,7 +238,7 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   // VOIP-CALL (flag.voip_call for this user only): «تماس از تلفن ویپ» + the customer's call history follow the same single-customer rule.
   // cs-fields v1 (flag.call_summary_fields_v1[.user.<id>] only): «موارد اجباری» on the call view / file follow the same single-customer rule.
   // REMINDER-VOIP (flag.reminder_voip for this user only): «تماس» on an own reminder = the same single-customer rule as the VoIP click call.
-  const ctIds = ctLockdownIds(req, path, Number(u!.id)) ?? vcLockdownIds(req, path, Number(u!.id)) ?? csLockdownIds(req, path, Number(u!.id)) ?? rvLockdownIds(req.method, path, Number(u!.id)) ?? mcLockdownIds(req, path) ?? dciLockdownIds(req, path);
+  const ctIds = ctLockdownIds(req, path, Number(u!.id)) ?? vcLockdownIds(req, path, Number(u!.id)) ?? csLockdownIds(req, path, Number(u!.id)) ?? rvLockdownIds(req.method, path, Number(u!.id)) ?? mcLockdownIds(req, path) ?? dciLockdownIds(req, path) ?? shLockdownIds(req, path);
   if (ctIds) {
     for (const id of ctIds) if (!elCustomerAccess(u!, id) && !elOwnCustomer(u!, id))
       return deny(res, "expert_lockdown_customer", "این مشتری فعلاً برای شما باز نیست (فقط مشتری‌های «کارهای امروز»، پرونده‌های خودت یا «تماس ورودی»).");
@@ -300,6 +300,16 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
     }
   }
   next();
+}
+/** social-hub v1.1: null = not this API. Only while its flags are ON (routes 404 otherwise). The today box / send follow the single-customer
+ *  rule; «افزودن این شماره به مشتری ثبت‌شده» is open for any customer (Mohammad t418s1654) and scopes itself; /me and a doc file are flag reads. */
+function shLockdownIds(req: Request, path: string): number[] | null {
+  if (!path.startsWith("/social-hub/")) return null;
+  const m = path.match(/^\/social-hub\/customers\/(\d+)\/(today|send)$/);
+  if (m && ((req.method === "GET" && m[2] === "today") || (req.method === "POST" && m[2] === "send"))) return [Number(m[1])];
+  if (req.method === "GET" && (path === "/social-hub/me" || path === "/social-hub/phone-attach/search" || /^\/social-hub\/docs\/\d+\/file$/.test(path))) return [];
+  if (req.method === "POST" && path === "/social-hub/phone-attach") return [];
+  return null;
 }
 /** daily-customer-inline v1.1: null = not this API. [] = let the DCI handlers enforce owner/manager
  *  access (including the designed 403 not_owner board for another expert's customer). Status/today

@@ -162,6 +162,15 @@ function linkCustomer(eventId: number, customerId: number) {
   }
   executeChanges("UPDATE s132b_events SET customer_id=? WHERE event_id=?", [customerId, eventId]);
 }
+/** social-hub v1.1 «ثبت همین تماس در پروندهٔ مشتری»: links one of THIS user's unlinked call cards to a customer (same path as the
+ *  card's own save). Returns false when the card is not the user's, already linked, or missing. */
+export function s132bLinkToCustomer(u: { id: number }, eventId: number, customerId: number): boolean {
+  const own = queryRow<{ customer_id: number | null }>("SELECT customer_id FROM s132b_events WHERE event_id=? AND user_id=?", [eventId, u.id]);
+  const ev = queryRow<{ customer_id: number | null }>("SELECT customer_id FROM voip_after_call_events WHERE id=?", [eventId]);
+  if (!own || !ev || ev.customer_id != null || own.customer_id != null) return false;
+  linkCustomer(eventId, customerId);
+  return true;
+}
 function completeEvent(e: Ev, userId: number, outcome: string, now: Date) {
   executeChanges(`UPDATE voip_after_call_events SET completed_at=?, completed_by_user_id=?, completed_payload=? WHERE id=? AND completed_at IS NULL`,
     [iso(now), userId, JSON.stringify({ expertNotes: "", source: "s132b", outcome }), e.id]);
