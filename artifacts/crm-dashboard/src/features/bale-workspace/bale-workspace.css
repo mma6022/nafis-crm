@@ -25,7 +25,14 @@
 .bbt.bw-on,.bbt.bw-on *{scrollbar-width:none;-ms-overflow-style:none}
 .bbt.bw-on *::-webkit-scrollbar{width:0;height:0;display:none;background:transparent}
 
-.bbt.bw-on{--composer-min:120px;--composer-max:240px}
+.bbt.bw-on{
+  --composer-min:120px;
+  --composer-max:240px;
+  /* HANDOFF: dock height + gap + 16px. The dock's collapse arrow is 44px and
+     sits translateY(-50%) above the dock (22px), so it is added or it still covers the last row. */
+  --bws-dock-clear: calc(var(--ss-dock-h, 90px) + var(--ss-gap, 16px) + 16px);
+  --bws-arrow-clear: 22px;
+}
 
 /* Full-width main: drop the shell's 32px/14px side padding and the 20px gap under the top bar so columns reach the edges and the top bar. */
 .app-shell:has(.bbt.bw-on) .app-main,
@@ -87,16 +94,17 @@
   display:flex;
   flex-direction:column;
   overflow:hidden;
-  height:100%;
+  height:auto;
   max-height:none;
-  padding-bottom:calc(var(--ss-dock-h, 90px) + var(--ss-gap, 16px) + 16px);
+  padding-bottom:0;
+  margin-bottom:calc(var(--bws-dock-clear) + var(--bws-arrow-clear, 22px));
 }
 .bbt.bw-on .bx>.pane.cp,
 .bbt.bw-on .bx>.bws-ctx.pane,
 .bbt.bw-on .bx>.pane:last-child{border-inline-end:0;position:relative;top:auto}
 @media (min-width:1024px){.bbt.bw-on .bx .cp,.bbt.bw-on .bx .bws-ctx.pane{display:flex}}
 .bbt.bw-on .ch{min-height:0}
-.bbt.bw-on .bws-ctx.pane{padding:14px 16px calc(var(--ss-dock-h, 90px) + var(--ss-gap, 16px) + 16px);gap:12px;overflow-y:auto}
+.bbt.bw-on .bws-ctx.pane{padding:14px 16px 16px;gap:12px;overflow-y:auto;min-height:0}
 
 /* Composer: full-width textarea above the 44px tool row; grows from --composer-min to --composer-max. */
 .bbt.bw-on .cz{
@@ -212,7 +220,7 @@
   .bbt.bw-on .bx,.bbt.bw-on .bx.np{display:flex;flex-direction:column;gap:0;padding:0;height:100%;max-height:none}
   .app-main .bbt.bw-on .pg.bbpg .bx>.pane,
   .bbt.bw-on .bx>.pane,.bbt.bw-on .bx>.pane.ch,.bbt.bw-on .bx>.bws-ctx.pane,.bbt.bw-on .bx>.lst.pane{
-    padding-bottom:0;border-inline-end:0;height:auto;max-height:none;box-shadow:none;border-radius:0
+    padding-bottom:0;margin-bottom:0;border-inline-end:0;height:auto;max-height:none;box-shadow:none;border-radius:0
   }
   /* Keep v1.0 mobile: only the open chat (or a tab pane) is on screen; list and desktop context stay hidden. */
   .app-main .bbt.bw-on .pg.bbpg .bx[data-m=chat]>.lst.pane,
