@@ -27,6 +27,7 @@
     "check:no-request-type": "node scripts/no-request-type-check.mjs",
     "test:voip-anywhere": "node --experimental-strip-types scripts/voip-anywhere-fixture.mjs",
     "test:bottom-nav-v2": "node --experimental-strip-types scripts/bottom-nav-v2-fixture.mjs",
+    "test:my-performance-v11-dock": "node --experimental-strip-types scripts/my-performance-v11-dock-fixture.mjs",
     "test:today-layout-v13": "node --experimental-strip-types scripts/today-layout-v13-fixture.mjs",
     "test:today-layout-v20-dossier": "node --experimental-strip-types scripts/today-layout-v20-dossier-fixture.mjs",
     "test:lockdown-redirect": "node --experimental-strip-types scripts/lockdown-redirect-fixture.mjs",

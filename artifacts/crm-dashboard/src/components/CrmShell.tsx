@@ -3,7 +3,7 @@ import { VcHeaderBadge } from '@/features/voip-call/VoipCall';
 import { VoipAnywhereFirstFormHost } from '@/features/voip-call/VoipAnywhere';
 import { useRmConfig } from '@/features/reminder-must/api';
 import { CustomerName } from '@/components/customer/CustomerName';
-import { Moon, Lock, AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, Filter, HandCoins, Headset, Landmark, Layers, LayoutDashboard, Link2, LifeBuoy, LogOut, Menu, MessageCircle, MoreHorizontal, Sparkles, MessagesSquare, MessageSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, ListChecks, type LucideIcon } from 'lucide-react';
+import { Moon, Lock, AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, Filter, HandCoins, Headset, Landmark, Layers, LayoutDashboard, Link2, LifeBuoy, LogOut, Menu, MessageCircle, MoreHorizontal, Sparkles, MessagesSquare, MessageSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UserPlus, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, ListChecks, type LucideIcon } from 'lucide-react';
 import { UserAvatar, AvatarPicker } from '@/components/UserAvatar';
 import { useHealthCheck, getHealthCheckQueryKey, useGetAuthSession, useLogout, useUpdateAuthProfile, useListReminders, useAcknowledgeReminder, getListRemindersQueryKey, getGetAuthSessionQueryKey, type CrmUser, type Reminder } from '@workspace/api-client-react';
 import { Link, useLocation } from 'wouter';
@@ -51,6 +51,8 @@ import { useSalesTeamsMe } from '@/features/sales-teams/api';
 import { useSmcMe } from '@/features/sales-manager-console/api';
 import { useSalesPerformanceMe } from '@/features/sales-performance/api';
 import { useSalesKpiMe } from '@/features/sales-kpi/api';
+import { useMyWorkFlags, useMyWorkMe } from '@/features/my-performance-v11/api';
+import { applyMyWorkDock, MY_WORK_HREF } from '@/features/my-performance-v11/dock';
 import { useBaleBotMe } from '@/features/bale-bot/api';
 import { useSalesShellV2, useNavBadges, ssRequestIncoming, tehranHm } from '@/features/sales-shell/api';
 import { useBottomNavV2 } from '@/features/bottom-nav-v2/api';
@@ -68,7 +70,7 @@ import { useTabState } from '@/lib/tab-coordinator';
 
 const nafissLogoUrl = `${import.meta.env.BASE_URL}nafiss-financial-logo.png`;
 
-type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin' | 'discipline'; dp?: 'today' | 'admin'; leadAnnotator?: boolean; ct?: boolean; lp?: boolean; mt?: boolean; smc?: boolean; sam?: boolean; spPerf?: boolean; bb?: 'inbox' | 'admin'; segments?: boolean; salesKpi?: boolean };
+type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin' | 'discipline'; dp?: 'today' | 'admin'; leadAnnotator?: boolean; ct?: boolean; lp?: boolean; mt?: boolean; smc?: boolean; sam?: boolean; spPerf?: boolean; bb?: 'inbox' | 'admin'; segments?: boolean; salesKpi?: boolean; mpWork?: boolean };
 
 // Routes and permission rules are unchanged; only grouping, order, labels of groups and icons are new.
 const allNavItems: NavItem[] = [
@@ -107,6 +109,7 @@ const allNavItems: NavItem[] = [
   { href: '/customer-segments', label: 'گزارش مشتریان', icon: Filter, segments: true },
   { href: '/sales-performance', label: 'گزارش عملکرد فروش', icon: BarChart3, spPerf: true },
   { href: '/sales-kpi', label: 'شاخص‌های فروش', icon: BarChart3, salesKpi: true },
+  { href: '/my-work', label: 'عملکرد من', icon: BarChart3, mpWork: true },
   { href: '/social-monitor-reports', label: 'گزارش پیام‌رسان‌ها', icon: Radar, adminOnly: true },
   { href: '/voice-notes-usage', label: 'مصرف تبدیل صدا به متن', icon: AudioLines, adminOnly: true },
   { href: '/smart-filing', label: 'ثبت هوشمند', icon: Bot, smartFiling: true },
@@ -290,6 +293,9 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const mtMe = useSalesTeamsMe(Boolean(user) && !elLocked).data; // multi-team v1 — skip for locked experts (not an allowed shell endpoint)
   const spMe = useSalesPerformanceMe(Boolean(user)).data; // sales-performance v1
   const skMe = useSalesKpiMe(Boolean(user)).data; // t886 sales KPI
+  const mpFlags = useMyWorkFlags(user ? Number(user.id) : null, Boolean(user) && !panelMode);
+  const mpOn = Boolean(mpFlags.data?.on);
+  const mpMe = useMyWorkMe(Boolean(user) && mpOn).data;
   const basePageTitle = isAdminUser && (location === '/my-wallet' || location.startsWith('/my-wallet/')) ? 'کیف پول کارشناس‌ها' : location === '/settings/links' && !lpMe?.enabled ? 'تنظیمات' /* links v1.0 off: same title as before */ : location === '/sales-teams' && mtMe?.readonly ? 'تیم من' : titleFor(location);
   
   // SALES-SHELL v2 (per-user flag.sales_shell_v2.user.<id>; ALL OFF by default): no sidebar, bottom dock / tab bar.
@@ -330,6 +336,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
     if (item.sam) return samOn;
     if (item.spPerf) return Boolean(spMe?.canView);
     if (item.salesKpi) return Boolean(skMe?.canView);
+    if (item.mpWork) return Boolean(mpOn && mpMe?.canView);
     if (item.ct) return Boolean(ctCfg?.enabled && (ctCfg.manager || ctCfg.viewer)); // t742s2933: plain admin keeps the report (read-only)
     if (item.cq === 'discipline') return Boolean(cqCfg?.manager && cqCfg.flags.discipline);
     // R2 «پنل محدود»: only «صف تماس من» and «یادآورها» stay in the menu.
@@ -603,7 +610,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
         overdue={ssBadges?.reminders.overdue ?? 0} drafts={pendingDrafts} draftsLate={(draftCounts.data?.paidOver24h ?? 0) > 0} team={team.data?.unreadCount ?? 0}
         pendingGoods={pendingGoods} pendingPayments={pendingPayments} callbacks={callbacksBadge.data?.new ?? 0}
         ast={hasAssistant ? { name: astName, unread: astUnread, dnd: astDnd, open: openAst } : null}
-        bnv2={bnv2} role={user?.role ?? null} baleUnread={bbMe?.unread ?? 0} hasOwnBaleInbox={Boolean(bbMe?.enabled && (bbMe.view === 'own' || bbMe.view === 'all'))} userId={user ? Number(user.id) : undefined} />
+        bnv2={bnv2} role={user?.role ?? null} baleUnread={bbMe?.unread ?? 0} hasOwnBaleInbox={Boolean(bbMe?.enabled && (bbMe.view === 'own' || bbMe.view === 'all'))} userId={user ? Number(user.id) : undefined} myWork={mpOn && Boolean(mpMe?.canView)} />
       {user ? <AssistantDock user={user as { id: number; role?: string | null; salespersonId?: number | null }} phone={ssMobile} shellV2 slot={null} bottomOffset={0} /> : null}
       {profileOpen && user ? <ProfileModal user={user} onClose={() => setProfileOpen(false)} /> : null}
       {headerReminder.node}
@@ -753,6 +760,7 @@ type SsHostProps = {
   ast: { name: string; unread: number; dnd: boolean; open: () => void } | null;
   bnv2: boolean; role: string | null; baleUnread: number; hasOwnBaleInbox: boolean;
   userId?: number;
+  myWork?: boolean;
 };
 const SS_MAIN: Record<string, { key: string; label: string; full: string; testId: string }> = {
   '/today': { key: 'today', label: 'امروز', full: 'کارهای امروز من', testId: 'today' },
@@ -774,7 +782,7 @@ function SsNavHost(p: SsHostProps) {
   // FILES-LOCK (stage 2): cache-only hint; null unless that user's flag.files_lock is on and «بالفعل» tasks remain.
   const { data: ssSession } = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   const fl = useFilesLockHint(ssSession?.user?.id != null ? Number(ssSession.user.id) : null);
-  const slots = bnv2Slots({ flagOn: p.bnv2, role: p.role, visible: p.navItems.map(i => i.href), hasOwnBaleInbox: p.hasOwnBaleInbox });
+  const slots = applyMyWorkDock(bnv2Slots({ flagOn: p.bnv2, role: p.role, visible: p.navItems.map(i => i.href), hasOwnBaleInbox: p.hasOwnBaleInbox }), Boolean(p.myWork), p.navItems.map(i => i.href));
   const badgeFor = (href: string): SsItem['badge'] => {
     if (fl && (href === '/today' || href === '/')) return { n: fl.remaining, tone: 'r', what: 'تسک بالفعل مانده' };
     if (p.bnv2 && href === '/customers') return null; // §6.3: customers count badge is removed with the dock item
@@ -833,7 +841,13 @@ function SsNavHost(p: SsHostProps) {
   const tabItems = arranged.tabs;
   const bwsHint = useBwsDockHint(); // «فضای کار بله» (flag.bale_workspace_v1 only): the 390 button that opened Bale shows it
   const movedToMore = arranged.movedToMore;
+  const incomingItem: SsItem | null = p.myWork && slots.kind !== 'admin' ? {
+    key: 'incoming', label: 'الان مشتری جدید دارم', full: 'الان مشتری جدید دارم: تماس ورودی؛ مشتری قبلی یا جدید، کار جاری عوض نمی‌شود',
+    icon: ic(UserPlus), testId: 'incoming',
+    onSelect: () => { ssRequestIncoming(); if (p.location !== '/today') setLocation('/today'); },
+  } : null;
   const moreRest = [
+    ...(incomingItem ? [incomingItem] : []),
     ...movedToMore.filter((t) => !rest.some((r) => r.href && r.href === t.href)),
     ...rest,
     ...(astInMore ? [astInMore] : []),
