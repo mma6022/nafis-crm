@@ -76,6 +76,7 @@ import CustomerSegmentsPage from '@/features/customer-segments/CustomerSegmentsP
 import SalesPerformancePage from '@/features/sales-performance/SalesPerformancePage';
 import SalesKpiPage from '@/features/sales-kpi/SalesKpiPage';
 import MyWorkPage from '@/features/my-performance-v11/MyWorkPage';
+import { SocialHubPage, SocialHubAccessRoute } from '@/features/social-hub/SocialHubPage';
 import { VoipDock } from '@/components/voip/VoipDock';
 import StaffChatPage from '@/chat/StaffChatPage';
 import InternalChatPage from '@/internal-chat/InternalChatPage';
@@ -286,6 +287,8 @@ function AppWithRoutes() {
                     <Route path="/sales-performance"><SalesPerformancePage /></Route>
                     <Route path="/sales-kpi"><SalesKpiPage /></Route>
                     <Route path="/my-work"><MyWorkPage /></Route>
+                    <Route path="/social-hub/bots/:id/access">{(params) => <SocialHubAccessRoute params={params as { id: string }} />}</Route>
+                    <Route path="/social-hub"><SocialHubPage /></Route>
                     <Route path="/sales-commissions"><PermissionRoute permission="goods_finance.view"><SalesCommissions /></PermissionRoute></Route>
                     <Route path="/my-wallet"><PermissionRoute permission="goods_finance.view"><StaffWallet /></PermissionRoute></Route>
                     <Route path="/messengers"><PermissionRoute permission="internal_chat.use"><MessengersPage /></PermissionRoute></Route>

@@ -24,6 +24,7 @@ import { usePaOn } from "@/features/plan-advisor/api";
 import { PlanAdvisorBox } from "@/features/plan-advisor/PlanAdvisorBox";
 import { CustomerPhonesBlock, useCallPhonePicker } from "@/features/customer-phones/CustomerPhones";
 import { BwsTodayBox } from "@/features/bale-workspace/Today"; // «فضای کار بله» ه‍ (flag.bale_workspace_v1; renders nothing while OFF)
+import { ShTodayBox } from "@/features/social-hub/TodayBox";
 import { DciIcon, DciSprites } from "./icons";
 import { withPlanPrefix } from "@/lib/multi-case-plan-label";
 import "./dci.css";
@@ -431,6 +432,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onCallPhone, onResult, onPromo
           renderPrimary={(ph) => ph ? <Phone raw={ph} big={!ext} onCopy={onCopy} /> : null} />
       </div>
     </div>
+    <ShTodayBox customerId={m.customer.id} customerName={shownName} />
     <div className="dci-prio">
       {ps}
       {st}
