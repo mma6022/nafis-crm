@@ -28,6 +28,8 @@ export const SH_FLAG = "flag.social_hub_v1";
 export const SH_PHONE_FLAG = "flag.social_hub_phone_attach_v1";
 export const SH_SEND_FLAG = "flag.social_hub_send_v1";
 export const SH_CONNECT_FLAG = "flag.social_hub_bot_connect_v1";
+/** «پایان انتقال» (Armita build-r1 §8): Mohammad did not ask for a manual trigger; OFF → the button is hidden and the routes answer 404. */
+export const SH_LEGACY_FINISH_FLAG = "flag.social_hub_legacy_finish_v1";
 /** Mohammad t418s1654: bot name. */
 export const SH_BOT_NAME = "نفیس وام";
 /** Mohammad t418s1663: training / docs upload max 200 MB. */
@@ -54,6 +56,7 @@ export const shOn = () => setting(SH_FLAG) === "1";
 export const shPhoneOn = () => setting(SH_PHONE_FLAG) === "1";
 export const shSendOn = () => setting(SH_SEND_FLAG) === "1";
 export const shConnectOn = () => setting(SH_CONNECT_FLAG) === "1";
+export const shLegacyFinishOn = () => setting(SH_LEGACY_FINISH_FLAG) === "1";
 
 export class ShError extends Error {
   constructor(public status: number, public code: string, message: string, public extra: Record<string, unknown> = {}) { super(message); }
@@ -141,7 +144,7 @@ export function shMe(u: AuthUser | null | undefined) {
   return {
     enabled: shOn(), phoneAttach: shPhoneOn(), manager: shOn() && shIsManager(u), botName: SH_BOT_NAME,
     networks: SH_NETWORKS, docMaxBytes: SH_DOC_MAX_BYTES, legacyOffDays: SH_LEGACY_OFF_DAYS, extraPhonesMax: SH_EXTRA_PHONES_MAX,
-    sendDelivery: shSendOn() ? "on" : "queued_only",
+    sendDelivery: shSendOn() ? "on" : "queued_only", connectEnabled: shConnectOn(), legacyFinish: shOn() && shLegacyFinishOn(),
   };
 }
 
@@ -291,7 +294,9 @@ export function shBots() {
     managers: queryRows<{ id: number; full_name: string | null; username: string }>("SELECT u.id,u.full_name,u.username FROM sh_bot_access a JOIN users u ON u.id=a.user_id WHERE a.bot_id=? AND a.manage=1 ORDER BY u.id", [b.id]).map(userName),
     lastMessageAt: null as string | null,
   }));
-  return { bots, legacy: shLegacy(), networks: SH_NETWORKS, redirectText: shRedirectText(), connectEnabled: shConnectOn() };
+  return { bots, legacy: shLegacy(), networks: SH_NETWORKS, redirectText: shRedirectText(), connectEnabled: shConnectOn(), legacyFinish: shLegacyFinishOn(),
+    /** display only: the existing per-expert Bale bots are live (no token is read or used here). */
+    baleLive: shLegacy().some((l) => l.liveStatus === "on") };
 }
 /** Old per-expert Bale bots (bale_bots, read only) with migration progress from sh_legacy_moves. */
 export function shLegacy() {
@@ -335,10 +340,21 @@ export function shSendRedirectOnce(u: AuthUser, id: number): { queued: number; s
 }
 /** Marks an old bot migrated: read-only now, off 30 days later (Mohammad t418s1663). */
 export function shMarkMigrated(u: AuthUser, id: number, now = new Date()) {
+  if (!shLegacyFinishOn()) throw new ShError(404, "not_found", "این امکان فعال نیست.");
   legacyRow(id);
   executeChanges("UPDATE sh_legacy_bots SET migrated_at=COALESCE(migrated_at,?), off_at=COALESCE(off_at,?), updated_by=?, updated_at=? WHERE legacy_bot_id=?",
     [now.toISOString(), shLegacyOffAt(now), u.id, iso(), id]);
   shLog(u.id, "legacy_migrated", id); return shLegacy();
+}
+/** «بازگرداندن»: undoes «پایان انتقال» while the bot is not off yet (same flag). */
+export function shUndoMigrated(u: AuthUser, id: number, now = new Date()) {
+  if (!shLegacyFinishOn()) throw new ShError(404, "not_found", "این امکان فعال نیست.");
+  legacyRow(id);
+  const st = queryRow<{ migrated_at: string | null; off_at: string | null }>("SELECT migrated_at, off_at FROM sh_legacy_bots WHERE legacy_bot_id=?", [id]);
+  if (!st?.migrated_at) throw new ShError(409, "not_migrated", "انتقال این ربات هنوز پایان نیافته است.");
+  if (st.off_at && new Date(st.off_at).getTime() <= now.getTime()) throw new ShError(409, "already_off", "این ربات خاموش شده و بازگرداندن ممکن نیست.");
+  executeChanges("UPDATE sh_legacy_bots SET migrated_at=NULL, off_at=NULL, updated_by=?, updated_at=? WHERE legacy_bot_id=?", [u.id, iso(), id]);
+  shLog(u.id, "legacy_migrated_undo", id); return shLegacy();
 }
 /** Records that a customer of an old bot started the unified bot (server-side match by Bale user id; no re-auth, no phone). */
 export function shRecordMove(legacyBotId: number, chatRow: number, baleUserId: string | null, customerId: number | null, now = new Date()): boolean {
@@ -437,7 +453,8 @@ export function shTodayBox(u: AuthUser, customerId: number) {
     .filter((p) => p.current || p.messages.length);
   const sends = queryRows<any>("SELECT s.id, s.status, s.created_at, s.plan_id, m.title, s.user_id FROM sh_sends s LEFT JOIN sh_messages m ON m.id=s.message_id WHERE s.customer_id=? ORDER BY s.id DESC LIMIT 5", [customerId])
     .map((s) => ({ id: Number(s.id), status: s.status, at: s.created_at, title: s.title ?? "پیام", planName: planById(s.plan_id)?.name ?? null, mine: Number(s.user_id) === Number(u.id) }));
-  return { customerId, identity: shIdentity(customerId), reachable: shReachable(customerId), botName: SH_BOT_NAME, botLink: shBotLink(),
+  return { customerId, customerName: queryRow<{ name: string }>("SELECT name FROM customers WHERE id=?", [customerId])?.name ?? "", expertName: u.fullName || u.username,
+    identity: shIdentity(customerId), reachable: shReachable(customerId), botName: SH_BOT_NAME, botLink: shBotLink(),
     currentPlanId: cur, plans, free: msgs.filter((m) => m.kind === "free"), sends };
 }
 export function shSend(u: AuthUser, customerId: number, body: any, now = new Date()) {
