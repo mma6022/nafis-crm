@@ -35,7 +35,7 @@ try {
   cph.ensureCustomerPhonesSchema();
   const flag = (k, v) => v == null ? execute("DELETE FROM call_queue_settings WHERE key=?", [k])
     : execute("INSERT INTO call_queue_settings(key,value,updated_at) VALUES(?,?,datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [k, v]);
-  for (const k of [sh.SH_FLAG, sh.SH_PHONE_FLAG, sh.SH_SEND_FLAG, sh.SH_CONNECT_FLAG]) flag(k, null);
+  for (const k of [sh.SH_FLAG, sh.SH_PHONE_FLAG, sh.SH_SEND_FLAG, sh.SH_CONNECT_FLAG, sh.SH_LEGACY_FINISH_FLAG]) flag(k, null);
   flag("flag.expert_lockdown", null);
 
   const perms = ["customers.view", "customers.update", "customers.create", "calls.create", "calls.view"];
@@ -133,7 +133,20 @@ try {
     const off = sh.shLegacyOffAt(t0); assert.equal(off, "2026-12-24T08:00:00.000Z");
     assert.equal(sh.shLegacyState(t0.toISOString(), off, new Date("2026-12-24T07:59:59Z")), "readonly");
     assert.equal(sh.shLegacyState(t0.toISOString(), off, new Date("2026-12-24T08:00:00Z")), "off");
-    const m = await req("sm", "POST", `/api/social-hub/legacy/${L.id}/migrated`); assert.equal(m.data.legacy.find((x) => x.id === L.id).state, "readonly");
+    // «پایان انتقال» has its own flag (default OFF): hidden and 404 while OFF
+    assert.equal((await req("sm", "GET", "/api/social-hub/me")).data.legacyFinish, false);
+    assert.equal((await req("sm", "POST", `/api/social-hub/legacy/${L.id}/migrated`)).status, 404);
+    assert.equal((await req("sm", "POST", `/api/social-hub/legacy/${L.id}/migrated/undo`)).status, 404);
+    flag(sh.SH_LEGACY_FINISH_FLAG, "1");
+    assert.equal((await req("sm", "GET", "/api/social-hub/me")).data.legacyFinish, true);
+    const m = await req("sm", "POST", `/api/social-hub/legacy/${L.id}/migrated`); const ml = m.data.legacy.find((x) => x.id === L.id);
+    assert.equal(ml.state, "readonly"); assert.ok(new Date(ml.offAt).getTime() > Date.now() + 29 * 86400_000);
+    const u = await req("sm", "POST", `/api/social-hub/legacy/${L.id}/migrated/undo`); assert.equal(u.status, 200); assert.equal(u.data.legacy.find((x) => x.id === L.id).state, "redirecting");
+    assert.equal((await req("sm", "POST", `/api/social-hub/legacy/${L.id}/migrated/undo`)).status, 409);
+    await req("sm", "POST", `/api/social-hub/legacy/${L.id}/migrated`);
+    execute("UPDATE sh_legacy_bots SET off_at=? WHERE legacy_bot_id=?", [new Date(Date.now() - 1000).toISOString(), L.id]);
+    assert.equal((await req("sm", "POST", `/api/social-hub/legacy/${L.id}/migrated/undo`)).status, 409);
+    flag(sh.SH_LEGACY_FINISH_FLAG, null);
     const chat = queryRow("SELECT id, bale_user_id, customer_id FROM bale_bot_chats WHERE bot_id=? LIMIT 1", [L.id]);
     if (chat) { assert.equal(sh.shRecordMove(L.id, chat.id, chat.bale_user_id, chat.customer_id), true); assert.equal(sh.shRecordMove(L.id, chat.id, chat.bale_user_id, chat.customer_id), false); }
     assert.equal((await req("sm", "PUT", "/api/social-hub/redirect-text", { text: "  " })).status, 400);
@@ -172,6 +185,7 @@ try {
   await ok("today box: full identity, only show_today messages, unreachable blocks send, reachable queues (no delivery)", async () => {
     execute("UPDATE customers SET national_code='0001234567', birth_date_jalali='1372/05/14' WHERE id=?", [B]);
     const t = await req("kazemi", "GET", `/api/social-hub/customers/${B}/today`); assert.equal(t.status, 200, JSON.stringify(t.data));
+    assert.ok(t.data.expertName && typeof t.data.customerName === "string"); // the confirm step previews the rendered text
     assert.equal(t.data.identity.nationalCode, "0001234567"); assert.equal(t.data.identity.birthDate, "1372/05/14");
     assert.ok(!t.data.free.some((m) => m.id === hiddenId)); assert.ok(t.data.free.some((m) => m.id === freeId));
     assert.equal(t.data.reachable, false);

@@ -9,7 +9,7 @@ import { addCustomerPhone } from "../lib/customer-phones";
 import { s132bLinkToCustomer } from "../lib/simotel132b";
 import {
   ShError, ensureSocialHubSchema, shAccess, shAddBot, shAddDoc, shArchiveDoc, shArchiveMessage, shAttachPhone, shBots, shCanSeeCustomer,
-  shCreateMessage, shDocFile, shDocs, shIsManager, shIsStaff, shMarkMigrated, shMe, shMessages, shOn, shPhoneOn, shPhoneSearch, shPlans,
+  shCreateMessage, shDocFile, shDocs, shIsManager, shIsStaff, shMarkMigrated, shUndoMigrated, shMe, shMessages, shOn, shPhoneOn, shPhoneSearch, shPlans,
   shSaveAccess, shSend, shSendRedirectOnce, shSetRedirectAuto, shSetRedirectText, shTestConnect, shTodayBox, shUpdateDoc, shUpdateMessage,
   SH_DOC_MAX_BYTES,
 } from "../lib/social-hub";
@@ -45,6 +45,7 @@ router.put("/social-hub/bots/:id/access", requireAuth, user, hubOn, mgr, express
 router.put("/social-hub/legacy/:id/redirect", requireAuth, user, hubOn, mgr, express.json({ limit: "2kb" }), (req, res) => run(res, () => ({ legacy: shSetRedirectAuto(me(res), id(req.params.id), Boolean(req.body?.on)) })));
 router.post("/social-hub/legacy/:id/send-once", requireAuth, user, hubOn, mgr, (req, res) => run(res, () => shSendRedirectOnce(me(res), id(req.params.id))));
 router.post("/social-hub/legacy/:id/migrated", requireAuth, user, hubOn, mgr, (req, res) => run(res, () => ({ legacy: shMarkMigrated(me(res), id(req.params.id)) })));
+router.post("/social-hub/legacy/:id/migrated/undo", requireAuth, user, hubOn, mgr, (req, res) => run(res, () => ({ legacy: shUndoMigrated(me(res), id(req.params.id)) })));
 router.put("/social-hub/redirect-text", requireAuth, user, hubOn, mgr, express.json({ limit: "16kb" }), (req, res) => run(res, () => ({ text: shSetRedirectText(me(res), req.body?.text) })));
 router.get("/social-hub/messages", requireAuth, user, hubOn, mgr, (_q, res) => run(res, () => shMessages()));
 router.post("/social-hub/messages", requireAuth, user, hubOn, mgr, express.json({ limit: "32kb" }), (req, res) => run(res, () => ({ message: shCreateMessage(me(res), req.body) }), 201));
