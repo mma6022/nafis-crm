@@ -11,6 +11,10 @@ ok(/if \(!me\?\.enabled \|\| !q\.data\) return null;/.test(r("features/social-hu
 ok(/<AttachPhoneButton phone=\{c\.phone\} callEventId=\{c\.id\}/.test(r("features/voip-call/S132bLayer.tsx")), "incoming unknown card carries the second button");
 const all = readdirSync(new URL("../src/features/social-hub/", import.meta.url)).map((f) => r(`features/social-hub/${f}`)).join("\n");
 ok(!all.includes("الان مشتری جدید دارم"), "dock item «الان مشتری جدید دارم» not reintroduced");
-ok(!/token/i.test(r("features/social-hub/Bots.tsx").replace(/کلید/g, "")), "add-bot wizard never asks for a bot token");
+const botsSrc = r("features/social-hub/Bots.tsx");
+const addStart = botsSrc.indexOf("function AddBotWizard");
+const addSrc = addStart >= 0 ? botsSrc.slice(addStart, botsSrc.indexOf("function ConnectWizard")) : botsSrc;
+ok(!/token/i.test(addSrc.replace(/کلید/g, "")), "add-bot wizard never asks for a bot token");
+ok(/type="password"/.test(botsSrc) && /data-testid="sh-connect-token"/.test(botsSrc), "connect wizard uses a masked key field");
 ok(!/className="(?!sh)[a-z]/.test(all.replace(/className="(btn btn-ghost|rb|rl|hd|t|l|side-link)"/g, "")), "only sh-* classes (and sh-scoped child names) inside the feature, plus the incoming card's own btn and the shell drawer's side-link (ShellTools)");
 console.log(`social-hub UI fixture ${n}/${n}`);
