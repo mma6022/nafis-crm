@@ -516,7 +516,8 @@ html.smc-fab.smc-fab .diag-floating{left:var(--smc-fab-x, 18px) !important;right
 /* Admin Bale bot edit inside «مدیریت فروش» (flag.smc_bot_edit_v1) */
 .smc-root .smc-bot-meta{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
 .smc-root .smc-botdlg{width:min(580px,100%);display:flex;flex-direction:column;gap:14px;max-height:90vh;overflow-y:auto}
-.smc-root .smc-botdlg-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.smc-root .smc-inp.smc-mask::placeholder{font-family:Vazirmatn,Tahoma,system-ui,sans-serif;letter-spacing:0;direction:rtl;text-align:right}
+.smc-root .smc-botdlg-hd{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .smc-root .smc-botdlg-hd .smc-hint{margin-top:2px;display:block}
 .smc-root .smc-botdlg-body{display:flex;flex-direction:column;gap:12px}
 .smc-root .smc-bot-fld{display:flex;flex-direction:column;gap:6px;align-items:stretch}
