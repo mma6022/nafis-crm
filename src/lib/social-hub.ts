@@ -7,9 +7,13 @@
  *                                    no schema is created.
  *   flag.social_hub_phone_attach_v1  «افزودن این شماره به مشتری ثبت‌شده» on the incoming card; any expert may add extra numbers to any
  *                                    customer; extra-number cap raised (SH_EXTRA_PHONES_MAX). OFF → customer-phones behaves exactly as before.
- *   flag.social_hub_send_v1          deliverer (social-hub-send.ts). OFF → every «ارسال» only writes a sh_sends row with
- *                                    status 'queued' (no Bale call). ON → enqueue through the existing Bale outbox of the
- *                                    latest chat's bot (never Ghasemi's bot, except the redirect campaign).
+ *   flag.social_hub_send_v1          deliverer (social-hub-send.ts). OFF → every expert «ارسال» only writes a sh_sends row
+ *                                    with status 'queued' (no Bale call). ON → enqueue expert-initiated Today sends through
+ *                                    the existing Bale outbox of the latest chat's bot (never Ghasemi's bot, except the
+ *                                    redirect campaign). Turning this on does not itself send or flush a queue, and does
+ *                                    not deliver auto-sends.
+ *   flag.social_hub_auto_send_v1     when a customer is linked to a plan, queue and (if send_v1 is also ON) deliver that
+ *                                    plan's auto_send messages. Default OFF (absent). send_v1 alone never sends automatically.
  *   flag.social_hub_bot_connect_v1   «آزمایش اتصال» / save of the unified «نفیس وام» token into bale_bots.user_id=0.
  *                                    OFF → test answers connect_disabled; no token is accepted, stored or used.
  *   flag.social_hub_redirect_v1      one-time bulk redirect + «ارسال یک‌باره». Default OFF. Super-admin only. No send
@@ -31,6 +35,7 @@ import { internalPlanLabel, planChoiceLabel, planLabelForCustomer, withPlanPrefi
 export const SH_FLAG = "flag.social_hub_v1";
 export const SH_PHONE_FLAG = "flag.social_hub_phone_attach_v1";
 export const SH_SEND_FLAG = "flag.social_hub_send_v1";
+export const SH_AUTO_SEND_FLAG = "flag.social_hub_auto_send_v1";
 export const SH_CONNECT_FLAG = "flag.social_hub_bot_connect_v1";
 export const SH_REDIRECT_FLAG = "flag.social_hub_redirect_v1";
 /** «پایان انتقال» (Armita build-r1 §8): Mohammad did not ask for a manual trigger; OFF → the button is hidden and the routes answer 404. */
@@ -60,6 +65,7 @@ const setting = (k: string) => { try { return queryRow<{ value: string }>("SELEC
 export const shOn = () => setting(SH_FLAG) === "1";
 export const shPhoneOn = () => setting(SH_PHONE_FLAG) === "1";
 export const shSendOn = () => setting(SH_SEND_FLAG) === "1";
+export const shAutoSendOn = () => setting(SH_AUTO_SEND_FLAG) === "1";
 export const shConnectOn = () => setting(SH_CONNECT_FLAG) === "1";
 export const shRedirectOn = () => setting(SH_REDIRECT_FLAG) === "1";
 export const shLegacyFinishOn = () => setting(SH_LEGACY_FINISH_FLAG) === "1";
@@ -173,7 +179,7 @@ export function shMe(u: AuthUser | null | undefined) {
   return {
     enabled: shOn(), phoneAttach: shPhoneOn(), manager: shOn() && shIsManager(u), botName: SH_BOT_NAME,
     networks: SH_NETWORKS, docMaxBytes: SH_DOC_MAX_BYTES, legacyOffDays: SH_LEGACY_OFF_DAYS, extraPhonesMax: SH_EXTRA_PHONES_MAX,
-    sendDelivery: shSendOn() ? "on" : "queued_only", connectEnabled: shConnectOn(), redirectEnabled: shOn() && shRedirectOn(),
+    sendDelivery: shSendOn() ? "on" : "queued_only", autoSendEnabled: shAutoSendOn(), connectEnabled: shConnectOn(), redirectEnabled: shOn() && shRedirectOn(),
     legacyFinish: shOn() && shLegacyFinishOn(), baleFileMaxBytes: 52428800,
   };
 }
@@ -518,9 +524,10 @@ export function shSend(u: AuthUser, customerId: number, body: any, now = new Dat
   return { id: Number(id), status: "queued" as const, delivery: shSendOn() ? "on" : "queued_only" };
 }
 /** Hook for Ms. Hasani's Bale flow and any plan link: queues every auto_send message of that plan once per customer (Mohammad t418s1654:
- *  same per-plan «ارسال خودکار» checkbox). No-op while flag.social_hub_v1 is OFF. Delivery is not built (rows stay 'queued'). */
+ *  same per-plan «ارسال خودکار» checkbox). No-op while flag.social_hub_v1 or flag.social_hub_auto_send_v1 is OFF.
+ *  Delivery also requires flag.social_hub_send_v1; send_v1 alone never auto-sends. */
 export function shOnPlanLinked(customerId: number, planId: number, now = new Date(), chat?: { chatRow: number; botId: number }): number {
-  if (!shOn()) return 0;
+  if (!shOn() || !shAutoSendOn()) return 0;
   ensureSocialHubSchema();
   const send = requireSend();
   const latest = chat ? { chatRow: chat.chatRow, botId: chat.botId, botUserId: queryRow<{ u: number }>("SELECT user_id u FROM bale_bots WHERE id=?", [chat.botId])?.u ?? -1 }

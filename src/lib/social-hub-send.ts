@@ -1,8 +1,9 @@
 /**
  * social-hub send + bot-connect + bulk redirect (flags default OFF).
  *
- * flag.social_hub_send_v1         deliver expert-initiated Today sends and auto-sends through the
- *                                 existing Bale outbox (bale_bot_messages + attemptSend). OFF → rows stay queued.
+ * flag.social_hub_send_v1         deliver expert-initiated Today sends through the existing Bale outbox
+ *                                 (bale_bot_messages + attemptSend). OFF → rows stay queued. Does not deliver auto-sends.
+ * flag.social_hub_auto_send_v1    deliver source='auto' rows (plan-link hook). Default OFF. Requires send_v1 as well.
  * flag.social_hub_bot_connect_v1  «آزمایش اتصال» / save of the unified «نفیس وام» token into the existing
  *                                 bale_bots row (user_id = 0). Token only via the masked field; never returned or logged.
  * flag.social_hub_redirect_v1     one-time bulk redirect to «نفیس وام». Stays disabled until the unified bot
@@ -30,7 +31,7 @@ import {
 import { baleBotAad, baleBotHasKey, sealBotToken } from "./bale-bot-crypto";
 import { planChoiceLabel } from "./plan-label";
 import {
-  SH_BOT_NAME, ShError, ensureSocialHubSchema, setShSendModule, shConnectOn, shIsManager, shOn, shRender, shRedirectOn, shSendOn,
+  SH_BOT_NAME, ShError, ensureSocialHubSchema, setShSendModule, shConnectOn, shIsManager, shOn, shRender, shRedirectOn, shSendOn, shAutoSendOn,
   shLog, shPlans, SH_TEXT_MAX,
 } from "./social-hub";
 
@@ -219,6 +220,7 @@ export function shDeliverSend(sendId: number): void {
   if (!shSendOn()) return;
   const s = queryRow<any>("SELECT * FROM sh_sends WHERE id=?", [sendId]);
   if (!s || s.status !== "queued" || !s.chat_row) return;
+  if (s.source === "auto" && !shAutoSendOn()) return;
   const docs: number[] = JSON.parse(s.doc_ids || "[]");
   const max = shBaleFileMaxBytes();
   const files: { name: string; mime: string; size: number; rel: string; sendAs: string }[] = [];

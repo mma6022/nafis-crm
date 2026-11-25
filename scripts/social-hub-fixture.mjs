@@ -39,7 +39,7 @@ try {
   cph.ensureCustomerPhonesSchema();
   const flag = (k, v) => v == null ? execute("DELETE FROM call_queue_settings WHERE key=?", [k])
     : execute("INSERT INTO call_queue_settings(key,value,updated_at) VALUES(?,?,datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [k, v]);
-  for (const k of [sh.SH_FLAG, sh.SH_PHONE_FLAG, sh.SH_SEND_FLAG, sh.SH_CONNECT_FLAG, sh.SH_REDIRECT_FLAG, sh.SH_LEGACY_FINISH_FLAG]) flag(k, null);
+  for (const k of [sh.SH_FLAG, sh.SH_PHONE_FLAG, sh.SH_SEND_FLAG, sh.SH_AUTO_SEND_FLAG, sh.SH_CONNECT_FLAG, sh.SH_REDIRECT_FLAG, sh.SH_LEGACY_FINISH_FLAG]) flag(k, null);
   flag("flag.expert_lockdown", null);
 
   const perms = ["customers.view", "customers.update", "customers.create", "calls.create", "calls.view"];
@@ -204,9 +204,28 @@ try {
     assert.equal(netCalls, 0);
   });
   await ok("auto-send hook (Hasani flow): queues each auto_send plan message once, only when reachable", async () => {
+    assert.equal(sh.shAutoSendOn(), false);
+    assert.equal(sh.shOnPlanLinked(B, planId), 0); // auto flag default OFF: no queue
+    flag(sh.SH_AUTO_SEND_FLAG, "1");
     assert.equal(sh.shOnPlanLinked(B, planId), 1); assert.equal(sh.shOnPlanLinked(B, planId), 0);
     assert.equal(sh.shOnPlanLinked(A, planId), 0); // never started the bot
+    const autoRow = queryRow("SELECT id, status, out_msg_id FROM sh_sends WHERE customer_id=? AND source='auto'", [B]);
+    assert.equal(autoRow.status, "queued"); assert.equal(autoRow.out_msg_id, null);
     flag(sh.SH_FLAG, "0"); assert.equal(sh.shOnPlanLinked(B, planId), 0); flag(sh.SH_FLAG, "1");
+    flag(sh.SH_AUTO_SEND_FLAG, null);
+  });
+  await ok("auto-send stays off when only send_v1 is on", async () => {
+    flag(sh.SH_AUTO_SEND_FLAG, null); flag(sh.SH_SEND_FLAG, "1");
+    const before = queryRow("SELECT COUNT(*) n FROM sh_sends WHERE source='auto'").n;
+    assert.equal(sh.shOnPlanLinked(B, planId), 0);
+    assert.equal(queryRow("SELECT COUNT(*) n FROM sh_sends WHERE source='auto'").n, before);
+    const queued = queryRow("SELECT id, status, out_msg_id FROM sh_sends WHERE source='auto' AND status='queued' LIMIT 1");
+    assert.ok(queued);
+    shs.shDeliverSend(queued.id);
+    const after = queryRow("SELECT status, out_msg_id FROM sh_sends WHERE id=?", [queued.id]);
+    assert.equal(after.status, "queued"); assert.equal(after.out_msg_id, null);
+    flag(sh.SH_SEND_FLAG, null);
+    assert.equal(netCalls, 0);
   });
 
   flag(sh.SH_PHONE_FLAG, "1");
@@ -355,7 +374,7 @@ try {
     assert.equal(netCalls, 0);
     for (const t of ["loan_plans", "bale_bots"]) assert.ok(queryRow(`SELECT COUNT(*) n FROM ${t}`).n >= 0);
   });
-  console.log(`social-hub fixture ${passed}/21`);
-  if (passed !== 21) process.exitCode = 1;
+  console.log(`social-hub fixture ${passed}/22`);
+  if (passed !== 22) process.exitCode = 1;
 } catch (err) { console.error(err); process.exitCode = 1; }
 finally { if (server) await new Promise((r) => server.close(r)); try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* tmp */ } }
