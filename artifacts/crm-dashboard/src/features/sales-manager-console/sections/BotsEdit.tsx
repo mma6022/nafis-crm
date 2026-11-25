@@ -259,7 +259,7 @@ function BotEditWizard({
     }
     const cleanName = botName.trim();
     if (hasSavedToken && !cleanName) {
-      setErr('نام نمایشی ربات نمی‌تواند خالی باشد.');
+      setErr('نام ربات در بله را وارد کنید');
       setStep(1);
       return;
     }
