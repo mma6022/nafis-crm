@@ -20,4 +20,9 @@ const ui = r("features/social-hub/ui.tsx");
 ok(/extraPhoneLabel/.test(ui) && ui.includes("شمارهٔ دیگر") && !/شمارهٔ اضافه \$\{fa\(i \+ 1\)\}/.test(ui), "NumList uses the card labels (custom or شمارهٔ دیگر), not شمارهٔ اضافه ۱");
 const css = r("features/social-hub/social-hub.css");
 ok(/max-content max-content/.test(css) && /\.sh-tr\.leg \.sh-row\.sh-wrap\{flex-wrap:nowrap/.test(css), "legacy row at 1280 keeps action buttons on one row");
+
+const attach = r("features/social-hub/AttachPhone.tsx");
+ok(/PickExtrasChip/.test(attach) && attach.includes("بدون شمارهٔ دیگر") && !/شمارهٔ اضافه`/.test(attach) && !/بدون شمارهٔ اضافه/.test(attach), "a_pick chip uses today-card labels (همسر / شمارهٔ دیگر), not شمارهٔ اضافه");
+ok(/dir="auto"/.test(r("features/social-hub/Bots.tsx")) && r("features/social-hub/Bots.tsx").includes("هنوز نشانی ندارد") && !r("features/social-hub/Bots.tsx").includes("هموز"), "bot card empty handle is هنوز (dir=auto so Persian is not LTR-garbled)");
+
 console.log(`social-hub UI fixture ${n}/${n}`);
