@@ -53,6 +53,18 @@ export function redact(s: unknown, ...tokens: (string | null | undefined)[]): st
   return t.replace(/bot[^/\s"']+/gi, m => (/\d+:/.test(m) ? "bot<redacted>" : m)).replace(TOKEN_RE, "<redacted>").slice(0, 300);
 }
 export const tokenShapeOk = (t: string) => /^\d{3,15}:[A-Za-z0-9_-]{16,128}$/.test(t);
+type ShSendHooks = {
+  shReplyMarkup: (keyboard: string | null | undefined) => Record<string, unknown> | null;
+  shOnOutboxSettled: (outMsgId: number, status: "sent" | "failed", errorCode: string | null) => void;
+  shClaimStartParam: (bot: { id: number; user_id: number }, chatRow: number, text: string | null | undefined) => boolean;
+  shAutoKeyboard: (keyboard: string | null | undefined) => boolean;
+  shFailReasonFa: (code: string | null | undefined) => string;
+  shRetryable: (code: string | null | undefined) => boolean;
+  shRedirectTick: (limit?: number) => void;
+};
+let shSendHooks: ShSendHooks | null = null;
+export const setShSendHooks = (h: ShSendHooks | null) => { shSendHooks = h; };
+
 
 /* ---------------- flags ---------------- */
 const setting = (k: string) => { try { return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [k])?.value; } catch { return undefined; } };
@@ -275,6 +287,10 @@ export function storeUpdate(bot: BotRow, u: any): number[] {
   } else executeChanges("UPDATE bale_bot_chats SET first_name=COALESCE(?,first_name), last_name=COALESCE(?,last_name), username=COALESCE(?,username) WHERE id=?",
     [m.from.first_name ?? null, m.from.last_name ?? null, m.from.username ?? null, c.id]);
   const p = parseMessage(m);
+  if (p.text && shSendHooks?.shClaimStartParam(bot, c.id, p.text)) {
+    const fresh = queryRow<{ id: number; customer_id: number | null }>("SELECT id,customer_id FROM bale_bot_chats WHERE id=?", [c.id]);
+    if (fresh) c = fresh;
+  }
   if (edited) {
     executeChanges("UPDATE bale_bot_messages SET text=?, edited_at=? WHERE chat_row=? AND dir='in' AND bale_message_id=?", [p.text, t, c.id, m.message_id]);
     return [];
@@ -358,7 +374,7 @@ export async function attemptSend(msgId: number): Promise<void> {
   const m = queryRow<any>("SELECT m.*, c.chat_id, c.bot_id FROM bale_bot_messages m JOIN bale_bot_chats c ON c.id=m.chat_row WHERE m.id=? AND m.dir='out' AND m.status='sending'", [msgId]);
   if (!m) return;
   const bot = botById(m.bot_id);
-  const fail = (code: string) => { executeChanges("UPDATE bale_bot_messages SET status='failed', error_code=?, retry_at=NULL WHERE id=?", [code, m.id]); bbLog({ botId: m.bot_id, chatRow: m.chat_row, action: "send", outcome: "failed", detail: { code } }); };
+  const fail = (code: string) => { executeChanges("UPDATE bale_bot_messages SET status='failed', error_code=?, retry_at=NULL WHERE id=?", [code, m.id]); bbLog({ botId: m.bot_id, chatRow: m.chat_row, action: "send", outcome: "failed", detail: { code } }); shSendHooks?.shOnOutboxSettled(m.id, "failed", code); };
   if (!bot || !botLive(bot)) return fail("bot_off");
   if (!botSends(bot)) return fail("no_send");
   const token = botToken(bot); if (!token) return fail("token_missing");
@@ -371,7 +387,8 @@ export async function attemptSend(msgId: number): Promise<void> {
     if (m.keyboard === "contact") body.reply_markup = { keyboard: [[{ text: ASK_CONTACT_BUTTON, request_contact: true }]], resize_keyboard: true, one_time_keyboard: true };
     else {
       const sr = signReminder.srReplyMarkup(m.keyboard);
-      const mk = sr ?? customerBale.cbReplyMarkup(m.keyboard);
+      let mk = sr ?? customerBale.cbReplyMarkup(m.keyboard);
+      if (!mk && m.keyboard && shSendHooks) mk = shSendHooks.shReplyMarkup(m.keyboard) ?? mk;
       if (mk) body.reply_markup = mk;
     }
     r = await baleCall(token, "sendMessage", body);
@@ -386,6 +403,7 @@ export async function attemptSend(msgId: number): Promise<void> {
   if (r.ok) {
     executeChanges("UPDATE bale_bot_messages SET status='sent', bale_message_id=?, sent_at=?, error_code=NULL, retry_at=NULL WHERE id=?", [r.result?.message_id ?? null, now(), m.id]);
     bbLog({ userId: m.author_user_id, botId: m.bot_id, chatRow: m.chat_row, action: "send", outcome: "sent", detail: { kind: m.kind } });
+    shSendHooks?.shOnOutboxSettled(m.id, "sent", null);
     return;
   }
   if (r.code === 429 || r.retryAfter) {
@@ -419,6 +437,8 @@ export class BaleBotWorker {
     const ids = new Set(live.map(b => b.id));
     for (const [id, p] of this.pollers) if (!ids.has(id) || !p.running) { p.stop(); this.pollers.delete(id); }
     for (const b of live) if (!this.pollers.has(b.id)) this.pollers.set(b.id, this.poll(b.id));
+    await this.flushOutbox();
+    try { shSendHooks?.shRedirectTick(); } catch { /* social-hub optional */ }
     await this.flushOutbox();
     if (baleContact.bcFlagOn()) {
       baleContact.ensureBaleContactSchema();
@@ -521,13 +541,19 @@ export function messageView(m: any, ownerId: number | null = null, opts?: { hide
     if (contact) contact = { ...contact, phone: null, hidden: true };
   }
   const signUrl = signReminder.srKeyboardUrl(m.keyboard);
-  const inlineButtons = signUrl && !m.deleted_at ? [{ text: signReminder.SR_BUTTON, url: signUrl }] : undefined;
+  const shMk = !signUrl && m.keyboard && !m.deleted_at ? shSendHooks?.shReplyMarkup(m.keyboard) : null;
+  const shBtn = (shMk as { inline_keyboard?: { text: string; url: string }[][] } | null)?.inline_keyboard?.[0]?.[0];
+  const inlineButtons = signUrl && !m.deleted_at ? [{ text: signReminder.SR_BUTTON, url: signUrl }] : shBtn ? [{ text: shBtn.text, url: shBtn.url }] : undefined;
   return { id: m.id, dir: m.dir, kind: m.kind, text, at: m.created_at, editedAt: m.edited_at, deleted: !!m.deleted_at,
     file: m.file_state ? { name: m.file_name, mime: m.mime, size: m.size, duration: m.duration, state: m.file_state, url: m.file_state === "stored" ? `/api/bale-bot/files/${m.id}` : null } : null,
     contact,
     location: m.kind === "location" ? { lat: m.lat, lng: m.lng } : null, replyTo: m.reply_to, askContact: m.keyboard === "contact",
     inlineButtons,
-    status: m.dir === "out" ? (m.status === "sending" && m.error_code === "rate_limited" ? "wait" : m.status) : null, errorCode: m.dir === "out" && m.status === "failed" ? m.error_code : null,
+    status: m.dir === "out" ? (m.status === "sending" && m.error_code === "rate_limited" ? "wait" : m.status) : null,
+    errorCode: m.dir === "out" && m.status === "failed" ? m.error_code : null,
+    failReason: m.dir === "out" && m.status === "failed" ? (shSendHooks?.shFailReasonFa(m.error_code) ?? null) : null,
+    retryable: m.dir === "out" && m.status === "failed" && !!shSendHooks?.shRetryable(m.error_code),
+    auto: m.dir === "out" && !m.deleted_at && !!shSendHooks?.shAutoKeyboard(m.keyboard),
     author, canEdit: m.dir === "out" && m.status === "sent" && m.kind === "text" && !m.deleted_at && !m.keyboard,
     canDelete: m.dir === "out" && m.status === "sent" && !m.deleted_at && ageH < BB_LIMITS.deleteHours, deleteExpired: m.dir === "out" && m.status === "sent" && !m.deleted_at && ageH >= BB_LIMITS.deleteHours };
 }

@@ -7,10 +7,14 @@
  *                                    no schema is created.
  *   flag.social_hub_phone_attach_v1  «افزودن این شماره به مشتری ثبت‌شده» on the incoming card; any expert may add extra numbers to any
  *                                    customer; extra-number cap raised (SH_EXTRA_PHONES_MAX). OFF → customer-phones behaves exactly as before.
- *   flag.social_hub_send_v1          reserved for the unified-bot deliverer. NOT built here: every «ارسال» only writes a sh_sends row with
- *                                    status 'queued'. Nothing in this module calls Bale or any network.
- *   flag.social_hub_bot_connect_v1   reserved for «آزمایش اتصال». OFF (and in this build always) → the test answers connect_disabled;
- *                                    no token is accepted, stored or used.
+ *   flag.social_hub_send_v1          deliverer (social-hub-send.ts). OFF → every «ارسال» only writes a sh_sends row with
+ *                                    status 'queued' (no Bale call). ON → enqueue through the existing Bale outbox of the
+ *                                    latest chat's bot (never Ghasemi's bot, except the redirect campaign).
+ *   flag.social_hub_bot_connect_v1   «آزمایش اتصال» / save of the unified «نفیس وام» token into bale_bots.user_id=0.
+ *                                    OFF → test answers connect_disabled; no token is accepted, stored or used.
+ *   flag.social_hub_redirect_v1      one-time bulk redirect + «ارسال یک‌باره». Default OFF. Super-admin only. No send
+ *                                    unless the unified bot has a token and getMe succeeds. Ghasemi's customers ARE included
+ *                                    (Mohammad t931s3334); other sends from her bot stay blocked.
  *
  * Schema: additive CREATE TABLE IF NOT EXISTS only (sh_*). Never writes loan_plans, team_sales_config, notification_settings,
  * contract templates, bale_bots or bale_bot_chats. Reads them only.
@@ -22,12 +26,13 @@ import type { AuthUser } from "./auth";
 import { crmDb, execute, executeChanges, queryRow, queryRows } from "./crm-db";
 import { isAdminRole, normalizeCustomerMobile } from "./customer-integrity";
 import { isSalesManagerUser } from "./sales-manager";
-import { internalPlanLabel, planLabelForCustomer, withPlanPrefix } from "./plan-label";
+import { internalPlanLabel, planChoiceLabel, planLabelForCustomer, withPlanPrefix } from "./plan-label";
 
 export const SH_FLAG = "flag.social_hub_v1";
 export const SH_PHONE_FLAG = "flag.social_hub_phone_attach_v1";
 export const SH_SEND_FLAG = "flag.social_hub_send_v1";
 export const SH_CONNECT_FLAG = "flag.social_hub_bot_connect_v1";
+export const SH_REDIRECT_FLAG = "flag.social_hub_redirect_v1";
 /** «پایان انتقال» (Armita build-r1 §8): Mohammad did not ask for a manual trigger; OFF → the button is hidden and the routes answer 404. */
 export const SH_LEGACY_FINISH_FLAG = "flag.social_hub_legacy_finish_v1";
 /** Mohammad t418s1654: bot name. */
@@ -56,7 +61,16 @@ export const shOn = () => setting(SH_FLAG) === "1";
 export const shPhoneOn = () => setting(SH_PHONE_FLAG) === "1";
 export const shSendOn = () => setting(SH_SEND_FLAG) === "1";
 export const shConnectOn = () => setting(SH_CONNECT_FLAG) === "1";
+export const shRedirectOn = () => setting(SH_REDIRECT_FLAG) === "1";
 export const shLegacyFinishOn = () => setting(SH_LEGACY_FINISH_FLAG) === "1";
+type ShSendMod = typeof import("./social-hub-send");
+let sendMod: ShSendMod | null = null;
+export const setShSendModule = (m: ShSendMod) => { sendMod = m; };
+const requireSend = (): ShSendMod => {
+  if (!sendMod) throw new ShError(500, "unwired", "ماژول ارسال هنوز وصل نشده است.");
+  return sendMod;
+};
+
 
 export class ShError extends Error {
   constructor(public status: number, public code: string, message: string, public extra: Record<string, unknown> = {}) { super(message); }
@@ -103,7 +117,16 @@ export function ensureSocialHubSchema(): void {
     CREATE TABLE IF NOT EXISTS sh_sends(
       id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, user_id INTEGER, plan_id INTEGER, message_id INTEGER, doc_ids TEXT NOT NULL DEFAULT '[]',
       body TEXT NOT NULL, source TEXT NOT NULL CHECK(source IN ('today','auto')), status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','sent','failed')),
-      created_at TEXT NOT NULL, sent_at TEXT);
+      created_at TEXT NOT NULL, sent_at TEXT, chat_row INTEGER, bot_id INTEGER, out_msg_id INTEGER, fail_reason TEXT, retryable INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS sh_redirect_campaigns(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, started_by INTEGER NOT NULL, started_at TEXT NOT NULL, finished_at TEXT,
+      status TEXT NOT NULL CHECK(status IN ('running','stopped','done')), recipient_count INTEGER NOT NULL, snapshot TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS sh_redirect_items(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id INTEGER NOT NULL, customer_id INTEGER NOT NULL,
+      from_chat_row INTEGER NOT NULL, from_bot_id INTEGER NOT NULL, expert_user_id INTEGER, token TEXT NOT NULL UNIQUE,
+      out_msg_id INTEGER, status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','sent','failed','cancelled')),
+      fail_reason TEXT, created_at TEXT NOT NULL, sent_at TEXT, used_at TEXT, used_chat_row INTEGER);
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_sh_redirect_items_sent ON sh_redirect_items(customer_id) WHERE status='sent';
     CREATE INDEX IF NOT EXISTS ix_sh_sends_customer ON sh_sends(customer_id, id);
     CREATE UNIQUE INDEX IF NOT EXISTS ux_sh_sends_auto ON sh_sends(customer_id, message_id) WHERE source='auto';
     CREATE TABLE IF NOT EXISTS sh_identity_source(customer_id INTEGER PRIMARY KEY, source TEXT NOT NULL CHECK(source IN ('bale','staff')), at TEXT NOT NULL);
@@ -113,11 +136,17 @@ export function ensureSocialHubSchema(): void {
   // the one unified bot row; status stays 'draft' until a real connection exists (none in this build)
   execute("INSERT OR IGNORE INTO sh_bots(network,name,handle,unified,status,created_at,updated_at) VALUES('bale',?,NULL,1,'draft',?,?)", [SH_BOT_NAME, now, now]);
   if (!queryRow("SELECT 1 x FROM sh_settings WHERE key='redirect_text'")) execute("INSERT INTO sh_settings(key,value,updated_at) VALUES('redirect_text',?,?)", [SH_DEFAULT_REDIRECT_TEXT, now]);
+  const cols = new Set(queryRows<{ name: string }>("PRAGMA table_info(sh_sends)").map((c) => c.name));
+  const add = (col: string, def: string) => { if (!cols.has(col)) crmDb.exec(`ALTER TABLE sh_sends ADD COLUMN ${col} ${def}`); };
+  add("chat_row", "INTEGER"); add("bot_id", "INTEGER"); add("out_msg_id", "INTEGER"); add("fail_reason", "TEXT"); add("retryable", "INTEGER NOT NULL DEFAULT 0");
+  if (!queryRow("SELECT 1 x FROM sh_settings WHERE key='bale_file_max_bytes'")) execute("INSERT INTO sh_settings(key,value,updated_at) VALUES('bale_file_max_bytes',?,?)", ["52428800", now]); // 50 MiB, docs.bale.ai sendDocument
+  if (!queryRow("SELECT 1 x FROM sh_settings WHERE key='redirect_per_minute'")) execute("INSERT INTO sh_settings(key,value,updated_at) VALUES('redirect_per_minute',?,?)", ["20", now]);
+  if (!queryRow("SELECT 1 x FROM sh_settings WHERE key='readonly_bot_user_ids'")) execute("INSERT INTO sh_settings(key,value,updated_at) VALUES('readonly_bot_user_ids',?,?)", ["3", now]);
   ready = true;
 }
 export const _resetShSchemaForTests = () => { ready = false; };
 /** Audit: ids and codes only, never a phone, national id or message text. */
-function shLog(userId: number | null, action: string, refId: number | null, detail?: Record<string, string | number | boolean | null>) {
+export function shLog(userId: number | null, action: string, refId: number | null, detail?: Record<string, string | number | boolean | null>) {
   try { execute("INSERT INTO sh_log(at,user_id,action,ref_id,detail) VALUES(?,?,?,?,?)", [iso(), userId, action, refId, detail ? JSON.stringify(detail) : null]); } catch { /* never breaks caller */ }
 }
 
@@ -144,20 +173,21 @@ export function shMe(u: AuthUser | null | undefined) {
   return {
     enabled: shOn(), phoneAttach: shPhoneOn(), manager: shOn() && shIsManager(u), botName: SH_BOT_NAME,
     networks: SH_NETWORKS, docMaxBytes: SH_DOC_MAX_BYTES, legacyOffDays: SH_LEGACY_OFF_DAYS, extraPhonesMax: SH_EXTRA_PHONES_MAX,
-    sendDelivery: shSendOn() ? "on" : "queued_only", connectEnabled: shConnectOn(), legacyFinish: shOn() && shLegacyFinishOn(),
+    sendDelivery: shSendOn() ? "on" : "queued_only", connectEnabled: shConnectOn(), redirectEnabled: shOn() && shRedirectOn(),
+    legacyFinish: shOn() && shLegacyFinishOn(), baleFileMaxBytes: 52428800,
   };
 }
 
 /* ---------------- plans (read only) ---------------- */
-export type ShPlan = { id: number; name: string; publicLabel: string };
+export type ShPlan = { id: number; name: string; publicLabel: string; choiceLabel: string };
 export function shPlans(): ShPlan[] {
   return queryRows<{ id: number; name: string | null; bank_name: string | null }>("SELECT id,name,bank_name FROM loan_plans WHERE active=1 ORDER BY id")
-    .map((p) => ({ id: Number(p.id), name: withPlanPrefix(internalPlanLabel(p.name, p.bank_name)), publicLabel: planLabelForCustomer(p.bank_name) }));
+    .map((p) => ({ id: Number(p.id), name: withPlanPrefix(internalPlanLabel(p.name, p.bank_name)), publicLabel: planLabelForCustomer(p.bank_name), choiceLabel: planChoiceLabel(p.name, p.bank_name) }));
 }
 function planById(id: number | null | undefined): ShPlan | null {
   if (id == null) return null;
   const p = queryRow<{ id: number; name: string | null; bank_name: string | null }>("SELECT id,name,bank_name FROM loan_plans WHERE id=?", [id]);
-  return p ? { id: Number(p.id), name: withPlanPrefix(internalPlanLabel(p.name, p.bank_name)), publicLabel: planLabelForCustomer(p.bank_name) } : null;
+  return p ? { id: Number(p.id), name: withPlanPrefix(internalPlanLabel(p.name, p.bank_name)), publicLabel: planLabelForCustomer(p.bank_name), choiceLabel: planChoiceLabel(p.name, p.bank_name) } : null;
 }
 export function shCurrentPlanId(customerId: number): number | null {
   const r = queryRow<{ plan_id: number | null }>(
@@ -294,7 +324,7 @@ export function shBots() {
     managers: queryRows<{ id: number; full_name: string | null; username: string }>("SELECT u.id,u.full_name,u.username FROM sh_bot_access a JOIN users u ON u.id=a.user_id WHERE a.bot_id=? AND a.manage=1 ORDER BY u.id", [b.id]).map(userName),
     lastMessageAt: null as string | null,
   }));
-  return { bots, legacy: shLegacy(), networks: SH_NETWORKS, redirectText: shRedirectText(), connectEnabled: shConnectOn(), legacyFinish: shLegacyFinishOn() };
+  return { bots, legacy: shLegacy(), networks: SH_NETWORKS, redirectText: shRedirectText(), connectEnabled: shConnectOn(), redirectEnabled: shRedirectOn(), legacyFinish: shLegacyFinishOn() };
 }
 /** Old per-expert Bale bots (bale_bots, read only) with migration progress from sh_legacy_moves. */
 export function shLegacy() {
@@ -446,14 +476,22 @@ export function shIdentity(customerId: number) {
 }
 export function shTodayBox(u: AuthUser, customerId: number) {
   const cur = shCurrentPlanId(customerId);
+  const send = requireSend();
+  const maxFile = send.shBaleFileMaxBytes();
   const msgs = queryRows<any>("SELECT * FROM sh_messages WHERE archived=0 AND show_today=1 ORDER BY sort, id").map(msgView);
-  const plans = shPlans().map((p) => ({ ...p, current: p.id === cur, messages: msgs.filter((m) => m.kind === "plan" && m.planId === p.id), docs: shDocs({ planId: p.id }) }))
+  const plans = shPlans().map((p) => ({ ...p, current: p.id === cur, messages: msgs.filter((m) => m.kind === "plan" && m.planId === p.id),
+    docs: shDocs({ planId: p.id }).map((d) => ({ ...d, tooBig: d.sizeBytes > maxFile })) }))
     .filter((p) => p.current || p.messages.length);
-  const sends = queryRows<any>("SELECT s.id, s.status, s.created_at, s.plan_id, m.title, s.user_id FROM sh_sends s LEFT JOIN sh_messages m ON m.id=s.message_id WHERE s.customer_id=? ORDER BY s.id DESC LIMIT 5", [customerId])
-    .map((s) => ({ id: Number(s.id), status: s.status, at: s.created_at, title: s.title ?? "پیام", planName: planById(s.plan_id)?.name ?? null, mine: Number(s.user_id) === Number(u.id) }));
+  const sends = queryRows<any>("SELECT s.id, s.status, s.created_at, s.plan_id, s.fail_reason, s.retryable, s.source, s.message_id, m.title, s.user_id FROM sh_sends s LEFT JOIN sh_messages m ON m.id=s.message_id WHERE s.customer_id=? ORDER BY s.id DESC LIMIT 8", [customerId])
+    .map((s) => ({ id: Number(s.id), status: s.status, at: s.created_at, title: s.title ?? "پیام", planName: planById(s.plan_id)?.name ?? null,
+      mine: Number(s.user_id) === Number(u.id), failReason: s.fail_reason ?? null, retryable: Number(s.retryable) === 1, source: s.source, messageId: s.message_id == null ? null : Number(s.message_id) }));
+  const gate = send.shSendGate(u, customerId);
+  const recentIds = queryRows<{ message_id: number }>("SELECT message_id FROM sh_sends WHERE customer_id=? AND status IN ('queued','sent','sending') AND created_at>=? AND message_id IS NOT NULL",
+    [customerId, new Date(Date.now() - send.SH_DEDUPE_MS).toISOString()]).map((r) => Number(r.message_id));
   return { customerId, customerName: queryRow<{ name: string }>("SELECT name FROM customers WHERE id=?", [customerId])?.name ?? "", expertName: u.fullName || u.username,
-    identity: shIdentity(customerId), reachable: shReachable(customerId), botName: SH_BOT_NAME, botLink: shBotLink(),
-    currentPlanId: cur, plans, free: msgs.filter((m) => m.kind === "free"), sends };
+    identity: shIdentity(customerId), reachable: gate.ok || gate.error !== "unreachable", botName: SH_BOT_NAME, botLink: shBotLink(),
+    sendBlock: gate.ok ? null : { error: gate.error, message: gate.message, expertName: gate.expertName ?? null },
+    recentMessageIds: recentIds, baleFileMaxBytes: maxFile, currentPlanId: cur, plans, free: msgs.filter((m) => m.kind === "free"), sends };
 }
 export function shSend(u: AuthUser, customerId: number, body: any, now = new Date()) {
   const msg = queryRow<any>("SELECT * FROM sh_messages WHERE id=? AND archived=0", [Number(body?.messageId)]);
@@ -461,28 +499,49 @@ export function shSend(u: AuthUser, customerId: number, body: any, now = new Dat
   if (Number(msg.show_today) !== 1) throw new ShError(403, "not_for_today", "این پیام برای کارهای امروز روشن نیست.");
   const planId = msg.kind === "plan" ? Number(msg.plan_id) : null;
   const docIds = Array.isArray(body?.docIds) ? [...new Set((body.docIds as unknown[]).map(Number).filter((n) => Number.isSafeInteger(n) && n > 0))].slice(0, 5) : [];
-  for (const d of docIds) { const r = queryRow<any>("SELECT plan_id FROM sh_docs WHERE id=? AND archived=0", [d]); if (!r || (planId != null && r.plan_id != null && Number(r.plan_id) !== planId)) throw new ShError(400, "bad_doc", "فایل انتخاب‌شده معتبر نیست.", { field: "docIds" }); }
-  if (!shReachable(customerId)) throw new ShError(409, "unreachable", "این مشتری هنوز ربات را شروع نکرده؛ پیام نمی‌رود.", { botLink: shBotLink() });
+  let maxFile = 52428800;
+  try { const { shBaleFileMaxBytes } = requireSend(); maxFile = shBaleFileMaxBytes(); } catch { /* default */ }
+  for (const d of docIds) {
+    const r = queryRow<any>("SELECT plan_id, size_bytes FROM sh_docs WHERE id=? AND archived=0", [d]);
+    if (!r || (planId != null && r.plan_id != null && Number(r.plan_id) !== planId)) throw new ShError(400, "bad_doc", "فایل انتخاب‌شده معتبر نیست.", { field: "docIds" });
+    if (Number(r.size_bytes) > maxFile) throw new ShError(409, "file_too_big", "حجم فایل برای ارسال در بله زیاد است.", { field: "docIds" });
+  }
+  const gate = requireSend().shSendGate(u, customerId);
+  if (!gate.ok) throw new ShError(409, gate.error, gate.message, { botLink: shBotLink(), expertName: gate.expertName ?? null });
+  if (requireSend().shRecentSend(customerId, Number(msg.id), now)) throw new ShError(409, "recent", "همین الان فرستاده شد؛ ارسال دوباره بعد از ۱۰ دقیقه.");
   const c = queryRow<{ name: string }>("SELECT name FROM customers WHERE id=?", [customerId]);
-  const text = shRender(msg.body, { customer: c?.name ?? "", expert: u.fullName || u.username, plan: planById(planId)?.publicLabel ?? "" });
-  const id = execute("INSERT INTO sh_sends(customer_id,user_id,plan_id,message_id,doc_ids,body,source,status,created_at) VALUES(?,?,?,?,?,?,'today','queued',?)",
-    [customerId, u.id, planId, msg.id, JSON.stringify(docIds), text, now.toISOString()]);
+  const text = shRender(msg.body, { customer: c?.name ?? "", expert: u.fullName || u.username, plan: planById(planId)?.choiceLabel ?? "" });
+  const id = execute("INSERT INTO sh_sends(customer_id,user_id,plan_id,message_id,doc_ids,body,source,status,created_at,chat_row,bot_id) VALUES(?,?,?,?,?,?,'today','queued',?,?,?)",
+    [customerId, u.id, planId, msg.id, JSON.stringify(docIds), text, now.toISOString(), gate.chat.chatRow, gate.chat.botId]);
   shLog(u.id, "send_today", Number(id), { customerId, messageId: Number(msg.id), docs: docIds.length });
+  if (shSendOn()) requireSend().shDeliverSend(Number(id));
   return { id: Number(id), status: "queued" as const, delivery: shSendOn() ? "on" : "queued_only" };
 }
 /** Hook for Ms. Hasani's Bale flow and any plan link: queues every auto_send message of that plan once per customer (Mohammad t418s1654:
  *  same per-plan «ارسال خودکار» checkbox). No-op while flag.social_hub_v1 is OFF. Delivery is not built (rows stay 'queued'). */
-export function shOnPlanLinked(customerId: number, planId: number, now = new Date()): number {
+export function shOnPlanLinked(customerId: number, planId: number, now = new Date(), chat?: { chatRow: number; botId: number }): number {
   if (!shOn()) return 0;
   ensureSocialHubSchema();
-  if (!shReachable(customerId)) return 0;
+  const send = requireSend();
+  const latest = chat ? { chatRow: chat.chatRow, botId: chat.botId, botUserId: queryRow<{ u: number }>("SELECT user_id u FROM bale_bots WHERE id=?", [chat.botId])?.u ?? -1 }
+    : (() => { const c = send.shLatestChat(customerId); return c ? { chatRow: c.chatRow, botId: c.botId, botUserId: c.botUserId } : null; })();
+  if (!latest) return 0;
+  // Auto-send is not the redirect: Ghasemi's bot stays read-only here.
+  if (send.shIsReadonlyBotUser(latest.botUserId)) return 0;
   const c = queryRow<{ name: string; salesperson_id: number | null }>("SELECT name, salesperson_id FROM customers WHERE id=?", [customerId]); if (!c) return 0;
   const expert = queryRow<{ n: string }>("SELECT COALESCE(NULLIF(TRIM(full_name),''),username) n FROM users WHERE salesperson_id=? AND active=1 ORDER BY id LIMIT 1", [c.salesperson_id ?? -1])?.n ?? "";
   let n = 0;
+  const ids: number[] = [];
   for (const m of queryRows<any>("SELECT * FROM sh_messages WHERE archived=0 AND kind='plan' AND plan_id=? AND auto_send=1 ORDER BY sort, id", [planId])) {
-    n += executeChanges("INSERT OR IGNORE INTO sh_sends(customer_id,user_id,plan_id,message_id,doc_ids,body,source,status,created_at) VALUES(?,NULL,?,?,'[]',?,'auto','queued',?)",
-      [customerId, planId, m.id, shRender(m.body, { customer: c.name, expert, plan: planById(planId)?.publicLabel ?? "" }), now.toISOString()]);
+    const added = executeChanges("INSERT OR IGNORE INTO sh_sends(customer_id,user_id,plan_id,message_id,doc_ids,body,source,status,created_at,chat_row,bot_id) VALUES(?,NULL,?,?,'[]',?,'auto','queued',?,?,?)",
+      [customerId, planId, m.id, shRender(m.body, { customer: c.name, expert, plan: planById(planId)?.choiceLabel ?? "" }), now.toISOString(), latest.chatRow, latest.botId]);
+    if (added) {
+      n += added;
+      const row = queryRow<{ id: number }>("SELECT id FROM sh_sends WHERE customer_id=? AND message_id=? AND source='auto'", [customerId, m.id]);
+      if (row) ids.push(Number(row.id));
+    }
   }
+  if (shSendOn()) for (const id of ids) send.shDeliverSend(id);
   return n;
 }
 
