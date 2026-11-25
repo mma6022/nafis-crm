@@ -515,6 +515,7 @@ html.smc-fab.smc-fab .diag-floating{left:var(--smc-fab-x, 18px) !important;right
 
 /* Admin Bale bot edit inside «مدیریت فروش» (flag.smc_bot_edit_v1) */
 .smc-root .smc-bot-meta{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.smc-root .smc-bcard{scroll-margin-top:calc(var(--top-h, 0px) + 16px)}
 .smc-root .smc-botdlg{width:min(580px,100%);display:flex;flex-direction:column;gap:14px;max-height:90vh;overflow-y:auto}
 .smc-root .smc-inp.smc-mask::placeholder{font-family:Vazirmatn,Tahoma,system-ui,sans-serif;letter-spacing:0;direction:rtl;text-align:right}
 .smc-root .smc-botdlg-hd{display:flex;align-items:center;justify-content:space-between;gap:10px}
@@ -530,9 +531,19 @@ html.smc-fab.smc-fab .diag-floating{left:var(--smc-fab-x, 18px) !important;right
 .smc-root .smc-bot-danger{border-top:1px solid var(--line);padding-top:10px}
 .smc-root .smc-bot-danger .smc-bcard.smc-ask{gap:8px}
 .smc-root .smc-botdlg-ft{margin-top:4px;border-top:1px solid var(--line);padding-top:12px;align-items:center}
+.smc-root .smc-wshort{display:none}
+@container smc (max-width:1023.98px){
+  .smc-root .smc-sec{scroll-margin-top:calc(var(--top-h, 0px) + 72px)}
+  .smc-root .smc-bcard{scroll-margin-top:calc(var(--top-h, 0px) + 72px)}
+  .smc-root .smc-bale[data-testid="smc-bots-list"]{scroll-margin-top:calc(var(--top-h, 0px) + 72px)}
+}
 @media (max-width:640px){
   .smc-root .smc-bcard:not(.smc-shared) > .smc-brow > .smc-bot-meta{grid-column:1 / -1;justify-self:start}
   .smc-root .smc-bcard:not(.smc-shared) > .smc-brow > button[data-testid^="smc-bot-edit-"]{grid-column:1 / -1;justify-self:stretch;justify-content:center}
-  .smc-root .smc-botdlg{padding:16px;border-radius:20px}
+  .smc-root .smc-scrim.smc-botscrim{padding:0;place-items:stretch;align-items:stretch;background:#fff}
+  .smc-root .smc-botdlg{width:100%;max-width:none;max-height:none;height:100%;min-height:100dvh;border-radius:0;padding:16px 16px calc(16px + env(safe-area-inset-bottom, 0px));box-shadow:none}
   .smc-root .smc-botdlg .smc-wbar{grid-template-columns:repeat(3,minmax(0,1fr)) !important}
+  .smc-root .smc-botdlg .smc-wbar button{font-size:12px;padding:0 4px;gap:4px;white-space:nowrap}
+  .smc-root .smc-botdlg .smc-wfull{display:none}
+  .smc-root .smc-botdlg .smc-wshort{display:inline}
 }

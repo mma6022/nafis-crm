@@ -158,7 +158,11 @@ export function BotsSection({
   );
 }
 
-const WIZARD_STEPS = ['مشخصات و وضعیت', 'توکن ربات', 'بازبینی و ذخیره'] as const;
+const WIZARD_STEPS = [
+  { full: 'مشخصات و وضعیت', short: 'مشخصات' },
+  { full: 'توکن ربات', short: 'توکن' },
+  { full: 'بازبینی و ذخیره', short: 'بازبینی' },
+] as const;
 
 function BotEditWizard({
   expert,
@@ -284,7 +288,7 @@ function BotEditWizard({
   };
 
   return (
-    <div className={c('scrim')} onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+    <div className={c('scrim', 'botscrim')} onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <div
         className={c('dlg', 'botdlg')}
         role="dialog"
@@ -311,7 +315,7 @@ function BotEditWizard({
             const n = (idx + 1) as 1 | 2 | 3;
             return (
               <button
-                key={label}
+                key={label.full}
                 type="button"
                 role="tab"
                 aria-selected={step === n}
@@ -320,7 +324,8 @@ function BotEditWizard({
                 data-testid={`smc-bot-step-${n}`}
               >
                 <span className={c('wn')}>{fa(n)}</span>
-                {label}
+                <span className={c('wfull')}>{label.full}</span>
+                <span className={c('wshort')}>{label.short}</span>
               </button>
             );
           })}
@@ -335,31 +340,50 @@ function BotEditWizard({
               </div>
             ) : null}
 
+            <div className={c('bot-fld')}>
+              <span className={c('lbl')}>کارشناس</span>
+              <b data-testid="smc-bot-expert-name">{expert.name}</b>
+            </div>
+
             <label className={c('bot-fld')}>
-              <span className={c('lbl')}>نام نمایشی ربات</span>
+              <span className={c('lbl')}>نام ربات در بله</span>
               <input
                 className={c('inp')}
                 type="text"
                 maxLength={80}
                 value={botName}
                 onChange={(e) => setBotName(e.target.value)}
-                placeholder={hasSavedToken ? 'نام نمایشی ربات در سامانه' : 'اختیاری — از بله خوانده می‌شود'}
+                placeholder={hasSavedToken ? 'نام ربات در بله' : 'اختیاری — از بله خوانده می‌شود'}
                 data-testid="smc-bot-name-input"
               />
             </label>
 
             <div className={c('bot-fld')}>
               <span className={c('lbl')}>وضعیت ربات</span>
-              <Seg
-                label="وضعیت ربات"
-                value={status}
-                options={[['on', 'فعال (وصل)'], ['off', 'غیرفعال (قطع موقت)']]}
-                onChange={(v) => {
-                  if (!tokenReady && v === 'on') return;
-                  setStatus(v);
-                }}
-              />
-              {!tokenReady ? <span className={c('hint')}>برای فعال‌سازی، توکن را در گام دوم وارد کنید.</span> : null}
+              {expert.readonlySend ? (
+                <>
+                  <span data-testid="smc-bot-status-locked">
+                    <Chip k={status === 'on' ? 'ok' : 'lock'}>
+                      <I n="lock" />
+                      {status === 'on' ? 'فعال (وصل)' : 'غیرفعال'}
+                    </Chip>
+                  </span>
+                  <span className={c('hint')}>وضعیت این ربات به‌خاطر سیاست فقط پیام انتقال قفل است و از اینجا عوض نمی‌شود.</span>
+                </>
+              ) : (
+                <>
+                  <Seg
+                    label="وضعیت ربات"
+                    value={status}
+                    options={[['on', 'فعال (وصل)'], ['off', 'غیرفعال (قطع موقت)']]}
+                    onChange={(v) => {
+                      if (!tokenReady && v === 'on') return;
+                      setStatus(v);
+                    }}
+                  />
+                  {!tokenReady ? <span className={c('hint')}>برای فعال‌سازی، توکن را در گام دوم وارد کنید.</span> : null}
+                </>
+              )}
             </div>
 
             {sabEnabled && !expert.readonlySend ? (
@@ -410,12 +434,17 @@ function BotEditWizard({
               </div>
             ) : null}
 
-            {hasSavedToken ? (
+            {hasSavedToken && !expert.readonlySend ? (
               <p className={c('hint')}>
                 توکن فعلی رمزنگاری‌شده نگهداری می‌شود و به مرورگر فرستاده نمی‌شود. اگر نمی‌خواهید توکن را عوض کنید، کادر زیر را خالی بگذارید.
               </p>
+            ) : hasSavedToken && expert.readonlySend ? (
+              <p className={c('hint')}>توکن فعلی رمزنگاری‌شده نگهداری می‌شود و به مرورگر فرستاده نمی‌شود.</p>
             ) : null}
 
+            {expert.readonlySend ? (
+              <p className={c('hint')} data-testid="smc-bot-token-locked">توکن این ربات قفل است و از اینجا عوض یا قطع نمی‌شود.</p>
+            ) : (
             <div className={c('bot-fld')}>
               <label className={c('bot-fld')}>
                 <span className={c('lbl')}>{hasSavedToken ? 'توکن تازه (اختیاری)' : 'توکن ربات (از @botfather)'}</span>
@@ -451,13 +480,15 @@ function BotEditWizard({
               </div>
             </div>
 
+            )}
+
             {testedNew ? (
               <div className={c('mbanner ok')} data-testid="smc-bot-test-new-ok">
                 <span>توکن معتبر است: {testedNew.name ?? 'ربات'} {testedNew.username ? `(@${testedNew.username})` : ''}</span>
               </div>
             ) : null}
 
-            {hasSavedToken ? (
+            {hasSavedToken && !expert.readonlySend ? (
               <div className={c('bot-danger')}>
                 {!askDisconnect ? (
                   <button
@@ -500,12 +531,12 @@ function BotEditWizard({
                 <b>{expert.name}</b>
               </div>
               <div className={c('rvw-row')}>
-                <span>نام نمایشی ربات</span>
+                <span>نام ربات در بله</span>
                 <b>{botName.trim() || testedNew?.name || 'از مشخصات ربات در بله'}</b>
               </div>
               <div className={c('rvw-row')}>
                 <span>وضعیت ربات</span>
-                <b>{status === 'on' ? 'فعال (وصل)' : 'غیرفعال (قطع موقت)'}</b>
+                <b>{status === 'on' ? 'فعال (وصل)' : 'غیرفعال (قطع موقت)'}{expert.readonlySend ? ' — قفل' : ''}</b>
               </div>
               {sabEnabled && !expert.readonlySend ? (
                 <>

@@ -298,7 +298,7 @@ function Console({ st, m, bs, be, roles }: { st: SmcState; m: MergeState | null;
         </div>
       </div>
       {confirm ? <ConfirmDialog cf={confirm} onBack={() => setConfirm(null)} onApply={(f) => void doApply(f)} /> : null}
-      {toast ? <div className={c('toast')} role="status">{toast}{undoId ? <button className={c('btn lk tundo')} type="button" data-testid="sam-undo" onClick={() => void undoLast()}>برگرداندن</button> : null}</div> : null}
+      {toast ? <div className={c('toast')} role="status" data-testid="smc-toast">{toast}{undoId ? <button className={c('btn lk tundo')} type="button" data-testid="sam-undo" onClick={() => void undoLast()}>برگرداندن</button> : null}</div> : null}
     </main>
     </MergeContext.Provider>
   );
