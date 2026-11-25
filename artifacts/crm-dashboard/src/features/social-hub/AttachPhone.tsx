@@ -5,7 +5,8 @@ import { Link } from 'wouter';
 import { FileText, Link2, Search, UserPlus, X } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { fa, messageError, shApi, useShMe, type ShPickRow } from './api';
-import { Name, NumList, PhoneNum, Switch, Wizard, useShToast } from './ui';
+import { useCustomerPhones, type ExtraPhone } from '@/features/customer-phones/api';
+import { Name, NumList, PhoneNum, Switch, Wizard, extrasWithLabels, useShToast } from './ui';
 import './social-hub.css';
 
 /** The second button on the unknown-number card; renders nothing while the flag is OFF. */
@@ -26,6 +27,9 @@ export function AttachPhoneWizard({ phone, callEventId, onClose, onNew, initialQ
   const [sel, setSel] = useState<ShPickRow | null>(null); const [step, setStep] = useState(0); const [logCall, setLogCall] = useState(true);
   const [err, setErr] = useState(''); const [dup, setDup] = useState<Dup | null>(null); const [same, setSame] = useState(false);
   const [done, setDone] = useState<{ c: ShPickRow; extras: string[] } | null>(null);
+  const cphId = done?.c.id ?? sel?.id ?? 0;
+  const cph = useCustomerPhones(cphId, Boolean(cphId));
+  const knownExtras: { phone: string; label?: string | null }[] = (cph.data?.extras ?? []).map((x: ExtraPhone) => ({ phone: x.phone, label: x.label }));
   useEffect(() => {
     const t = q.trim(); if (!t) { setRows(null); return; }
     const h = window.setTimeout(() => { shApi<{ rows: ShPickRow[] }>(`/phone-attach/search?q=${encodeURIComponent(t)}`).then((r) => setRows(r.rows)).catch((e) => { setRows([]); setErr(messageError(e)); }); }, 250);
@@ -52,7 +56,7 @@ export function AttachPhoneWizard({ phone, callEventId, onClose, onNew, initialQ
   const numRow = <div className="sh-row sh-wrap"><span className="sh-lbl">شمارهٔ جدید</span><PhoneNum p={phone} copy={false} /></div>;
   if (done) return <Wizard title={title} onClose={onClose} short testId="sh-attach-done"
     foot={<><Link href={`/customers/${done.c.id}`} className="sh-btn pri" onClick={onClose}><FileText aria-hidden="true" />باز کردن پرونده</Link><button type="button" className="sh-btn ghost" onClick={onClose}>بستن</button></>}>
-    <div className="sh-stack"><div className="sh-msg ok" role="status" data-testid="sh-attach-ok">شماره به پروندهٔ {done.c.name} افزوده شد.</div><Name name={done.c.name} id={done.c.id} /><NumList primary={done.c.phone} extras={done.extras} /><span className="sh-sub">مشتری تازه‌ای ساخته نشد.</span></div>{node}</Wizard>;
+    <div className="sh-stack"><div className="sh-msg ok" role="status" data-testid="sh-attach-ok">شماره به پروندهٔ {done.c.name} افزوده شد.</div><Name name={done.c.name} id={done.c.id} /><NumList primary={done.c.phone} extraItems={extrasWithLabels(done.extras, knownExtras)} /><span className="sh-sub">مشتری تازه‌ای ساخته نشد.</span></div>{node}</Wizard>;
   if (dup) return <Wizard title={title} steps={steps} cur={1} onClose={onClose} testId="sh-attach-dup"
     foot={<>{dup.id ? <Link href={`/customers/${dup.id}`} className="sh-btn pri" onClick={onClose}><FileText aria-hidden="true" />باز کردن پروندهٔ او</Link> : null}<button type="button" className="sh-btn ghost" onClick={() => { setDup(null); setStep(0); }}>انتخاب مشتری دیگر</button></>}>
     <div className="sh-stack"><div className="sh-sumbox"><div className="sh-sumr">{numRow}</div></div><div className="sh-msg">این شماره همین حالا برای مشتری دیگری ثبت شده است.</div>
@@ -63,7 +67,7 @@ export function AttachPhoneWizard({ phone, callEventId, onClose, onNew, initialQ
       : <><button type="button" className="sh-btn pri" disabled={busy || full} onClick={() => void save()} data-testid="sh-attach-save">افزودن این شماره</button><button type="button" className="sh-btn ghost" onClick={() => setStep(0)}>قبلی</button></>}>
     <div className="sh-stack"><div className="sh-sumbox"><div className="sh-sumr"><span className="sh-lbl">شمارهٔ جدید</span><PhoneNum p={phone} copy={false} /></div>
       <div className="sh-sumr"><span className="sh-lbl">مشتری</span><Name name={sel.name} id={sel.id} /></div>
-      <div className="sh-sumr col"><span className="sh-lbl">شماره‌های فعلی</span><NumList primary={sel.phone} extras={sel.extras} /></div></div>
+      <div className="sh-sumr col"><span className="sh-lbl">شماره‌های فعلی</span><NumList primary={sel.phone} extraItems={extrasWithLabels(sel.extras, knownExtras)} /></div></div>
       {full && !same ? <div className="sh-msg amber" data-testid="sh-attach-full">{sel.name} به سقف {fa(SH_PHONES_MAX)} شماره رسیده است؛ برای افزودن این شماره، یکی از شماره‌های اضافه را در پرونده حذف کنید.</div> : null}
       {same ? <div className="sh-msg amber">این شماره از قبل برای {sel.name} ثبت شده است.</div>
         : callEventId && !full ? <Switch on={logCall} onChange={setLogCall} label={`ثبت همین تماس در پروندهٔ ${sel.name}`} testId="sh-attach-log" /> : null}

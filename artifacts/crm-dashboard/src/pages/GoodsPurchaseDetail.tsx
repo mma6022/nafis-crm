@@ -139,7 +139,7 @@ const PAYOUT_PERCENT_BASIS: 'invoice' | 'after_discount' = 'invoice';
 function payoutBasisAmount(invoice: bigint, discount: bigint, basis: typeof PAYOUT_PERCENT_BASIS = PAYOUT_PERCENT_BASIS) {
   return basis === 'after_discount' ? invoice - discount : invoice;
 }
-type InvoicePercentErrors = { discount?: string; payout?: string };
+type InvoicePercentErrors = { discount?: string; payout?: string; sumOver?: boolean };
 function invoicePercentErrors(payoutPct: string, discountPct: string): InvoicePercentErrors | null {
   const payoutBps = percentToBps(payoutPct);
   const discountBps = percentToBps(discountPct);
@@ -152,9 +152,11 @@ function invoicePercentErrors(payoutPct: string, discountPct: string): InvoicePe
   else if (payoutBps <= 0) out.payout = 'درصد پرداخت به مشتری باید بیشتر از صفر باشد.';
   // Exactly 100 is allowed; only a sum greater than 100 is rejected.
   if (payoutBps != null && discountBps != null && payoutBps > 0 && payoutBps <= 10000 && discountBps >= 0 && discountBps <= 10000 && payoutBps + discountBps > 10000) {
-    out.discount = out.payout = 'جمع دو درصد نباید بیشتر از ۱۰۰ باشد.';
+    // Same sentence once, under the second field (Armita t901 r3 optional). Both fields stay invalid.
+    out.payout = out.payout || 'جمع دو درصد نباید بیشتر از ۱۰۰ باشد.';
+    out.sumOver = true;
   }
-  return (out.discount || out.payout) ? out : null;
+  return (out.discount || out.payout || out.sumOver) ? out : null;
 }
 function InvoicePanel({ p, editable, adminRevise, onSaved }: { p: Purchase; editable: boolean; adminRevise?: boolean; onSaved: (t: string) => void }) {
   const [askReason, setAskReason] = useState(false);
@@ -190,7 +192,7 @@ function InvoicePanel({ p, editable, adminRevise, onSaved }: { p: Purchase; edit
     <div className="table-wrap gp-invoice-wrap"><table className="data-table gp-invoice">
       <thead><tr><th>شرح کالا</th><th>تعداد</th><th>قیمت واحد (تومان)</th><th>جمع</th>{editable ? <th /> : null}</tr></thead>
       <tbody>{rows.map((r, i) => <tr key={i}>
-        <td data-label="شرح کالا">{editable ? <input value={r.title} onChange={(e) => set(i, { title: e.target.value })} placeholder="مثال: یخچال ساید بای ساید" data-testid={`input-item-title-${i}`} /> : r.title}</td>
+        <td data-label="شرح کالا">{editable ? <textarea rows={1} value={r.title} onChange={(e) => set(i, { title: e.target.value })} placeholder="مثال: یخچال ساید بای ساید" data-testid={`input-item-title-${i}`} /> : r.title}</td>
         <td data-label="تعداد">{editable ? <input dir="ltr" inputMode="numeric" value={qty(r) ? faId(qty(r)) : ''} onChange={(e) => set(i, { quantity: digitsOnly(e.target.value) })} data-testid={`input-item-quantity-${i}`} aria-label="تعداد" /> : faId(qty(r) || '0')}</td>
         <td data-label="قیمت واحد (تومان)">{editable ? <input dir="ltr" inputMode="numeric" value={toBig(digitsOnly(r.unitPriceToman)) ? faGrouped(toBig(digitsOnly(r.unitPriceToman))) : ''} onChange={(e) => set(i, { unitPriceToman: digitsOnly(e.target.value) })} data-testid={`input-item-price-${i}`} aria-label="قیمت واحد" /> : toman(r.unitPriceToman)}</td>
         <td className="mono" data-label="جمع">{toman((toBig(digitsOnly(r.unitPriceToman)) * BigInt(Math.max(0, Math.floor(Number(qty(r) || '0') || 0)))).toString())}</td>
@@ -211,7 +213,7 @@ function InvoicePanel({ p, editable, adminRevise, onSaved }: { p: Purchase; edit
       <div className="gp-percent-col">
         <label className="gp-percent-label" htmlFor={`invoice-discount-pct-${p.id}`}>درصد کسر از مبلغ فاکتور (تخفیف توسعه)</label>
         {editable
-          ? <div className={`gp-pct-field${percentErr?.discount ? ' is-invalid' : ''}`}><input id={`invoice-discount-pct-${p.id}`} dir="ltr" inputMode="decimal" value={faPct(discountPct)} onChange={(e) => setDiscountPct(normalizePercentInput(e.target.value).slice(0, 6))} data-testid="input-invoice-discount-percent" aria-invalid={Boolean(percentErr?.discount)} style={{ width: `max(1ch, ${Math.max(1, faPct(discountPct).length)}ch)` }} /><span className="gp-pct-sign" aria-hidden="true">٪</span></div>
+          ? <div className={`gp-pct-field${percentErr?.discount || percentErr?.sumOver ? ' is-invalid' : ''}`}><input id={`invoice-discount-pct-${p.id}`} dir="ltr" inputMode="decimal" value={faPct(discountPct)} onChange={(e) => setDiscountPct(normalizePercentInput(e.target.value).slice(0, 6))} data-testid="input-invoice-discount-percent" aria-invalid={Boolean(percentErr?.discount || percentErr?.sumOver)} /><span className="gp-pct-sign" aria-hidden="true">٪</span></div>
           : <b data-testid="invoice-discount-percent">{faPct(discountPct) || '—'}٪</b>}
         <p className="gp-percent-amount" data-testid="invoice-discount-amount">تخفیف توسعه <b>{discountAmt == null ? '—' : toman(discountAmt.toString())}</b></p>
         <p className="gp-field-error" role={percentErr?.discount ? 'alert' : undefined} data-testid="error-invoice-discount-percent">{percentErr?.discount ?? ''}</p>
@@ -219,7 +221,7 @@ function InvoicePanel({ p, editable, adminRevise, onSaved }: { p: Purchase; edit
       <div className="gp-percent-col">
         <label className="gp-percent-label" htmlFor={`invoice-payout-pct-${p.id}`}>درصد پرداخت به مشتری (از کل مبلغ فاکتور)</label>
         {editable
-          ? <div className={`gp-pct-field${percentErr?.payout ? ' is-invalid' : ''}`}><input id={`invoice-payout-pct-${p.id}`} dir="ltr" inputMode="decimal" value={faPct(payoutPct)} onChange={(e) => setPayoutPct(normalizePercentInput(e.target.value).slice(0, 6))} data-testid="input-invoice-payout-percent" aria-invalid={Boolean(percentErr?.payout)} style={{ width: `max(1ch, ${Math.max(1, faPct(payoutPct).length)}ch)` }} /><span className="gp-pct-sign" aria-hidden="true">٪</span></div>
+          ? <div className={`gp-pct-field${percentErr?.payout ? ' is-invalid' : ''}`}><input id={`invoice-payout-pct-${p.id}`} dir="ltr" inputMode="decimal" value={faPct(payoutPct)} onChange={(e) => setPayoutPct(normalizePercentInput(e.target.value).slice(0, 6))} data-testid="input-invoice-payout-percent" aria-invalid={Boolean(percentErr?.payout)} /><span className="gp-pct-sign" aria-hidden="true">٪</span></div>
           : <b data-testid="invoice-payout-percent">{faPct(payoutPct) || '—'}٪</b>}
         <p className="gp-percent-amount" data-testid="invoice-payout-amount">واریزی به مشتری <b>{payoutAmt == null ? '—' : toman(payoutAmt.toString())}</b></p>
         <p className="gp-field-error" role={percentErr?.payout ? 'alert' : undefined} data-testid="error-invoice-payout-percent">{percentErr?.payout ?? ''}</p>

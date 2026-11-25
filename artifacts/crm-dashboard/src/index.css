@@ -4592,7 +4592,10 @@
 .gp-invoice th:nth-child(2), .gp-invoice td:nth-child(2) { width: 4.75rem; min-width: 4.75rem; white-space: nowrap; }
 .gp-invoice th:nth-child(3), .gp-invoice td:nth-child(3) { min-width: 8.5rem; white-space: nowrap; }
 .gp-invoice input { width: 100%; min-height: 44px; box-sizing: border-box; padding: 8px 9px; border: 1px solid #dbe2ea; border-radius: 8px; font: inherit; }
-.gp-invoice input[data-testid^="input-item-title-"], .gp-invoice td:first-child { word-break: normal; overflow-wrap: anywhere; }
+.gp-invoice input[data-testid^="input-item-title-"],
+.gp-invoice textarea[data-testid^="input-item-title-"],
+.gp-invoice td:first-child { word-break: normal; overflow-wrap: break-word; }
+.gp-invoice textarea[data-testid^="input-item-title-"] { width: 100%; min-height: 44px; max-height: 4.6em; resize: none; box-sizing: border-box; padding: 8px 9px; border: 1px solid #dbe2ea; border-radius: 8px; font: inherit; line-height: 1.45; overflow-x: hidden; overflow-y: auto; field-sizing: content; white-space: pre-wrap; }
 .gp-invoice input[data-testid^="input-item-quantity-"] { width: 4.5rem; min-width: 4.5rem; }
 .gp-invoice-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
 .gp-totals { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; }
@@ -4600,8 +4603,8 @@
 .gp-totals .bad { color: #b42318; font-weight: 700; }
 .gp-percents { display: grid; grid-template-columns: repeat(2, minmax(0, 16rem)); grid-template-rows: auto auto auto auto; gap: 6px 20px; margin-top: 14px; align-items: start; }
 .gp-percent-col { display: grid; grid-template-rows: subgrid; grid-row: span 4; gap: 6px; min-width: 0; }
-.gp-percent-label { font-size: 11px; color: #475569; font-weight: 700; }
-.gp-pct-field { display: inline-flex; align-items: center; direction: ltr; box-sizing: border-box; width: 7.5rem; max-width: 100%; min-height: 44px; padding: 0 10px; border: 1px solid #dbe2ea; border-radius: 8px; background: #fff; color: var(--ink-deep); font-size: 16px; font-weight: 700; font-family: inherit; line-height: 1.2; }
+.gp-percent-label { font-size: 13px; color: #475569; font-weight: 700; line-height: 1.4; }
+.gp-pct-field { display: inline-flex; align-items: center; direction: ltr; gap: 0; box-sizing: border-box; width: 7.5rem; max-width: 100%; min-height: 44px; padding: 0 10px; border: 1px solid #dbe2ea; border-radius: 8px; background: #fff; color: var(--ink-deep); font-size: 16px; font-weight: 700; font-family: inherit; line-height: 1.2; }
 .gp-pct-field input { direction: ltr; text-align: left; flex: 0 0 auto; width: auto; min-width: 1ch; field-sizing: content; min-height: 44px; padding: 8px 0; margin: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; font-family: inherit; font-size: 16px; font-weight: 700; color: inherit; line-height: 1.2; outline: 0; }
 .gp-pct-field input:focus { border: 0; box-shadow: none; outline: 0; }
 .gp-pct-field .gp-pct-sign { margin: 0; padding: 0; font-family: inherit; font-size: 16px; font-weight: 700; color: inherit; line-height: 1.2; }
@@ -4610,7 +4613,7 @@
 .gp-pct-field.is-invalid:focus-within { border-color: #b42318; box-shadow: 0 0 0 3px #fdecec; }
 .gp-percent-amount { margin: 0; font-size: 12px; color: #64748b; line-height: 1.4; }
 .gp-percent-amount b { color: var(--ink-deep); font-size: 13px; font-weight: 700; }
-.gp-field-error { margin: 0; font-size: 12px; line-height: 1.5; color: #9b2c2c; font-weight: 700; }
+.gp-field-error { margin: 0; font-size: 13px; line-height: 1.5; color: #9b2c2c; font-weight: 700; }
 .gp-stage-panel [data-testid="button-save-invoice"]:disabled { opacity: 1; background: #cbd5e1; color: #1e293b; box-shadow: none; transform: none; cursor: not-allowed; }
 @media (max-width: 480px) {
   .gp-percents { grid-template-columns: 1fr; grid-template-rows: none; }
@@ -4629,7 +4632,7 @@
   .gp-invoice td:nth-child(4) { grid-column: 1; justify-content: center; }
   .gp-invoice td.gp-invoice-del { grid-column: 2; align-items: flex-end; justify-content: flex-end; }
   .gp-invoice td.gp-invoice-del::before { content: none; }
-  .gp-invoice input, .gp-invoice input[data-testid^="input-item-quantity-"] { width: 100%; min-width: 0; }
+  .gp-invoice input, .gp-invoice textarea, .gp-invoice input[data-testid^="input-item-quantity-"] { width: 100%; min-width: 0; }
 }
 
 .gp-doc.signed { border-color: #bfe3da; }
