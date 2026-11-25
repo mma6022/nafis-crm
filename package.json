@@ -16,6 +16,7 @@
     "test:simotel-recordings": "node scripts/simotel-recordings-fixture.mjs",
     "test:recording-download": "node scripts/recording-download-fixture.mjs",
     "test:social-hub": "NODE_ENV=production node scripts/run-bundled-fixture.mjs scripts/social-hub-fixture.mjs",
+    "test:t927-bale-view-as": "NODE_ENV=production node scripts/run-bundled-fixture.mjs scripts/t927-bale-view-as-fixture.mjs",
     "test:customer-extra-phones": "NODE_ENV=production node scripts/run-bundled-fixture.mjs scripts/customer-extra-phones-fixture.mjs",
     "test:voip-after-call": "node scripts/voip-after-call-fixture.mjs",
     "test:t861-failed-originate": "node scripts/run-bundled-fixture.mjs scripts/t861-failed-originate-fixture.mjs",

@@ -36,6 +36,7 @@ import { ssOn } from "./sales-shell";
 import { csOn } from "./call-summary-fields-core";
 import { sf480OpenLists } from "./sales-fixes-480000";
 import { psFlagOn, psIsStatusPriorityOnlyBody } from "./sales-experts-priority-status";
+import { bvaCanAccessSalesperson } from "./bale-view-as";
 const csOnSafe = (id: number) => { try { return csOn(id); } catch { return false; } };
 
 export const EL_FLAG_KEY = "flag.expert_lockdown";
@@ -124,14 +125,19 @@ function elAnsweredIncomingToday(u: U, customerId: number, now: Date): boolean {
   if (!keys.size) return false;
   return evs.some((e) => { const k = elPhoneKey(e.phone); return e.customer_id == null && k != null && keys.has(k); });
 }
-export function elCustomerAccess(u: U, customerId: number, now = new Date()): "plan" | "incoming" | "registered" | "case" | null {
+export function elCustomerAccess(u: U, customerId: number, now = new Date()): "plan" | "incoming" | "registered" | "case" | "delegated" | null {
   const sp = Number(u.salespersonId);
   if (queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='dp_items'") &&
       queryRow("SELECT 1 x FROM dp_items i JOIN dp_plans p ON p.id=i.plan_id WHERE p.salesperson_id=? AND p.day=? AND i.customer_id=? LIMIT 1", [sp, dpToday(now), customerId])) return "plan";
   if (elAnsweredIncomingToday(u, customerId, now)) return "incoming";
   ensureElSchema();
   const own = queryRow<{ salesperson_id: number | null }>("SELECT salesperson_id FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [customerId]);
-  if (!own || Number(own.salesperson_id) !== sp) return null;
+  if (!own) return null;
+  if (Number(own.salesperson_id) !== sp) {
+    // t927: Hasani (etc.) may open Kazemi/Ghasemi files when flag.bale_view_as_v1 is on and the grant lists those owners. Ownership is unchanged.
+    if (bvaCanAccessSalesperson(u, own.salesperson_id)) return "delegated";
+    return null;
+  }
   if (queryRow("SELECT 1 x FROM el_grants WHERE user_id=? AND customer_id=? AND expires_at>? LIMIT 1", [Number(u.id), customerId, now.toISOString()])) return "incoming";
   // NEWCUST-65 (= incoming2-59 (d)): a customer this expert registered through «تماس ورودی داشتم › ثبت مشتری جدید» (still their own).
   if (queryRow("SELECT 1 x FROM el_incoming_log l JOIN customers c ON c.id=l.customer_id WHERE l.user_id=? AND l.customer_id=? AND l.action='new_create' AND l.result='created' AND c.registered_by=? LIMIT 1",

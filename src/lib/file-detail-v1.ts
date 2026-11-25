@@ -2,6 +2,7 @@
  *  Flag key: flag.file_detail_v1.user.N in call_queue_settings. Missing key = OFF. User 29 is never ON.
  *  Resend never creates, regenerates or re-templates a contract: it only addresses the SAME current
  *  generation that is already with the signing provider. Contract rows are only read here. */
+import { bvaOwnsOrDelegated } from "./bale-view-as";
 import { crmDb, queryRow, queryRows } from "./crm-db";
 import type { AuthUser } from "./auth";
 
@@ -43,7 +44,7 @@ export function setFdDeliverResendForTests(fn: ResendDelivery) { fdDeliverResend
 export function fdSeesApp(u: AuthUser, customerId: number): boolean {
   if (u.role !== "salesperson") return true;
   const owner = queryRow<{ sp: number | null }>("SELECT salesperson_id sp FROM customers WHERE id=?", [customerId]);
-  return u.salespersonId != null && Number(owner?.sp) === Number(u.salespersonId);
+  return bvaOwnsOrDelegated(u, owner?.sp ?? null);
 }
 
 export type ResendResult =
