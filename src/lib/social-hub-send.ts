@@ -37,7 +37,7 @@ import {
 export const SH_FAIL = {
   bot_off: "ربات خاموش است",
   forbidden: "مشتری ربات را بسته یا مسدود کرده",
-  rate_limited: "بله موقتاً اجازهٔ ارسال نداد، کمی بعد دوباره امتحان کنید",
+  rate_limited: "بله موقتاً اجازهٔ ارسال نداد، کمی بعد دوباره امتحان کنید",
   file_too_big: "حجم فایل برای بله زیاد است",
   file_disabled: "حجم فایل برای ارسال در بله زیاد است",
   send_closed: "ارسال از این ربات بسته است",
@@ -274,11 +274,14 @@ export function shTokenSaved(): boolean {
 export function shConnectView() {
   const b = shUnifiedBot();
   const handle = (b?.bot_username || queryRow<{ handle: string | null }>("SELECT handle FROM sh_bots WHERE unified=1 AND network='bale'")?.handle || "").replace(/^@/, "");
+  const tokenSaved = Boolean(b?.token_ct);
+  const tested = Boolean(tokenSaved && b?.last_ok_at && b.status === "on");
   return {
-    tokenSaved: Boolean(b?.token_ct),
+    tokenSaved,
+    tested,
     hasKey: baleBotHasKey(process.env),
-    status: !b?.token_ct ? "draft" : b.status === "on" ? "connected" : b.status === "off" ? "off" : "draft",
-    username: handle || null,
+    status: !tokenSaved ? "draft" : tested ? "connected" : "pending_test",
+    username: tokenSaved ? (handle || null) : null,
     name: b?.bot_name || SH_BOT_NAME,
     connectedAt: b?.connected_at ?? null,
     lastOkAt: b?.last_ok_at ?? null,
@@ -380,9 +383,19 @@ export type ShRedirectPreview = {
   skipped: ShRedirectSkip[]; etaMinutes: number; perMinute: number; text: string; button: string;
 };
 
-function disabledReason(tokenSaved: boolean, flagOn: boolean, alreadyDone: boolean): string | null {
-  if (alreadyDone) return null;
-  if (!flagOn || !tokenSaved) return "پس از اتصال ربات نفیس وام";
+export function shConnectTested(): boolean {
+  const b = shUnifiedBot();
+  return Boolean(b?.token_ct && b.last_ok_at && b.status === "on");
+}
+function shUnifiedUsernameOk(): boolean {
+  return /^[A-Za-z0-9_]{3,64}$/.test((shUnifiedBot()?.bot_username || "").replace(/^@/, ""));
+}
+/** Honest disabled copy: no token → after connect; token not tested / no username → waiting on test; tested but flag off → waiting to prepare. */
+export function shRedirectDisabledReason(): string | null {
+  if (shRedirectCampaignDone().done) return null;
+  if (!shTokenSaved()) return "پس از اتصال ربات نفیس وام";
+  if (!shConnectTested() || !shUnifiedUsernameOk()) return "منتظر آزمایش اتصال";
+  if (!shRedirectOn()) return "منتظر آماده‌سازی ارسال انتقال";
   return null;
 }
 
@@ -437,8 +450,8 @@ export function shBuildRedirectPreview(): ShRedirectPreview {
     .map((k) => ({ reason: k, label: SKIP_LABEL[k], count: skippedMap[k] }));
   const urlOk = Boolean((shUnifiedBot()?.bot_username || "").replace(/^@/, ""));
   return {
-    ready: flagOn && tokenSaved && urlOk && !done.done,
-    disabledReason: disabledReason(tokenSaved && urlOk, flagOn, done.done),
+    ready: flagOn && tokenSaved && shConnectTested() && urlOk && !done.done,
+    disabledReason: shRedirectDisabledReason(),
     tokenSaved, flagOn, alreadyDone: done.done, doneAt: done.finishedAt,
     recipientCount: recipients.length, recipients, perBot: [...byBot.values()].sort((a, b) => a.expertUserId - b.expertUserId),
     skipped, etaMinutes, perMinute, text: SH_REDIRECT_TEXT, button: SH_REDIRECT_BUTTON,
@@ -537,10 +550,10 @@ export function shRedirectStatus() {
   for (const r of queryRows<{ status: string; n: number }>("SELECT status, COUNT(*) n FROM sh_redirect_items WHERE campaign_id=? GROUP BY status", [g.id])) {
     if (r.status in counts) (counts as any)[r.status] = Number(r.n);
   }
-  const failures = queryRows<{ name: string; fail_reason: string | null }>(
-    `SELECT c.name, i.fail_reason FROM sh_redirect_items i JOIN customers c ON c.id=i.customer_id
+  const failures = queryRows<{ id: number; name: string; fail_reason: string | null }>(
+    `SELECT c.id, c.name, i.fail_reason FROM sh_redirect_items i JOIN customers c ON c.id=i.customer_id
       WHERE i.campaign_id=? AND i.status='failed' ORDER BY i.id`, [g.id])
-    .map((r) => ({ customerName: r.name, reason: r.fail_reason || SH_FAIL.generic }));
+    .map((r) => ({ customerId: Number(r.id), customerName: r.name, reason: r.fail_reason || SH_FAIL.generic }));
   return {
     campaign: { id: Number(g.id), status: g.status, startedAt: g.started_at, finishedAt: g.finished_at, recipientCount: Number(g.recipient_count) },
     counts, failures,

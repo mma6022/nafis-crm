@@ -313,7 +313,12 @@ try {
     const previewOff = await req("admin", "GET", "/api/social-hub/redirect/preview");
     assert.equal(previewOff.status, 200, JSON.stringify(previewOff.data));
     assert.equal(previewOff.data.flagOn, false);
-    assert.equal(previewOff.data.disabledReason, "پس از اتصال ربات نفیس وام");
+    assert.equal(previewOff.data.disabledReason, "منتظر آماده‌سازی ارسال انتقال");
+    const botsOn = (await req("admin", "GET", "/api/social-hub/bots")).data;
+    assert.equal(botsOn.connect.status, "connected");
+    const bale = botsOn.bots.find((b) => b.unified && b.network === "bale");
+    assert.equal(bale.status, "connected");
+    assert.equal(botsOn.redirectDisabledReason, "منتظر آماده‌سازی ارسال انتقال");
     assert.equal((await req("sm", "GET", "/api/social-hub/redirect/preview")).status, 403);
     flag(sh.SH_REDIRECT_FLAG, "1");
     const preview = await req("admin", "GET", "/api/social-hub/redirect/preview");

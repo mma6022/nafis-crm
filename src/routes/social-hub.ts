@@ -5,7 +5,7 @@
  */
 import express, { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
 import {
-  shBuildRedirectPreview, shConnectView, shIsSuperAdmin, shParseCount, shRedirectCampaignDone, shRedirectReadyForStart, shRedirectStatus,
+  shBuildRedirectPreview, shConnectView, shIsSuperAdmin, shParseCount, shRedirectCampaignDone, shRedirectDisabledReason, shRedirectReadyForStart, shRedirectStatus,
   shRetrySend, shSaveConnectToken, shStartRedirect, shStopRedirect, shTestConnectToken, shTestSavedToken,
 } from "../lib/social-hub-send";
 import { requireAuth, getAuthenticatedUser, type AuthUser } from "../lib/auth";
@@ -50,7 +50,15 @@ router.get("/social-hub/me", requireAuth, user, (_req, res) => { res.json(shMe(m
 
 /* -- page (manager) -- */
 router.get("/social-hub/plans", requireAuth, user, hubOn, staff, (_q, res) => run(res, () => ({ plans: shPlans() })));
-router.get("/social-hub/bots", requireAuth, user, hubOn, mgr, (_q, res) => run(res, () => { const d = shRedirectCampaignDone(); return { ...shBots(), connect: shConnectView(), isSuperAdmin: shIsSuperAdmin(me(res)), redirectDone: d.done, redirectDoneAt: d.finishedAt }; }));
+router.get("/social-hub/bots", requireAuth, user, hubOn, mgr, (_q, res) => run(res, () => {
+  const d = shRedirectCampaignDone();
+  const connect = shConnectView();
+  const body = { ...shBots(), connect, isSuperAdmin: shIsSuperAdmin(me(res)), redirectDone: d.done, redirectDoneAt: d.finishedAt, redirectDisabledReason: shRedirectDisabledReason() };
+  body.bots = body.bots.map((b) => (b.unified && b.network === "bale"
+    ? { ...b, status: connect.status, handle: connect.username }
+    : b));
+  return body;
+}));
 router.post("/social-hub/bots", requireAuth, user, hubOn, mgr, express.json({ limit: "8kb" }), (req, res) => run(res, () => shAddBot(me(res), req.body), 201));
 router.post("/social-hub/bots/test", requireAuth, user, hubOn, mgr, express.json({ limit: "4kb" }), (req, res) => runAsync(res, () => shTestConnectToken(me(res), req.body?.token)));
 router.post("/social-hub/bots/connect", requireAuth, user, hubOn, mgr, express.json({ limit: "4kb" }), (req, res) => runAsync(res, () => shSaveConnectToken(me(res), req.body?.token), 201));
