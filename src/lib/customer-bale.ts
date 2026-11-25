@@ -7,7 +7,7 @@ import { bcMaySendFromBot } from "./bale-contact";
 type BotRow = { id: number; user_id: number; [k: string]: unknown };
 type ChatRow = { id: number; owner_id?: number; customer_id?: number | null; [k: string]: unknown };
 import { LOAN_STAGE_LABELS } from "./manager-work";
-import { planLabelForCustomer, publicBankNames } from "./plan-label";
+import { planChoiceLabel, planLabelForCustomer, publicBankNames } from "./plan-label";
 import { aiAutoOffIfNoKey, aiEnabled } from "./ai-master";
 import {
   CB_IDENTITY_STEPS_TEXTS, extractIdentity, formatJalaliConfirm, isNo, isYes,
@@ -362,7 +362,7 @@ export function faDigits(v: string | number): string {
 }
 
 /** Public plan name for customers only. Internal plan name is never used. */
-export { planLabelForCustomer, publicBankNames };
+export { planChoiceLabel, planLabelForCustomer, publicBankNames };
 
 export function stepLine(n: number, title?: string): string {
   const titleText = title ?? STEPS[n - 1] ?? "";
@@ -557,7 +557,7 @@ export function cbTop3Plans(customerId: number, now = new Date()): { id: number;
   const w = last30DaysTehranWindow(now);
   const rank = cbCustomerRank(customerId);
   const rows = queryRows(
-    `SELECT p.id, p.bank_name, COUNT(*) AS n
+    `SELECT p.id, p.name, p.bank_name, COUNT(*) AS n
      FROM loan_applications a
      JOIN loan_plans p ON p.id = a.plan_id
      WHERE a.deleted_at IS NULL AND p.active = 1
@@ -565,7 +565,7 @@ export function cbTop3Plans(customerId: number, now = new Date()): { id: number;
      GROUP BY p.id
      ORDER BY n DESC, p.id ASC`,
     [w.start, w.end],
-  ) as { id: number; bank_name: string; n: number }[];
+  ) as { id: number; name: string | null; bank_name: string; n: number }[];
   const out: { id: number; label: string; bankName: string; n: number }[] = [];
   for (const r of rows) {
     const conds = queryRows(
@@ -574,7 +574,7 @@ export function cbTop3Plans(customerId: number, now = new Date()): { id: number;
     ) as { customer_ranks: string }[];
     const ok = !conds.length || conds.some((c) => rankMatches(c.customer_ranks, rank));
     if (!ok) continue;
-    out.push({ id: r.id, label: planLabelForCustomer(r.bank_name), bankName: String(r.bank_name ?? "").trim(), n: r.n });
+    out.push({ id: r.id, label: planChoiceLabel(r.name, r.bank_name), bankName: String(r.bank_name ?? "").trim(), n: r.n });
     if (out.length >= 3) break;
   }
   return out;
