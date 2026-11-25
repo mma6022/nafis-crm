@@ -29119,13 +29119,13 @@ var require_application = __commonJS({
       this.router.param(name, fn);
       return this;
     };
-    app2.set = function set(setting29, val) {
+    app2.set = function set(setting30, val) {
       if (arguments.length === 1) {
-        return this.settings[setting29];
+        return this.settings[setting30];
       }
-      debug('set "%s" to %o', setting29, val);
-      this.settings[setting29] = val;
-      switch (setting29) {
+      debug('set "%s" to %o', setting30, val);
+      this.settings[setting30] = val;
+      switch (setting30) {
         case "etag":
           this.set("etag fn", compileETag(val));
           break;
@@ -29145,17 +29145,17 @@ var require_application = __commonJS({
     app2.path = function path33() {
       return this.parent ? this.parent.path() + this.mountpath : "";
     };
-    app2.enabled = function enabled2(setting29) {
-      return Boolean(this.set(setting29));
+    app2.enabled = function enabled2(setting30) {
+      return Boolean(this.set(setting30));
     };
-    app2.disabled = function disabled(setting29) {
-      return !this.set(setting29);
+    app2.disabled = function disabled(setting30) {
+      return !this.set(setting30);
     };
-    app2.enable = function enable(setting29) {
-      return this.set(setting29, true);
+    app2.enable = function enable(setting30) {
+      return this.set(setting30, true);
     };
-    app2.disable = function disable(setting29) {
-      return this.set(setting29, false);
+    app2.disable = function disable(setting30) {
+      return this.set(setting30, false);
     };
     methods.forEach(function(method) {
       app2[method] = function(path33) {
@@ -49602,8 +49602,8 @@ function applyStaffUrgent(db, customerId3, isUrgent, actor9, isAdmin8, body, via
   }
   if (!isAdmin8) return { status: 403, body: { error: "urgent_clear_admin_only", message: URGENT_ERRORS.urgent_clear_admin_only } };
   if (!was) return { status: 200, body: { id: customerId3, isUrgent: false, changed: false } };
-  const bad3 = validateUrgentClear(body);
-  if (bad3) return { status: 422, body: { error: bad3, message: URGENT_ERRORS[bad3] } };
+  const bad4 = validateUrgentClear(body);
+  if (bad4) return { status: 422, body: { error: bad4, message: URGENT_ERRORS[bad4] } };
   const code = String(body.clearReasonCode);
   const note2 = typeof body?.clearNote === "string" ? body.clearNote.trim() : "";
   const label2 = URGENT_CLEAR_REASONS.find((r2) => r2.code === code).label;
@@ -135305,16 +135305,16 @@ function validateSettingsInput(body, current) {
     if (!Array.isArray(b.teamSplit) || !b.teamSplit.length) errors2.teamSplit = "\u062A\u0642\u0633\u06CC\u0645 \u0633\u0647\u0645\u200C\u0647\u0627 \u0646\u0627\u0645\u0639\u062A\u0628\u0631 \u0627\u0633\u062A.";
     else {
       const split = {};
-      let bad3 = false;
+      let bad4 = false;
       for (const item of b.teamSplit) {
         const id5 = Number(item?.salespersonId), v = parsePercent(item?.percent);
         if (!Number.isInteger(id5) || id5 <= 0 || v == null || split[String(id5)] !== void 0) {
-          bad3 = true;
+          bad4 = true;
           continue;
         }
         split[String(id5)] = v;
       }
-      if (bad3) errors2.teamSplit = PCT_ERR;
+      if (bad4) errors2.teamSplit = PCT_ERR;
       else {
         const sum = Object.values(split).reduce((s, v) => s + v, 0);
         if (sum !== 1e4) errors2.teamSplit = `\u062C\u0645\u0639 \u0633\u0647\u0645\u200C\u0647\u0627 \u0628\u0627\u06CC\u062F \u06F1\u06F0\u06F0\u066A \u0628\u0627\u0634\u062F\u061B \u0627\u0644\u0627\u0646 ${faNum2(bpsToPercent(sum))}\u066A \u0627\u0633\u062A.`;
@@ -145226,10 +145226,10 @@ var faDigits4 = (n) => String(n).replace(/\d/g, (d) => "\u06F0\u06F1\u06F2\u06F3
 function conditionOptionsError(conditions, planTerms) {
   const terms = planTermMonths(planTerms).sort((a, b) => a - b);
   for (const [index, condition] of conditions.entries()) {
-    const bad3 = invalidConditionOptions(condition.installmentOptions, planTerms);
-    if (!bad3.length) continue;
+    const bad4 = invalidConditionOptions(condition.installmentOptions, planTerms);
+    if (!bad4.length) continue;
     const allowed = terms.length ? terms.map((n) => `${faDigits4(n)} \u0645\u0627\u0647\u0647`).join("\u060C ") : "\u0647\u06CC\u0686 \u0642\u0633\u0637\u06CC (\u0627\u0648\u0644 \u0627\u0642\u0633\u0627\u0637 \u0637\u0631\u062D \u0631\u0627 \u062A\u0639\u0631\u06CC\u0641 \u06A9\u0646\u06CC\u062F)";
-    return `\u0645\u0633\u06CC\u0631 ${faDigits4(index + 1)}: \u0627\u0642\u0633\u0627\u0637 ${bad3.map((n) => `${faDigits4(n)} \u0645\u0627\u0647\u0647`).join("\u060C ")} \u062F\u0631 \u0627\u0642\u0633\u0627\u0637 \u0627\u06CC\u0646 \u0637\u0631\u062D \u062A\u0639\u0631\u06CC\u0641 \u0646\u0634\u062F\u0647 \u0627\u0633\u062A. \u0627\u0642\u0633\u0627\u0637 \u0645\u062C\u0627\u0632 \u0627\u06CC\u0646 \u0645\u0633\u06CC\u0631 \u0641\u0642\u0637 \u0627\u0632 \u0627\u0642\u0633\u0627\u0637 \u0637\u0631\u062D \u0627\u0646\u062A\u062E\u0627\u0628 \u0645\u06CC\u200C\u0634\u0648\u062F: ${allowed}.`;
+    return `\u0645\u0633\u06CC\u0631 ${faDigits4(index + 1)}: \u0627\u0642\u0633\u0627\u0637 ${bad4.map((n) => `${faDigits4(n)} \u0645\u0627\u0647\u0647`).join("\u060C ")} \u062F\u0631 \u0627\u0642\u0633\u0627\u0637 \u0627\u06CC\u0646 \u0637\u0631\u062D \u062A\u0639\u0631\u06CC\u0641 \u0646\u0634\u062F\u0647 \u0627\u0633\u062A. \u0627\u0642\u0633\u0627\u0637 \u0645\u062C\u0627\u0632 \u0627\u06CC\u0646 \u0645\u0633\u06CC\u0631 \u0641\u0642\u0637 \u0627\u0632 \u0627\u0642\u0633\u0627\u0637 \u0637\u0631\u062D \u0627\u0646\u062A\u062E\u0627\u0628 \u0645\u06CC\u200C\u0634\u0648\u062F: ${allowed}.`;
   }
   return null;
 }
@@ -167572,7 +167572,7 @@ function createAssistants(deps) {
     if (!res.headersSent) res.status(status2).json({ error: error2, ...message2 ? { message: message2 } : {} });
   };
   const label2 = (a) => a.scope_rule === "manager" ? `${a.display_name} | \u0645\u062F\u06CC\u0631 \u0641\u0631\u0648\u0634` : `\u062F\u0633\u062A\u06CC\u0627\u0631 ${a.display_name}`;
-  const setting29 = (k, d) => row5("SELECT value FROM assistant_settings WHERE key=?", k)?.value ?? d;
+  const setting30 = (k, d) => row5("SELECT value FROM assistant_settings WHERE key=?", k)?.value ?? d;
   const globalOn = () => row5("SELECT value FROM assistant_settings WHERE key='global_enabled'")?.value === "1";
   const online2 = (a) => Boolean(a?.last_seen_at && now15().getTime() - Date.parse(a.last_seen_at) < ONLINE_MS);
   function audit3(o) {
@@ -168504,15 +168504,15 @@ function createAssistants(deps) {
     audit3({ req, a, tokenId: TK(res), action: "POST /customers/:id/assistant-notes", customerId: c.id, outcome: "ok", detail: { len: body.length } });
     res.status(201).json({ ok: true, id: Number(r.lastInsertRowid) });
   });
-  const urgentWriteIds = () => setting29(ASSISTANT_URGENT_IDS_KEY, "").split(",").map((x) => Number(x.trim())).filter((n) => Number.isSafeInteger(n) && n > 0);
-  const urgentWriteAllowed = (a) => setting29(ASSISTANT_URGENT_WRITE_KEY, "0") === "1" && urgentWriteIds().includes(Number(a?.id)) && normAssistant(a)?.kind === "sales" && a?.bound_user_id != null && Number(a?.bound_user_id) !== 29;
+  const urgentWriteIds = () => setting30(ASSISTANT_URGENT_IDS_KEY, "").split(",").map((x) => Number(x.trim())).filter((n) => Number.isSafeInteger(n) && n > 0);
+  const urgentWriteAllowed = (a) => setting30(ASSISTANT_URGENT_WRITE_KEY, "0") === "1" && urgentWriteIds().includes(Number(a?.id)) && normAssistant(a)?.kind === "sales" && a?.bound_user_id != null && Number(a?.bound_user_id) !== 29;
   runner.get("/urgent/options", (_req, res) => {
     res.json({ enabled: urgentWriteAllowed(A(res)), setOnly: true, reasons: URGENT_REASONS, otherTextRequired: true });
   });
   runner.post("/customers/:id/urgent", (req, res) => {
     const a = A(res);
     const act = "POST /customers/:id/urgent";
-    if (setting29(ASSISTANT_URGENT_WRITE_KEY, "0") !== "1") {
+    if (setting30(ASSISTANT_URGENT_WRITE_KEY, "0") !== "1") {
       audit3({ req, a, tokenId: TK(res), action: act, outcome: "urgent_write_disabled" });
       return fail22(res, 423, "urgent_write_disabled", "\u0646\u0648\u0634\u062A\u0646 \xAB\u0641\u0648\u0631\u06CC\xBB \u0628\u0631\u0627\u06CC \u062F\u0633\u062A\u06CC\u0627\u0631\u0647\u0627 \u062E\u0627\u0645\u0648\u0634 \u0627\u0633\u062A.");
     }
@@ -169341,18 +169341,18 @@ function createAssistants(deps) {
     const b = req.body ?? {};
     const sp2 = Number(b.salespersonId);
     const ex2 = managerExperts(db).find((e) => e.salespersonId === sp2);
-    const bad3 = (code, msg, st = 422) => {
+    const bad4 = (code, msg, st = 422) => {
       audit3({ req, a, tokenId: TK(res), action: "POST /manager/expert-analysis", outcome: code, detail: { salespersonId: b.salespersonId ?? null, period: b.period ?? null } });
       fail22(res, st, code, msg);
     };
-    if (!ex2) return bad3("not_found", "\u06A9\u0627\u0631\u0634\u0646\u0627\u0633 \u062F\u0631 \u0645\u062D\u062F\u0648\u062F\u0647\u200C\u06CC \u062F\u0633\u062A\u06CC\u0627\u0631 \u0645\u062F\u06CC\u0631 \u0646\u06CC\u0633\u062A.", 404);
-    if (ex2.trainee || isTraineeSalespersonOn(db, sp2)) return bad3("trainee_read_only", "\u0628\u0631\u0627\u06CC \u06A9\u0627\u0631\u0622\u0645\u0648\u0632\u0647\u0627 \u062A\u062D\u0644\u06CC\u0644 \u062B\u0628\u062A \u0646\u0645\u06CC\u200C\u0634\u0648\u062F (\u0641\u0642\u0637 \u062E\u0648\u0627\u0646\u062F\u0646\u06CC).", 403);
+    if (!ex2) return bad4("not_found", "\u06A9\u0627\u0631\u0634\u0646\u0627\u0633 \u062F\u0631 \u0645\u062D\u062F\u0648\u062F\u0647\u200C\u06CC \u062F\u0633\u062A\u06CC\u0627\u0631 \u0645\u062F\u06CC\u0631 \u0646\u06CC\u0633\u062A.", 404);
+    if (ex2.trainee || isTraineeSalespersonOn(db, sp2)) return bad4("trainee_read_only", "\u0628\u0631\u0627\u06CC \u06A9\u0627\u0631\u0622\u0645\u0648\u0632\u0647\u0627 \u062A\u062D\u0644\u06CC\u0644 \u062B\u0628\u062A \u0646\u0645\u06CC\u200C\u0634\u0648\u062F (\u0641\u0642\u0637 \u062E\u0648\u0627\u0646\u062F\u0646\u06CC).", 403);
     const period = perfPeriod(b.period);
-    if (!period) return bad3("bad_period", "period \u06CC\u06A9\u06CC \u0627\u0632 day | week | month \u0627\u0633\u062A.");
+    if (!period) return bad4("bad_period", "period \u06CC\u06A9\u06CC \u0627\u0632 day | week | month \u0627\u0633\u062A.");
     const ps = b.periodStart == null || b.periodStart === "" ? defaultPeriodStart(period, now15()) : validPeriodStart(period, b.periodStart, now15());
-    if (!ps) return bad3("bad_period_start", "periodStart \u0628\u0627\u06CC\u062F \u062A\u0627\u0631\u06CC\u062E \u0634\u0631\u0648\u0639 \u0647\u0645\u0627\u0646 \u0628\u0627\u0632\u0647 (YYYY-MM-DD \u062A\u0647\u0631\u0627\u0646) \u0628\u0627\u0634\u062F\u061B \u0631\u0648\u0632 = \u062F\u06CC\u0631\u0648\u0632 \u06CC\u0627 \u0642\u0628\u0644\u200C\u062A\u0631\u060C \u0647\u0641\u062A\u0647 = \u0634\u0646\u0628\u0647\u060C \u0645\u0627\u0647 = \u0627\u0648\u0644 \u0645\u0627\u0647 \u0634\u0645\u0633\u06CC.");
+    if (!ps) return bad4("bad_period_start", "periodStart \u0628\u0627\u06CC\u062F \u062A\u0627\u0631\u06CC\u062E \u0634\u0631\u0648\u0639 \u0647\u0645\u0627\u0646 \u0628\u0627\u0632\u0647 (YYYY-MM-DD \u062A\u0647\u0631\u0627\u0646) \u0628\u0627\u0634\u062F\u061B \u0631\u0648\u0632 = \u062F\u06CC\u0631\u0648\u0632 \u06CC\u0627 \u0642\u0628\u0644\u200C\u062A\u0631\u060C \u0647\u0641\u062A\u0647 = \u0634\u0646\u0628\u0647\u060C \u0645\u0627\u0647 = \u0627\u0648\u0644 \u0645\u0627\u0647 \u0634\u0645\u0633\u06CC.");
     const body = sanitizeAnalysisBody(b.body);
-    if (!body) return bad3("bad_body", `body \u0645\u062A\u0646 markdown \u063A\u06CC\u0631\u062E\u0627\u0644\u06CC \u0648 \u062D\u062F\u0627\u06A9\u062B\u0631 ${ANALYSIS_MAX_CHARS} \u0646\u0648\u06CC\u0633\u0647 \u0627\u0633\u062A.`);
+    if (!body) return bad4("bad_body", `body \u0645\u062A\u0646 markdown \u063A\u06CC\u0631\u062E\u0627\u0644\u06CC \u0648 \u062D\u062F\u0627\u06A9\u062B\u0631 ${ANALYSIS_MAX_CHARS} \u0646\u0648\u06CC\u0633\u0647 \u0627\u0633\u062A.`);
     const at = iso10();
     const r = db.prepare("INSERT INTO expert_analyses(salesperson_id,period,period_start,body,assistant_id,token_id,author_label,created_at) VALUES(?,?,?,?,?,?,?,?)").run(sp2, period, ps, body, a.id ?? null, TK(res) ?? null, label2(a), at);
     const id5 = Number(r.lastInsertRowid);
@@ -169964,7 +169964,7 @@ function createAssistants(deps) {
   staff2.get("/assistant/settings", (_req, res) => {
     const u = me30(res);
     if (!u) return fail22(res, 401, "unauthorized");
-    res.json({ creditInquiryPermission: setting29("credit_inquiry_permission", "manager") });
+    res.json({ creditInquiryPermission: setting30("credit_inquiry_permission", "manager") });
   });
   staff2.put("/assistant/prefs", (req, res) => {
     const u = me30(res);
@@ -170019,7 +170019,7 @@ function createAssistants(deps) {
   staff2.get("/admin/assistants", admin5, (_req, res) => {
     res.json({
       globalEnabled: globalOn(),
-      creditInquiryPermission: setting29("credit_inquiry_permission", "manager"),
+      creditInquiryPermission: setting30("credit_inquiry_permission", "manager"),
       managerAccess: !noMgr(res.locals.assistantAdmin),
       ahmadAccess: !noAhmad(res.locals.assistantAdmin),
       assistants: rows3("SELECT * FROM assistants ORDER BY id").filter((r) => !(noAhmad(res.locals.assistantAdmin) && normAssistant(r)?.kind === "manager")).map(adminView)
@@ -170027,7 +170027,7 @@ function createAssistants(deps) {
   });
   staff2.get("/admin/assistants/urgent-write", admin5, (_req, res) => {
     if (noMgr(res.locals.assistantAdmin)) return fail22(res, 403, "forbidden");
-    res.json({ enabled: setting29(ASSISTANT_URGENT_WRITE_KEY, "0") === "1", assistantIds: setting29(ASSISTANT_URGENT_IDS_KEY, "").split(",").map(Number).filter((n) => n > 0) });
+    res.json({ enabled: setting30(ASSISTANT_URGENT_WRITE_KEY, "0") === "1", assistantIds: setting30(ASSISTANT_URGENT_IDS_KEY, "").split(",").map(Number).filter((n) => n > 0) });
   });
   staff2.put("/admin/assistants/urgent-write", admin5, (req, res) => {
     if (noMgr(res.locals.assistantAdmin)) return fail22(res, 403, "forbidden");
@@ -173396,8 +173396,8 @@ function createBale(deps) {
   const fail22 = (res, status2, error2) => {
     if (!res.headersSent) res.status(status2).json({ error: error2, message: ERR_FA[error2] ?? ERR_FA.unknown });
   };
-  const setting29 = (k) => row5("SELECT value FROM bale_settings WHERE key=?", k)?.value ?? BALE_DEFAULT_SETTINGS[k] ?? AR_DEFAULT_SETTINGS[k];
-  const masterOn = () => setting29("master_enabled") === "1";
+  const setting30 = (k) => row5("SELECT value FROM bale_settings WHERE key=?", k)?.value ?? BALE_DEFAULT_SETTINGS[k] ?? AR_DEFAULT_SETTINGS[k];
+  const masterOn = () => setting30("master_enabled") === "1";
   const userRow = (id5) => row5(`SELECT id,${roleSql()} AS role,salesperson_id,active,full_name,username FROM users WHERE id=?`, id5);
   const nameOf3 = (u) => u ? u.full_name || u.username || `\u06A9\u0627\u0631\u0628\u0631 ${u.id}` : null;
   const me30 = (res) => {
@@ -173419,8 +173419,8 @@ function createBale(deps) {
     );
   }
   const accountOf = (userId) => row5("SELECT * FROM bale_accounts WHERE user_id=? AND kind<>'system_test'", userId);
-  const testOn = () => setting29("test_enabled") === "1";
-  const attachmentsOn = () => setting29("bale_attachments_enabled") === "1";
+  const testOn = () => setting30("test_enabled") === "1";
+  const attachmentsOn = () => setting30("bale_attachments_enabled") === "1";
   const planFiles = deps.planFilesDir ? createBalePlanFiles({ db, dir: deps.planFilesDir, now: now15, nameOf: (id5) => id5 == null ? null : nameOf3(userRow(id5)) }) : void 0;
   let test;
   const outbox = createBaleOutbox({
@@ -173429,7 +173429,7 @@ function createBale(deps) {
     env: deps.env,
     sidecar: deps.sidecar,
     random: deps.random,
-    setting: setting29,
+    setting: setting30,
     masterOn,
     userRow,
     nameOf: nameOf3,
@@ -173448,7 +173448,7 @@ function createBale(deps) {
     env: deps.env,
     sidecar: deps.sidecar,
     random: deps.random,
-    setting: setting29,
+    setting: setting30,
     nameOf: nameOf3,
     userRow,
     audit: (o) => audit3(o),
@@ -174074,7 +174074,7 @@ function createBale(deps) {
     if (!s) return "empty";
     const tp = baleTextProblem(s, (() => {
       try {
-        const l = JSON.parse(setting29("banned_words"));
+        const l = JSON.parse(setting30("banned_words"));
         return Array.isArray(l) ? l.map(String) : [];
       } catch {
         return [];
@@ -174211,7 +174211,7 @@ function createBale(deps) {
       heldUntil = ar.lastUnknownHeld();
     }
     const learnedId = ar.recordAnswer(q3, u.id, text3, save && !saveSkipped, sent);
-    const head = heldUntil ? `\u062C\u0648\u0627\u0628 \u062B\u0628\u062A \u0634\u062F \xB7 ${quietMorningFa(setting29("quiet_end"))}` : "\u062C\u0648\u0627\u0628 \u0631\u0641\u062A";
+    const head = heldUntil ? `\u062C\u0648\u0627\u0628 \u062B\u0628\u062A \u0634\u062F \xB7 ${quietMorningFa(setting30("quiet_end"))}` : "\u062C\u0648\u0627\u0628 \u0631\u0641\u062A";
     const tail = learnedId ? " \xB7 \u062F\u0631 \xAB\u062C\u0648\u0627\u0628\u200C\u0647\u0627\u06CC \u0622\u0645\u0648\u062E\u062A\u0647\u200C\u0634\u062F\u0647\xBB \u0630\u062E\u06CC\u0631\u0647 \u0634\u062F" : saveSkipped ? ` \xB7 ${LEARNED_SKIPPED_FA}` : "";
     res.json({ status: "queued", learnedId, heldUntil, saveSkipped, message: `${head}${tail}` });
   });
@@ -174308,7 +174308,7 @@ function createBale(deps) {
     const b = req.body ?? {};
     if (!p) return fail22(res, 404, "not_found");
     if (b.allowUnknown === true && p.slug !== "masoud") return void res.status(422).json({ error: "unknown_off", message: "\u067E\u0627\u0633\u062E \u0628\u0647 \u0634\u0645\u0627\u0631\u0647\u200C\u06CC \u0646\u0627\u0634\u0646\u0627\u0633 \u0641\u0642\u0637 \u0628\u0631\u0627\u06CC \u062C\u0641\u062A \u06A9\u0627\u0638\u0645\u06CC\u2013\u0645\u0633\u0639\u0648\u062F \u0627\u0633\u062A." });
-    if (p.slug !== "masoud" && ["enabled", "readsEnabled", "allowPlanFile"].some((k) => b[k] === true) && setting29("autoreply_allow_other_pairs") !== "1") {
+    if (p.slug !== "masoud" && ["enabled", "readsEnabled", "allowPlanFile"].some((k) => b[k] === true) && setting30("autoreply_allow_other_pairs") !== "1") {
       audit3({ req, u, action: "autoreply.pair", outcome: "pair_needs_mohammad", detail: { assistantId: p.assistant_id } });
       return void res.status(423).json({ error: "pair_needs_mohammad", message: "\u0627\u06CC\u0646 \u062C\u0641\u062A \u0641\u0642\u0637 \u0628\u0627 \u062A\u0623\u06CC\u06CC\u062F \u062C\u062F\u0627\u06AF\u0627\u0646\u0647\u200C\u06CC \u0645\u062D\u0645\u062F \u0631\u0648\u0634\u0646 \u0645\u06CC\u200C\u0634\u0648\u062F\u061B \u0641\u0639\u0644\u0627\u064B \u0641\u0642\u0637 \u062C\u0641\u062A \u06A9\u0627\u0638\u0645\u06CC\u2013\u0645\u0633\u0639\u0648\u062F \u0645\u062C\u0627\u0632 \u0627\u0633\u062A." });
     }
@@ -174407,16 +174407,16 @@ function createBale(deps) {
       planFilesReady: Boolean(planFiles),
       sidecarVersion: health.version ?? null,
       limits: {
-        gapMinS: Number(setting29("gap_min_s")),
-        gapMaxS: Number(setting29("gap_max_s")),
-        perHour: Number(setting29("per_hour")),
-        perDay: Number(setting29("per_day")),
-        newChatsPerDay: Number(setting29("new_chats_per_day")),
-        quietStart: setting29("quiet_start"),
-        quietEnd: setting29("quiet_end")
+        gapMinS: Number(setting30("gap_min_s")),
+        gapMaxS: Number(setting30("gap_max_s")),
+        perHour: Number(setting30("per_hour")),
+        perDay: Number(setting30("per_day")),
+        newChatsPerDay: Number(setting30("new_chats_per_day")),
+        quietStart: setting30("quiet_start"),
+        quietEnd: setting30("quiet_end")
       },
       // Decision (b): UNVERIFIED until checked with the test SIM; the default is the safe whole-account stop.
-      peerBlock: { mode: setting29("peer_block_mode"), verified: false },
+      peerBlock: { mode: setting30("peer_block_mode"), verified: false },
       experts: eligible2.map((u) => {
         const a = accounts.find((x) => x.user_id === u.id);
         return { userId: u.id, name: nameOf3(u), account: a ? adminAccount(a) : null };
@@ -174511,7 +174511,7 @@ function createBale(deps) {
     if (!BALE_PEER_BLOCK_MODES.includes(mode)) return fail22(res, 422, "bad_mode");
     run8("INSERT INTO bale_settings(key,value,updated_at,updated_by_user_id) VALUES('peer_block_mode',?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,updated_by_user_id=excluded.updated_by_user_id", mode, iso10(), u.id);
     audit3({ req, u, action: "admin.peer_block_mode", outcome: "ok", detail: { mode, unverified: true } });
-    res.json({ peerBlock: { mode: setting29("peer_block_mode"), verified: false } });
+    res.json({ peerBlock: { mode: setting30("peer_block_mode"), verified: false } });
   });
   const byId = (req, res) => {
     const a = row5("SELECT * FROM bale_accounts WHERE id=? AND kind<>'system_test'", Number(req.params.id));
@@ -181019,8 +181019,8 @@ function dqQueue(user9, now15 = /* @__PURE__ */ new Date()) {
       if (!r && !CORR.includes(String(a.stage))) continue;
       const key = `fa-${a.id}`;
       const m = marks.get(key);
-      const bad3 = docs ? queryRows("SELECT label, incomplete_reason FROM loan_application_documents WHERE application_id=? AND status IN ('rejected','incomplete') ORDER BY id LIMIT 3", [a.id]) : [];
-      const need2 = bad3.length ? bad3.map((d) => `\u0628\u0627\u0631\u06AF\u0630\u0627\u0631\u06CC \u062F\u0648\u0628\u0627\u0631\u0647\u200C\u06CC ${d.label}${d.incomplete_reason ? `\u061B \u062F\u0644\u06CC\u0644: ${String(d.incomplete_reason).slice(0, 120)}` : ""}`).join(" \u2014 ") : FC_STAGE_LABELS[a.stage] ?? String(a.stage);
+      const bad4 = docs ? queryRows("SELECT label, incomplete_reason FROM loan_application_documents WHERE application_id=? AND status IN ('rejected','incomplete') ORDER BY id LIMIT 3", [a.id]) : [];
+      const need2 = bad4.length ? bad4.map((d) => `\u0628\u0627\u0631\u06AF\u0630\u0627\u0631\u06CC \u062F\u0648\u0628\u0627\u0631\u0647\u200C\u06CC ${d.label}${d.incomplete_reason ? `\u061B \u062F\u0644\u06CC\u0644: ${String(d.incomplete_reason).slice(0, 120)}` : ""}`).join(" \u2014 ") : FC_STAGE_LABELS[a.stage] ?? String(a.stage);
       const at = r?.returned_at ?? a.updated_at ?? a.created_at;
       add(Number(a.customer_id), {
         key,
@@ -188453,7 +188453,7 @@ function createBaleBotRouter() {
     const experts2 = queryRows(`SELECT id,role,role AS base_role,salesperson_id,active,full_name,username FROM users WHERE (role='salesperson' OR id IN (${BB_EXTRA_EXPERT_USER_IDS.map(Number).join(",") || "-1"})) AND active=1 ORDER BY id`).filter((e) => isBotExpert(e) && e.id !== BC_GHASEMI_USER_ID);
     res.json({ hasKey: baleBotHasKey(process.env), noSend: bbNoSendSp(), experts: experts2.map((e) => ({ id: e.id, name: nameOf2(e), salespersonId: e.salesperson_id, flagOn: bbUserOn(e.id), bot: botView(botOfUser(e.id)), noSend: bbNoSendSp().includes(Number(e.salesperson_id)) })) });
   });
-  const getMe = async (token) => {
+  const getMe2 = async (token) => {
     const r2 = await baleCall(token, "getMe", {}, 15e3);
     if (r2.ok) return { ok: true, bot: { id: String(r2.result.id), name: r2.result.first_name ?? null, username: r2.result.username ?? null } };
     return { ok: false, error: r2.network ? "network" : r2.code === 401 || r2.code === 404 ? "bad_token" : "bale_error" };
@@ -188466,7 +188466,7 @@ function createBaleBotRouter() {
       bbLog({ userId: u.id, action: "admin.test", outcome: "bad_shape" });
       return fail19(res, 400, "bad_token");
     }
-    const g = await getMe(token);
+    const g = await getMe2(token);
     bbLog({ userId: u.id, action: "admin.test", outcome: g.ok ? "ok" : g.error });
     if (!g.ok) return fail19(res, g.error === "network" ? 502 : 400, g.error);
     res.json({ ok: true, bot: { name: g.bot.name, username: g.bot.username } });
@@ -188483,7 +188483,7 @@ function createBaleBotRouter() {
     if (!baleBotHasKey(process.env)) return fail19(res, 503, "key_missing");
     const cur = botOfUser(userId);
     if (cur && cur.token_ct && !replace) return fail19(res, 409, "has_bot");
-    const g = await getMe(token);
+    const g = await getMe2(token);
     if (!g.ok) {
       bbLog({ userId: u.id, action: "admin.save", outcome: g.error });
       return fail19(res, g.error === "network" ? 502 : 400, g.error);
@@ -188515,7 +188515,7 @@ function createBaleBotRouter() {
     const { botToken: botToken2 } = await Promise.resolve().then(() => (init_bale_bot(), bale_bot_exports));
     const tok = botToken2(b);
     if (!tok) return fail19(res, 503, "key_missing");
-    const g = await getMe(tok);
+    const g = await getMe2(tok);
     bbLog({ userId: u.id, botId: b.id, action: "admin.test_saved", outcome: g.ok ? "ok" : g.error });
     if (!g.ok) {
       if (g.error === "bad_token") executeChanges("UPDATE bale_bots SET status='err', last_error='token_rejected' WHERE id=?", [b.id]);
@@ -189360,6 +189360,459 @@ init_customer_phones();
 // src/routes/sales-manager-console.ts
 var import_express79 = __toESM(require_express2(), 1);
 init_crm_db();
+
+// src/lib/smc-bot-edit.ts
+init_crm_db();
+init_bale_bot();
+init_bale_contact();
+init_bale_bot_crypto();
+init_social_hub_send();
+var SMC_BOT_EDIT_FLAG = "flag.smc_bot_edit_v1";
+var setting29 = (k) => {
+  try {
+    return queryRow("SELECT value FROM call_queue_settings WHERE key=?", [k])?.value ?? null;
+  } catch {
+    return null;
+  }
+};
+var smcBotEditFlagOn = () => setting29(SMC_BOT_EDIT_FLAG) === "1";
+var smcBotEditOn = () => smcFlagOn() && smcBotEditFlagOn();
+var smcBotEditCanManage = (u) => smcBotEditOn() && smcCanManage(u) && Number(u?.id) !== SMC_NEVER_USER;
+var bad3 = (message2, status2 = 422, error2 = "invalid") => ({ ok: false, status: status2, error: error2, message: message2 });
+function readonlySendFor(u) {
+  if (Number(u.id) === BC_GHASEMI_USER_ID) return true;
+  if (u.salesperson_id != null && bbNoSendSp().includes(Number(u.salesperson_id))) return true;
+  try {
+    return shIsReadonlyBotUser(u.id);
+  } catch {
+    return false;
+  }
+}
+function listCandidateUsers() {
+  const rows3 = queryRows(
+    `SELECT u.id, u.role, u.role AS base_role, u.salesperson_id, u.active, u.full_name, u.username
+     FROM users u
+     LEFT JOIN bale_bots b ON b.user_id = u.id
+     WHERE u.active = 1 AND u.id <> ?
+       AND (u.role = 'salesperson' OR u.id IN (${BB_EXTRA_EXPERT_USER_IDS.map(Number).join(",") || "-1"}) OR b.id IS NOT NULL)
+     ORDER BY u.id`,
+    [SMC_NEVER_USER]
+  );
+  return rows3.filter((u) => {
+    if (u.id === SMC_NEVER_USER || u.active === 0) return false;
+    if (isBotExpert(u)) return true;
+    return !!botOfUser(u.id);
+  });
+}
+function isEditableExpert(userId) {
+  if (!Number.isInteger(userId) || userId <= 0 || userId === SMC_NEVER_USER) return null;
+  const u = bbUser(userId);
+  if (!u || u.active === 0 || u.id === SMC_NEVER_USER) return null;
+  if (isBotExpert(u)) return u;
+  return botOfUser(userId) ? u : null;
+}
+function toExpertView(u, b) {
+  const ro = readonlySendFor(u);
+  const mode = ro ? "own" : sabModeOf(u.id);
+  const hasTok = Boolean(b?.token_ct);
+  return {
+    userId: u.id,
+    name: nameOf2(u) ?? `\u06A9\u0627\u0631\u0628\u0631 ${u.id}`,
+    salespersonId: u.salesperson_id == null ? null : Number(u.salesperson_id),
+    baleFlagOn: bbUserOn(u.id),
+    readonlySend: ro,
+    readonlyReason: ro ? "\u0641\u0642\u0637 \u067E\u06CC\u0627\u0645 \u0627\u0646\u062A\u0642\u0627\u0644 \xB7 \u0627\u0631\u0633\u0627\u0644 \u0639\u0627\u062F\u06CC \u0648 \u062E\u0648\u062F\u06A9\u0627\u0631 \u0628\u0633\u062A\u0647 \u0627\u0633\u062A" : null,
+    mode,
+    paused: !ro && sabOn() && mode === "shared" && hasTok,
+    bot: b ? {
+      id: b.id,
+      name: b.bot_name ?? null,
+      username: b.bot_username ?? null,
+      botUserId: b.bot_user_id ?? null,
+      status: b.status,
+      tokenSaved: hasTok,
+      tokenStatusLabel: hasTok ? "\u062B\u0628\u062A \u0634\u062F\u0647" : "\u062B\u0628\u062A \u0646\u0634\u062F\u0647",
+      ai: sabAiFor(b.id),
+      connectedAt: b.connected_at ?? null,
+      lastOkAt: b.last_ok_at ?? null,
+      lastError: b.last_error ?? null
+    } : null
+  };
+}
+function smcBotsView() {
+  ensureBaleBotSchema();
+  const experts2 = listCandidateUsers().map((u) => toExpertView(u, botOfUser(u.id)));
+  return {
+    flag: SMC_BOT_EDIT_FLAG,
+    hasKey: baleBotHasKey(process.env),
+    sabEnabled: sabOn(),
+    experts: experts2
+  };
+}
+async function getMe(token) {
+  const r = await baleCall(token, "getMe", {}, 15e3);
+  if (r.ok && r.result?.id != null) {
+    return {
+      ok: true,
+      bot: {
+        id: String(r.result.id),
+        name: r.result.first_name ?? null,
+        username: r.result.username ?? null
+      }
+    };
+  }
+  const err6 = r.ok ? "bad_token" : r.network ? "network" : r.code === 401 || r.code === 404 ? "bad_token" : "bale_error";
+  return { ok: false, error: err6 };
+}
+async function smcBotTestToken(u, body) {
+  if (!smcBotEditCanManage(u)) return bad3("\u0627\u06CC\u0646 \u0628\u062E\u0634 \u0641\u0642\u0637 \u0628\u0631\u0627\u06CC \u0645\u062F\u06CC\u0631 \u0641\u0631\u0648\u0634 \u0648 \u0627\u062F\u0645\u06CC\u0646 \u0627\u0633\u062A.", 403, "smc_forbidden");
+  const token = typeof body.token === "string" ? body.token.trim() : "";
+  if (!tokenShapeOk(token)) {
+    bbLog({ userId: u.id, action: "smc.bot.test", outcome: "bad_shape" });
+    return bad3("\u0628\u0644\u0647 \u0627\u06CC\u0646 \u062A\u0648\u06A9\u0646 \u0631\u0627 \u0646\u0634\u0646\u0627\u062E\u062A. \u062A\u0648\u06A9\u0646 \u0631\u0627 \u062F\u0648\u0628\u0627\u0631\u0647 \u0627\u0632 @botfather \u06A9\u067E\u06CC \u06A9\u0646\u06CC\u062F.", 400, "bad_token");
+  }
+  const g = await getMe(token);
+  bbLog({ userId: u.id, action: "smc.bot.test", outcome: g.ok ? "ok" : g.error });
+  if (!g.ok) {
+    return bad3(
+      g.error === "network" ? "\u0628\u0647 \u0628\u0644\u0647 \u0648\u0635\u0644 \u0646\u0634\u062F. \u06A9\u0645\u06CC \u0628\u0639\u062F \u062F\u0648\u0628\u0627\u0631\u0647 \u062A\u0633\u062A \u06A9\u0646\u06CC\u062F." : "\u0628\u0644\u0647 \u0627\u06CC\u0646 \u062A\u0648\u06A9\u0646 \u0631\u0627 \u0646\u0634\u0646\u0627\u062E\u062A.",
+      g.error === "network" ? 502 : 400,
+      g.error
+    );
+  }
+  return { ok: true, bot: { name: g.bot.name, username: g.bot.username } };
+}
+async function smcBotTestSaved(u, userId, now15 = /* @__PURE__ */ new Date()) {
+  if (!smcBotEditCanManage(u)) return bad3("\u0627\u06CC\u0646 \u0628\u062E\u0634 \u0641\u0642\u0637 \u0628\u0631\u0627\u06CC \u0645\u062F\u06CC\u0631 \u0641\u0631\u0648\u0634 \u0648 \u0627\u062F\u0645\u06CC\u0646 \u0627\u0633\u062A.", 403, "smc_forbidden");
+  ensureBaleBotSchema();
+  const target3 = isEditableExpert(userId);
+  if (!target3) return bad3("\u06A9\u0627\u0631\u0634\u0646\u0627\u0633 \u067E\u06CC\u062F\u0627 \u0646\u0634\u062F.", 404, "unknown_expert");
+  const b = botOfUser(userId);
+  if (!b || !b.token_ct) return bad3("\u0628\u0631\u0627\u06CC \u0627\u06CC\u0646 \u06A9\u0627\u0631\u0634\u0646\u0627\u0633 \u0647\u0646\u0648\u0632 \u062A\u0648\u06A9\u0646\u06CC \u062B\u0628\u062A \u0646\u0634\u062F\u0647 \u0627\u0633\u062A.", 404, "not_found");
+  const tok = botToken(b);
+  if (!tok) return bad3("\u06A9\u0644\u06CC\u062F \u0631\u0645\u0632\u0646\u06AF\u0627\u0631\u06CC \u062A\u0648\u06A9\u0646 \u0631\u0648\u06CC \u0633\u0631\u0648\u0631 \u0646\u06CC\u0633\u062A.", 503, "key_missing");
+  const g = await getMe(tok);
+  bbLog({ userId: u.id, botId: b.id, action: "smc.bot.test_saved", outcome: g.ok ? "ok" : g.error });
+  const at = now15.toISOString();
+  if (!g.ok) {
+    if (g.error === "bad_token") {
+      executeChanges("UPDATE bale_bots SET status='err', last_error='token_rejected', updated_at=? WHERE id=?", [at, b.id]);
+    }
+    return bad3(
+      g.error === "network" ? "\u0628\u0647 \u0628\u0644\u0647 \u0648\u0635\u0644 \u0646\u0634\u062F. \u06A9\u0645\u06CC \u0628\u0639\u062F \u062F\u0648\u0628\u0627\u0631\u0647 \u062A\u0633\u062A \u06A9\u0646\u06CC\u062F." : "\u062A\u0648\u06A9\u0646 \u0630\u062E\u06CC\u0631\u0647\u200C\u0634\u062F\u0647 \u062A\u0648\u0633\u0637 \u0628\u0644\u0647 \u0631\u062F \u0634\u062F.",
+      g.error === "network" ? 502 : 400,
+      g.error
+    );
+  }
+  executeChanges(
+    "UPDATE bale_bots SET status=CASE WHEN status='err' THEN 'on' ELSE status END, last_error=NULL, last_ok_at=?, updated_at=? WHERE id=?",
+    [at, at, b.id]
+  );
+  return { ok: true, bot: { name: g.bot.name, username: g.bot.username }, expert: toExpertView(target3, botOfUser(userId)) };
+}
+var snapKeys2 = (keys) => Object.fromEntries(keys.map((k) => [k, setting29(k)]));
+function putKeys2(next, uid, at) {
+  let n = 0;
+  for (const [k, v] of Object.entries(next)) {
+    const cur = setting29(k);
+    if (cur === v) continue;
+    n++;
+    if (v == null) execute("DELETE FROM call_queue_settings WHERE key=?", [k]);
+    else {
+      execute(
+        "INSERT INTO call_queue_settings(key,value,updated_by,updated_at) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_by=excluded.updated_by, updated_at=excluded.updated_at",
+        [k, v, uid, at]
+      );
+    }
+    execute("INSERT INTO call_queue_settings_log(key,old_value,new_value,user_id,at) VALUES(?,?,?,?,?)", [k, cur, v, uid, at]);
+  }
+  return n;
+}
+async function smcBotEditSave(u, userId, body, now15 = /* @__PURE__ */ new Date()) {
+  if (!smcBotEditCanManage(u)) return bad3("\u0627\u06CC\u0646 \u0628\u062E\u0634 \u0641\u0642\u0637 \u0628\u0631\u0627\u06CC \u0645\u062F\u06CC\u0631 \u0641\u0631\u0648\u0634 \u0648 \u0627\u062F\u0645\u06CC\u0646 \u0627\u0633\u062A.", 403, "smc_forbidden");
+  ensureBaleBotSchema();
+  const target3 = isEditableExpert(userId);
+  if (!target3) return bad3("\u06A9\u0627\u0631\u0634\u0646\u0627\u0633 \u067E\u06CC\u062F\u0627 \u0646\u0634\u062F.", 404, "unknown_expert");
+  const ro = readonlySendFor(target3);
+  const cur = botOfUser(userId);
+  let nextName;
+  if (body.botName !== void 0) {
+    if (typeof body.botName !== "string") return bad3("\u0646\u0627\u0645 \u0631\u0628\u0627\u062A \u0645\u0639\u062A\u0628\u0631 \u0646\u06CC\u0633\u062A.", 422, "invalid_name");
+    const trimmed = body.botName.trim();
+    if (!trimmed) return bad3("\u0646\u0627\u0645 \u0631\u0628\u0627\u062A \u0646\u0645\u06CC\u200C\u062A\u0648\u0627\u0646\u062F \u062E\u0627\u0644\u06CC \u0628\u0627\u0634\u062F.", 422, "invalid_name");
+    if (trimmed.length > 80) return bad3("\u0646\u0627\u0645 \u0631\u0628\u0627\u062A \u0646\u0628\u0627\u06CC\u062F \u0628\u06CC\u0634 \u0627\u0632 \u06F8\u06F0 \u0646\u0648\u06CC\u0633\u0647 \u0628\u0627\u0634\u062F.", 422, "invalid_name");
+    nextName = trimmed;
+  }
+  let nextStatus;
+  if (body.status !== void 0) {
+    if (body.status !== "on" && body.status !== "off") return bad3("\u0648\u0636\u0639\u06CC\u062A \u0631\u0628\u0627\u062A \u0628\u0627\u06CC\u062F \u0641\u0639\u0627\u0644 \u06CC\u0627 \u063A\u06CC\u0631\u0641\u0639\u0627\u0644 \u0628\u0627\u0634\u062F.", 422, "invalid_status");
+    nextStatus = body.status;
+  }
+  let nextMode;
+  if (body.mode !== void 0) {
+    if (body.mode !== "own" && body.mode !== "shared") return bad3("\u062D\u0627\u0644\u062A \u067E\u0627\u0633\u062E\u06AF\u0648\u06CC\u06CC \u0645\u0639\u062A\u0628\u0631 \u0646\u06CC\u0633\u062A.", 422, "invalid_mode");
+    if (ro) return bad3("\u0631\u0628\u0627\u062A \u062E\u0627\u0646\u0645 \u0642\u0627\u0633\u0645\u06CC \u0641\u0642\u0637 \u0628\u0631\u0627\u06CC \u067E\u06CC\u0627\u0645 \u0627\u0646\u062A\u0642\u0627\u0644 \u0627\u0633\u062A \u0648 \u062D\u0627\u0644\u062A \u0622\u0646 \u062A\u063A\u06CC\u06CC\u0631 \u0646\u0645\u06CC\u200C\u06A9\u0646\u062F.", 403, "read_only");
+    nextMode = body.mode;
+  }
+  let nextAi;
+  if (body.ai !== void 0) {
+    if (typeof body.ai !== "boolean") return bad3("\u0645\u0642\u062F\u0627\u0631 \u0647\u0648\u0634 \u0645\u0635\u0646\u0648\u0639\u06CC \u0645\u0639\u062A\u0628\u0631 \u0646\u06CC\u0633\u062A.", 422, "invalid_ai");
+    if (ro) return bad3("\u0631\u0628\u0627\u062A \u062E\u0627\u0646\u0645 \u0642\u0627\u0633\u0645\u06CC \u0641\u0642\u0637 \u0628\u0631\u0627\u06CC \u067E\u06CC\u0627\u0645 \u0627\u0646\u062A\u0642\u0627\u0644 \u0627\u0633\u062A \u0648 \u0647\u0648\u0634 \u0645\u0635\u0646\u0648\u0639\u06CC \u0628\u0631\u0627\u06CC \u0622\u0646 \u0641\u0639\u0627\u0644 \u0646\u0645\u06CC\u200C\u0634\u0648\u062F.", 403, "read_only");
+    nextAi = body.ai;
+  }
+  const rawToken = typeof body.token === "string" ? body.token.trim() : "";
+  const hasNewToken = rawToken.length > 0;
+  if (body.token !== void 0 && body.token !== null && typeof body.token !== "string") {
+    return bad3("\u062A\u0648\u06A9\u0646 \u0631\u0628\u0627\u062A \u0645\u0639\u062A\u0628\u0631 \u0646\u06CC\u0633\u062A.", 400, "bad_token");
+  }
+  if (!hasNewToken && !cur?.token_ct) {
+    if (nextStatus === "on" || nextName !== void 0 || nextAi !== void 0 || !nextMode && !cur) {
+      return bad3("\u0628\u0631\u0627\u06CC \u0627\u06CC\u0646 \u06A9\u0627\u0631\u0634\u0646\u0627\u0633 \u0647\u0646\u0648\u0632 \u0631\u0628\u0627\u062A\u06CC \u0648\u0635\u0644 \u0646\u0634\u062F\u0647 \u0627\u0633\u062A\u061B \u0627\u0628\u062A\u062F\u0627 \u062A\u0648\u06A9\u0646 \u0631\u0628\u0627\u062A \u0631\u0627 \u0648\u0627\u0631\u062F \u06A9\u0646\u06CC\u062F.", 422, "no_token");
+    }
+  }
+  let verifiedBot = null;
+  if (hasNewToken) {
+    if (!tokenShapeOk(rawToken)) {
+      bbLog({ userId: u.id, botId: cur?.id ?? null, action: "smc.bot.edit", outcome: "bad_shape" });
+      return bad3("\u0628\u0644\u0647 \u0627\u06CC\u0646 \u062A\u0648\u06A9\u0646 \u0631\u0627 \u0646\u0634\u0646\u0627\u062E\u062A. \u062A\u0648\u06A9\u0646 \u0631\u0627 \u062F\u0648\u0628\u0627\u0631\u0647 \u0627\u0632 @botfather \u06A9\u067E\u06CC \u06A9\u0646\u06CC\u062F.", 400, "bad_token");
+    }
+    if (!baleBotHasKey(process.env)) return bad3("\u06A9\u0644\u06CC\u062F \u0631\u0645\u0632\u0646\u06AF\u0627\u0631\u06CC \u062A\u0648\u06A9\u0646 \u0631\u0648\u06CC \u0633\u0631\u0648\u0631 \u0646\u06CC\u0633\u062A\u061B \u062A\u0648\u06A9\u0646 \u0630\u062E\u06CC\u0631\u0647 \u0646\u0634\u062F.", 503, "key_missing");
+    const g = await getMe(rawToken);
+    if (!g.ok) {
+      bbLog({ userId: u.id, botId: cur?.id ?? null, action: "smc.bot.edit", outcome: g.error });
+      return bad3(
+        g.error === "network" ? "\u0628\u0647 \u0628\u0644\u0647 \u0648\u0635\u0644 \u0646\u0634\u062F. \u06A9\u0645\u06CC \u0628\u0639\u062F \u062F\u0648\u0628\u0627\u0631\u0647 \u062A\u0633\u062A \u06A9\u0646\u06CC\u062F." : "\u0628\u0644\u0647 \u0627\u06CC\u0646 \u062A\u0648\u06A9\u0646 \u0631\u0627 \u0646\u0634\u0646\u0627\u062E\u062A.",
+        g.error === "network" ? 502 : 400,
+        g.error
+      );
+    }
+    if (queryRow("SELECT 1 FROM bale_bots WHERE bot_user_id=? AND user_id<>? AND token_ct IS NOT NULL", [g.bot.id, userId])) {
+      return bad3("\u0627\u06CC\u0646 \u0631\u0628\u0627\u062A \u0628\u0631\u0627\u06CC \u06A9\u0627\u0631\u0634\u0646\u0627\u0633 \u062F\u06CC\u06AF\u0631\u06CC \u0648\u0635\u0644 \u0627\u0633\u062A.", 409, "bot_in_use");
+    }
+    verifiedBot = g.bot;
+  }
+  const at = now15.toISOString();
+  const uid = Number(u.id);
+  let botId = cur?.id ?? 0;
+  let changed = false;
+  let auditId = 0;
+  runImmediateTransaction(() => {
+    const beforeName = cur?.bot_name ?? null;
+    const beforeStatus = cur?.status ?? null;
+    const keyWrites = {};
+    if (verifiedBot) {
+      if (!botId) {
+        botId = execute(
+          "INSERT INTO bale_bots(user_id,status,created_by,created_at,updated_at) VALUES(?, 'off', ?, ?, ?)",
+          [userId, uid, at, at]
+        );
+      }
+      const sealed = sealBotToken(process.env, rawToken, baleBotAad(botId, userId));
+      const sameBot = cur?.bot_user_id === verifiedBot.id;
+      const resolvedName = nextName ?? verifiedBot.name ?? beforeName ?? null;
+      const resolvedStatus = nextStatus ?? "on";
+      executeChanges(
+        `UPDATE bale_bots
+         SET token_ct=?, token_key_id=?, bot_user_id=?, bot_username=?, bot_name=?, status=?,
+             last_error=NULL, last_ok_at=?, updated_at=?,
+             connected_at=CASE WHEN ? THEN COALESCE(connected_at,?) ELSE ? END,
+             next_offset=CASE WHEN ? THEN next_offset ELSE 0 END,
+             backlog_skipped=CASE WHEN ? THEN backlog_skipped ELSE 0 END
+         WHERE id=?`,
+        [
+          sealed.value,
+          sealed.keyId,
+          verifiedBot.id,
+          verifiedBot.username,
+          resolvedName,
+          resolvedStatus,
+          at,
+          at,
+          sameBot ? 1 : 0,
+          at,
+          at,
+          sameBot ? 1 : 0,
+          sameBot ? 1 : 0,
+          botId
+        ]
+      );
+      if (sabOn()) {
+        if (!cur?.token_ct && nextAi === void 0 && setting29(K2.ai(botId)) == null) keyWrites[K2.ai(botId)] = "0";
+        if (!ro && !cur?.token_ct && nextMode === void 0 && setting29(K2.mode(userId)) == null) keyWrites[K2.mode(userId)] = "own";
+      }
+      changed = true;
+    } else if (cur && cur.token_ct) {
+      const targetName = nextName !== void 0 ? nextName : cur.bot_name;
+      const targetStatus = nextStatus !== void 0 ? nextStatus : cur.status;
+      if (targetName !== cur.bot_name || targetStatus !== cur.status) {
+        const clearErr = targetStatus === "on" && cur.status === "err";
+        executeChanges(
+          `UPDATE bale_bots SET bot_name=?, status=?, ${clearErr ? "last_error=NULL, " : ""}updated_at=? WHERE id=?`,
+          [targetName, targetStatus, at, cur.id]
+        );
+        changed = true;
+      }
+    }
+    if (sabOn() && !ro) {
+      if (nextMode !== void 0) keyWrites[K2.mode(userId)] = nextMode;
+      if (nextAi !== void 0 && botId > 0) keyWrites[K2.ai(botId)] = nextAi ? "1" : "0";
+    }
+    const keys = Object.keys(keyWrites);
+    const beforeKeys = keys.length ? snapKeys2(keys) : void 0;
+    const keyChanges = keys.length ? putKeys2(keyWrites, uid, at) : 0;
+    if (keyChanges > 0) changed = true;
+    if (!changed) return;
+    const afterBot = botId ? queryRow("SELECT * FROM bale_bots WHERE id=?", [botId]) : null;
+    const parts2 = [];
+    if (verifiedBot) parts2.push(cur?.token_ct ? `\u062A\u0639\u0648\u06CC\u0636 \u062A\u0648\u06A9\u0646 (@${verifiedBot.username ?? "\u2014"})` : `\u0627\u062A\u0635\u0627\u0644 \u0631\u0628\u0627\u062A (@${verifiedBot.username ?? "\u2014"})`);
+    if (afterBot && beforeName !== afterBot.bot_name) parts2.push(`\u0646\u0627\u0645 \xAB${afterBot.bot_name ?? "\u2014"}\xBB`);
+    if (afterBot && beforeStatus !== afterBot.status) parts2.push(`\u0648\u0636\u0639\u06CC\u062A ${afterBot.status === "on" ? "\u0641\u0639\u0627\u0644" : "\u063A\u06CC\u0631\u0641\u0639\u0627\u0644"}`);
+    if (keyChanges > 0) parts2.push(`${fa6(keyChanges)} \u062A\u0646\u0638\u06CC\u0645 \u067E\u0627\u0633\u062E\u06AF\u0648\u06CC\u06CC`);
+    const summary2 = redact(`\u0648\u06CC\u0631\u0627\u06CC\u0634 \u0631\u0628\u0627\u062A ${nameOf2(target3) ?? `\u06A9\u0627\u0631\u0628\u0631 ${userId}`}: ${parts2.join("\u060C ") || "\u0628\u0647\u200C\u0631\u0648\u0632\u0631\u0633\u0627\u0646\u06CC"}`, rawToken);
+    auditId = execute(
+      "INSERT INTO smc_audit(at,user_id,section,summary_fa,before_json,after_json) VALUES(?,?,?,?,?,?)",
+      [
+        at,
+        uid,
+        "bale_bots",
+        summary2,
+        JSON.stringify({
+          botEdit: {
+            userId,
+            botId: botId || null,
+            botName: beforeName,
+            status: beforeStatus,
+            tokenChanged: Boolean(verifiedBot)
+          },
+          ...beforeKeys ? { keys: beforeKeys } : {}
+        }),
+        JSON.stringify({
+          botEdit: {
+            userId,
+            botId: botId || null,
+            botName: afterBot?.bot_name ?? null,
+            status: afterBot?.status ?? null,
+            username: afterBot?.bot_username ?? null,
+            tokenChanged: Boolean(verifiedBot)
+          },
+          ...keys.length ? { keys: snapKeys2(keys) } : {}
+        })
+      ]
+    );
+  });
+  if (changed) {
+    bbLog({
+      userId: uid,
+      botId: botId || null,
+      action: verifiedBot ? cur?.token_ct ? "smc.bot.replace" : "smc.bot.connect" : "smc.bot.edit",
+      outcome: "ok"
+    });
+  }
+  return {
+    ok: true,
+    changed,
+    auditId,
+    expert: toExpertView(target3, botOfUser(userId))
+  };
+}
+function smcBotDisconnect(u, userId, now15 = /* @__PURE__ */ new Date()) {
+  if (!smcBotEditCanManage(u)) return bad3("\u0627\u06CC\u0646 \u0628\u062E\u0634 \u0641\u0642\u0637 \u0628\u0631\u0627\u06CC \u0645\u062F\u06CC\u0631 \u0641\u0631\u0648\u0634 \u0648 \u0627\u062F\u0645\u06CC\u0646 \u0627\u0633\u062A.", 403, "smc_forbidden");
+  ensureBaleBotSchema();
+  const target3 = isEditableExpert(userId);
+  if (!target3) return bad3("\u06A9\u0627\u0631\u0634\u0646\u0627\u0633 \u067E\u06CC\u062F\u0627 \u0646\u0634\u062F.", 404, "unknown_expert");
+  const cur = botOfUser(userId);
+  if (!cur || !cur.token_ct) return bad3("\u0628\u0631\u0627\u06CC \u0627\u06CC\u0646 \u06A9\u0627\u0631\u0634\u0646\u0627\u0633 \u0631\u0628\u0627\u062A \u0648\u0635\u0644\u06CC \u062B\u0628\u062A \u0646\u0634\u062F\u0647 \u0627\u0633\u062A.", 404, "not_found");
+  const at = now15.toISOString();
+  const uid = Number(u.id);
+  let auditId = 0;
+  runImmediateTransaction(() => {
+    executeChanges("UPDATE bale_bots SET status='off', token_ct=NULL, token_key_id=NULL, updated_at=? WHERE id=?", [at, cur.id]);
+    auditId = execute(
+      "INSERT INTO smc_audit(at,user_id,section,summary_fa,before_json,after_json) VALUES(?,?,?,?,?,?)",
+      [
+        at,
+        uid,
+        "bale_bots",
+        `\u0642\u0637\u0639 \u0627\u062A\u0635\u0627\u0644 \u0631\u0628\u0627\u062A ${nameOf2(target3) ?? `\u06A9\u0627\u0631\u0628\u0631 ${userId}`} (@${cur.bot_username ?? "\u2014"})`,
+        JSON.stringify({ botEdit: { userId, botId: cur.id, botName: cur.bot_name, status: cur.status, tokenChanged: true } }),
+        JSON.stringify({ botEdit: { userId, botId: cur.id, botName: cur.bot_name, status: "off", tokenChanged: true } })
+      ]
+    );
+  });
+  bbLog({ userId: uid, botId: cur.id, action: "smc.bot.disconnect", outcome: "ok" });
+  return {
+    ok: true,
+    changed: true,
+    auditId,
+    expert: toExpertView(target3, botOfUser(userId))
+  };
+}
+function smcBotEditUndo(u, auditId, now15 = /* @__PURE__ */ new Date()) {
+  if (!smcBotEditCanManage(u)) return bad3("\u0627\u06CC\u0646 \u0628\u062E\u0634 \u0641\u0642\u0637 \u0628\u0631\u0627\u06CC \u0645\u062F\u06CC\u0631 \u0641\u0631\u0648\u0634 \u0648 \u0627\u062F\u0645\u06CC\u0646 \u0627\u0633\u062A.", 403, "smc_forbidden");
+  const row5 = queryRow(
+    "SELECT id, section, before_json FROM smc_audit WHERE id=?",
+    [auditId]
+  );
+  if (!row5 || row5.section !== "bale_bots") return null;
+  let parsed2;
+  try {
+    parsed2 = JSON.parse(row5.before_json);
+  } catch {
+    return null;
+  }
+  if (!parsed2?.botEdit) return null;
+  if (parsed2.botEdit.tokenChanged) {
+    return bad3("\u062A\u063A\u06CC\u06CC\u0631 \u06CC\u0627 \u0642\u0637\u0639 \u062A\u0648\u06A9\u0646 \u0631\u0628\u0627\u062A \u0627\u0632 \u062A\u0627\u0631\u06CC\u062E\u0686\u0647 \u0628\u0631\u06AF\u0631\u062F\u0627\u0646\u062F\u0647 \u0646\u0645\u06CC\u200C\u0634\u0648\u062F\u061B \u062F\u0631 \u0635\u0648\u0631\u062A \u0646\u06CC\u0627\u0632 \u062A\u0648\u06A9\u0646 \u0631\u0627 \u062F\u0648\u0628\u0627\u0631\u0647 \u0648\u0627\u0631\u062F \u06A9\u0646\u06CC\u062F.", 409, "not_revertible");
+  }
+  const be = parsed2.botEdit;
+  const at = now15.toISOString();
+  const uid = Number(u.id);
+  const cur = be.botId ? queryRow("SELECT * FROM bale_bots WHERE id=?", [be.botId]) : null;
+  if (be.status === "on" && (!cur || !cur.token_ct)) {
+    return bad3("\u0628\u0631\u0627\u06CC \u0628\u0631\u06AF\u0631\u062F\u0627\u0646\u062F\u0646 \u0648\u0636\u0639\u06CC\u062A \u0641\u0639\u0627\u0644\u060C \u0627\u0628\u062A\u062F\u0627 \u0628\u0627\u06CC\u062F \u062A\u0648\u06A9\u0646 \u0631\u0628\u0627\u062A \u062B\u0628\u062A \u0628\u0627\u0634\u062F.", 409, "not_revertible");
+  }
+  const keys = parsed2.keys ? Object.keys(parsed2.keys) : [];
+  const curKeys = keys.length ? snapKeys2(keys) : void 0;
+  let newAuditId = 0;
+  runImmediateTransaction(() => {
+    let changes = 0;
+    if (cur && (cur.bot_name !== be.botName || be.status && cur.status !== be.status)) {
+      executeChanges("UPDATE bale_bots SET bot_name=?, status=?, updated_at=? WHERE id=?", [
+        be.botName ?? cur.bot_name,
+        be.status === "on" || be.status === "off" || be.status === "err" ? be.status : cur.status,
+        at,
+        cur.id
+      ]);
+      changes++;
+    }
+    if (keys.length && parsed2.keys) {
+      changes += putKeys2(parsed2.keys, uid, at);
+    }
+    if (changes > 0) {
+      newAuditId = execute(
+        "INSERT INTO smc_audit(at,user_id,section,summary_fa,before_json,after_json,revert_of) VALUES(?,?,?,?,?,?,?)",
+        [
+          at,
+          uid,
+          "bale_bots",
+          `\u0628\u0631\u06AF\u0631\u062F\u0627\u0646\u062F\u0646 \u0648\u06CC\u0631\u0627\u06CC\u0634 \u0631\u0628\u0627\u062A`,
+          JSON.stringify({
+            botEdit: { userId: be.userId, botId: be.botId, botName: cur?.bot_name ?? null, status: cur?.status ?? null, tokenChanged: false },
+            ...curKeys ? { keys: curKeys } : {}
+          }),
+          JSON.stringify({
+            botEdit: { userId: be.userId, botId: be.botId, botName: be.botName, status: be.status, tokenChanged: false },
+            ...keys.length ? { keys: snapKeys2(keys) } : {}
+          }),
+          auditId
+        ]
+      );
+    }
+  });
+  return { ok: true, changed: newAuditId > 0, auditId: newAuditId };
+}
+
+// src/routes/sales-manager-console.ts
 var me29 = (res) => res.locals.authUser;
 var router67 = (0, import_express79.Router)();
 var isSmcPath = (p) => p === "/sales-admin" || p.startsWith("/sales-admin/");
@@ -189417,8 +189870,52 @@ function sectionSummaries(userId) {
 router67.get("/sales-admin/me", (_req, res) => {
   const u = me29(res);
   const roleLabel = u.role === "admin" && !u.salesManager && u.baseRole !== "sales_manager" ? "\u0627\u062F\u0645\u06CC\u0646" : "\u0645\u062F\u06CC\u0631 \u0641\u0631\u0648\u0634";
-  if (!samMerged()) return void res.json({ enabled: true, canManage: true, roleLabel });
-  res.json({ enabled: true, canManage: true, roleLabel, merged: true, path: "/sales-admin", accessRoles: samAccessRoles(), ...sabOn() ? { bale: true } : {} });
+  const be = smcBotEditOn() ? { botEdit: true } : {};
+  if (!samMerged()) return void res.json({ enabled: true, canManage: true, roleLabel, ...be });
+  res.json({ enabled: true, canManage: true, roleLabel, merged: true, path: "/sales-admin", accessRoles: samAccessRoles(), ...sabOn() ? { bale: true } : {}, ...be });
+});
+var botEditOff = (res) => {
+  if (smcBotEditOn()) return false;
+  res.status(404).json({ error: "not_found" });
+  return true;
+};
+router67.get("/sales-admin/bots", (_req, res) => {
+  if (botEditOff(res)) return;
+  res.json(smcBotsView());
+});
+router67.post("/sales-admin/bots/test", async (req, res) => {
+  if (botEditOff(res)) return;
+  try {
+    sabSend(res, await smcBotTestToken(me29(res), req.body ?? {}));
+  } catch {
+    res.status(500).json({ ok: false, error: "unknown", message: "\u0622\u0632\u0645\u0627\u06CC\u0634 \u062A\u0648\u06A9\u0646 \u0627\u0646\u062C\u0627\u0645 \u0646\u0634\u062F\u061B \u062F\u0648\u0628\u0627\u0631\u0647 \u062A\u0644\u0627\u0634 \u06A9\u0646\u06CC\u062F." });
+  }
+});
+router67.post("/sales-admin/bots/:userId/test", async (req, res) => {
+  if (botEditOff(res)) return;
+  const userId = Number(req.params.userId);
+  if (!Number.isInteger(userId) || userId <= 0) return void res.status(400).json({ ok: false, error: "bad_id" });
+  try {
+    sabSend(res, await smcBotTestSaved(me29(res), userId));
+  } catch {
+    res.status(500).json({ ok: false, error: "unknown", message: "\u0622\u0632\u0645\u0627\u06CC\u0634 \u0627\u062A\u0635\u0627\u0644 \u0627\u0646\u062C\u0627\u0645 \u0646\u0634\u062F\u061B \u062F\u0648\u0628\u0627\u0631\u0647 \u062A\u0644\u0627\u0634 \u06A9\u0646\u06CC\u062F." });
+  }
+});
+router67.put("/sales-admin/bots/:userId", async (req, res) => {
+  if (botEditOff(res)) return;
+  const userId = Number(req.params.userId);
+  if (!Number.isInteger(userId) || userId <= 0) return void res.status(400).json({ ok: false, error: "bad_id" });
+  try {
+    sabSend(res, await smcBotEditSave(me29(res), userId, req.body ?? {}));
+  } catch {
+    res.status(500).json({ ok: false, error: "unknown", message: "\u062A\u063A\u06CC\u06CC\u0631\u0627\u062A \u0631\u0628\u0627\u062A \u0630\u062E\u06CC\u0631\u0647 \u0646\u0634\u062F\u061B \u062F\u0648\u0628\u0627\u0631\u0647 \u062A\u0644\u0627\u0634 \u06A9\u0646\u06CC\u062F." });
+  }
+});
+router67.post("/sales-admin/bots/:userId/disconnect", (req, res) => {
+  if (botEditOff(res)) return;
+  const userId = Number(req.params.userId);
+  if (!Number.isInteger(userId) || userId <= 0) return void res.status(400).json({ ok: false, error: "bad_id" });
+  sabSend(res, smcBotDisconnect(me29(res), userId));
 });
 var baleOff = (res) => {
   if (sabOn()) return false;
@@ -189659,6 +190156,13 @@ router67.post("/sales-admin/audit/:id/revert", (req, res) => {
     const t2 = samRevertTeam(me29(res), id5);
     if (!t2.ok) return void res.status(t2.status).json(t2);
     return void res.json({ ok: true, applied: [{ section: "teams_live", auditId: "auditId" in t2 ? t2.auditId : 0 }] });
+  }
+  if (smcBotEditOn()) {
+    const be = smcBotEditUndo(me29(res), id5);
+    if (be !== null) {
+      if (!be.ok) return void res.status(be.status).json(be);
+      return void res.json({ ok: true, applied: [{ section: "bale_bots", auditId: be.auditId }] });
+    }
   }
   const sec = samMerged() ? queryRow("SELECT section FROM smc_audit WHERE id=?", [id5])?.section : void 0;
   if (sec && isSabSection(sec) && sabOn()) {

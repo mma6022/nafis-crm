@@ -15,6 +15,7 @@ import {
 } from "../lib/sales-manager-console";
 import { isFoldKey, samCanWriteFolded, samImport, samRevertTeam, samSaveFolded, samUndoFolded, samView, samWriteTeam } from "../lib/sales-admin-merge";
 import { isSabSection, sabCanWrite, sabConnectBot, sabOn, sabRequestTranscripts, sabVoiceView, sabSaveKey, sabSaveQuick, sabSetAi, sabSetMode, sabSetView, sabSetVoiceMode, sabState, sabUndo, startSabVoiceFeeder } from "../lib/sales-admin-bale";
+import { smcBotDisconnect, smcBotEditOn, smcBotEditSave, smcBotEditUndo, smcBotsView, smcBotTestSaved, smcBotTestToken } from "../lib/smc-bot-edit";
 
 const me = (res: Response) => res.locals.authUser as AuthUser | undefined;
 const router: IRouter = Router();
@@ -64,9 +65,42 @@ function sectionSummaries(userId: number) {
 router.get("/sales-admin/me", (_req, res) => {
   const u = me(res)!;
   const roleLabel = u.role === "admin" && !u.salesManager && u.baseRole !== "sales_manager" ? "ادمین" : "مدیر فروش";
+  const be = smcBotEditOn() ? { botEdit: true } : {};
   // v1.2 fields only while flag.sales_admin_merge_v12 is ON, so the v1.1 response stays byte-identical when it is OFF.
-  if (!samMerged()) return void res.json({ enabled: true, canManage: true, roleLabel });
-  res.json({ enabled: true, canManage: true, roleLabel, merged: true, path: "/sales-admin", accessRoles: samAccessRoles(), ...(sabOn() ? { bale: true } : {}) });
+  if (!samMerged()) return void res.json({ enabled: true, canManage: true, roleLabel, ...be });
+  res.json({ enabled: true, canManage: true, roleLabel, merged: true, path: "/sales-admin", accessRoles: samAccessRoles(), ...(sabOn() ? { bale: true } : {}), ...be });
+});
+
+/* ---------------- admin bot edit in SMC (flag.smc_bot_edit_v1 + console flag; OFF -> 404) ---------------- */
+const botEditOff = (res: Response) => { if (smcBotEditOn()) return false; res.status(404).json({ error: "not_found" }); return true; };
+router.get("/sales-admin/bots", (_req, res) => {
+  if (botEditOff(res)) return;
+  res.json(smcBotsView());
+});
+router.post("/sales-admin/bots/test", async (req, res) => {
+  if (botEditOff(res)) return;
+  try { sabSend(res, await smcBotTestToken(me(res)!, req.body ?? {})); }
+  catch { res.status(500).json({ ok: false, error: "unknown", message: "آزمایش توکن انجام نشد؛ دوباره تلاش کنید." }); }
+});
+router.post("/sales-admin/bots/:userId/test", async (req, res) => {
+  if (botEditOff(res)) return;
+  const userId = Number(req.params.userId);
+  if (!Number.isInteger(userId) || userId <= 0) return void res.status(400).json({ ok: false, error: "bad_id" });
+  try { sabSend(res, await smcBotTestSaved(me(res)!, userId)); }
+  catch { res.status(500).json({ ok: false, error: "unknown", message: "آزمایش اتصال انجام نشد؛ دوباره تلاش کنید." }); }
+});
+router.put("/sales-admin/bots/:userId", async (req, res) => {
+  if (botEditOff(res)) return;
+  const userId = Number(req.params.userId);
+  if (!Number.isInteger(userId) || userId <= 0) return void res.status(400).json({ ok: false, error: "bad_id" });
+  try { sabSend(res, await smcBotEditSave(me(res)!, userId, req.body ?? {})); }
+  catch { res.status(500).json({ ok: false, error: "unknown", message: "تغییرات ربات ذخیره نشد؛ دوباره تلاش کنید." }); }
+});
+router.post("/sales-admin/bots/:userId/disconnect", (req, res) => {
+  if (botEditOff(res)) return;
+  const userId = Number(req.params.userId);
+  if (!Number.isInteger(userId) || userId <= 0) return void res.status(400).json({ ok: false, error: "bad_id" });
+  sabSend(res, smcBotDisconnect(me(res)!, userId));
 });
 
 /* ---------------- v1.3 Bale + voice (flag.sales_admin_bale_v13 + both console flags; OFF → 404) ---------------- */
@@ -253,6 +287,13 @@ router.post("/sales-admin/audit/:id/revert", (req, res) => {
     const t = samRevertTeam(me(res)!, id);
     if (!t.ok) return void res.status(t.status).json(t);
     return void res.json({ ok: true, applied: [{ section: "teams_live", auditId: "auditId" in t ? t.auditId : 0 }] });
+  }
+  if (smcBotEditOn()) {
+    const be = smcBotEditUndo(me(res)!, id);
+    if (be !== null) {
+      if (!be.ok) return void res.status(be.status).json(be);
+      return void res.json({ ok: true, applied: [{ section: "bale_bots", auditId: be.auditId }] });
+    }
   }
   const sec = samMerged() ? queryRow<{ section: string }>("SELECT section FROM smc_audit WHERE id=?", [id])?.section : undefined;
   if (sec && isSabSection(sec) && sabOn()) {
