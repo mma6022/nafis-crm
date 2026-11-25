@@ -6,7 +6,7 @@ import { FileText, Link2, Search, UserPlus, X } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { fa, messageError, shApi, useShMe, type ShPickRow } from './api';
 import { useCustomerPhones, type ExtraPhone } from '@/features/customer-phones/api';
-import { Name, NumList, PhoneNum, Switch, Wizard, extrasWithLabels, useShToast } from './ui';
+import { Name, NumList, PhoneNum, Switch, Wizard, extrasWithLabels, extraPhoneLabel, useShToast } from './ui';
 import './social-hub.css';
 
 /** The second button on the unknown-number card; renders nothing while the flag is OFF. */
@@ -17,6 +17,18 @@ export function AttachPhoneButton({ phone, callEventId, onNew }: { phone: string
     <span className="sh" style={{ display: 'contents' }}><button type="button" className="sh-btn sec sh-attach-btn" onClick={() => setOpen(true)} data-testid="sh-attach-open"><Link2 size={16} aria-hidden="true" />افزودن این شماره به مشتری ثبت‌شده</button></span>
     {open ? <AttachPhoneWizard phone={phone} callEventId={callEventId ?? null} onClose={() => setOpen(false)} onNew={onNew} /> : null}
   </>;
+}
+
+
+/** Pick-row chip uses the same labels as the today card («همسر», «شمارهٔ دیگر») — never «شمارهٔ اضافه». */
+function PickExtrasChip({ customerId, extras }: { customerId: number; extras: string[] }) {
+  const cph = useCustomerPhones(customerId, extras.length > 0);
+  const digits = (p: string) => String(p ?? '').replace(/\D/g, '');
+  if (!extras.length) return <span className="sh-chip ok">بدون شمارهٔ دیگر</span>;
+  const known = cph.data?.extras ?? [];
+  const labels = extras.map((p) => extraPhoneLabel(known.find((x) => digits(x.phone) === digits(p))?.label));
+  const text = cph.data ? (labels.every((l) => l === 'شمارهٔ دیگر') ? `${fa(extras.length)} شمارهٔ دیگر` : labels.join('، ')) : `${fa(extras.length)} شمارهٔ دیگر`;
+  return <span className="sh-chip tint">{text}</span>;
 }
 
 type Dup = { id: number; name: string; ownerName: string | null };
@@ -86,6 +98,6 @@ export function AttachPhoneWizard({ phone, callEventId, onClose, onNew, initialQ
             onClick={() => setSel(r)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSel(r); } }} data-testid="sh-attach-row">
             <span className="sh-ava">{r.name.replace(/^(آقای|خانم)\s+/, '').slice(0, 1)}</span>
             <span className="rb"><Name name={r.name} id={r.id} /><span className="rl"><PhoneNum p={r.phone} copy={false} /></span><span className="rl">کارشناس: {r.ownerName ?? 'بدون کارشناس'}{r.mine ? ' (شما)' : ''}</span></span>
-            <span className={`sh-chip ${r.extras.length ? 'tint' : 'ok'}`}>{r.extras.length ? `${fa(r.extras.length)} شمارهٔ اضافه` : 'بدون شمارهٔ اضافه'}</span></div>)}</div></>}
+            <PickExtrasChip customerId={r.id} extras={r.extras} /></div>)}</div></>}
       {err ? <p className="sh-err" role="alert">{err}</p> : null}</div></Wizard>;
 }

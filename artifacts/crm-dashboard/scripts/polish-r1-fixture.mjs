@@ -19,4 +19,9 @@ ok(/out\.sumOver = true/.test(inv) && /out\.payout = out\.payout \|\| 'جمع د
 ok(!/out\.discount = out\.payout = 'جمع دو درصد نباید بیشتر از ۱۰۰ باشد.'/.test(inv), "sum warning is not duplicated under both fields");
 ok(!/width: `max\(1ch, \$\{Math\.max\(1, faPct\(/.test(inv), "no ch-based width that left a gap before ٪ on integers");
 
+
+ok(/scroll-margin-top: 72px/.test(css) && /scroll-padding-top: 72px/.test(css), "invoice first card sits below the sticky bar (scroll-margin/padding 72px)");
+ok(/function displayItemTitle/.test(inv) && inv.includes("TITLE_WJ") && /persistItemTitle\(r\.title\)/.test(inv), "item titles join «،» with a word-joiner and no space before the comma");
+ok(inv.includes("پیش‌نمایش پی‌دی‌اف") && !inv.includes("پیش‌نمایش PDF"), "invoice preview button uses پی‌دی‌اف, not Latin PDF");
+
 console.log(`polish-r1 fixture ${n}/${n}`);

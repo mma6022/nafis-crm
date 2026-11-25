@@ -4633,6 +4633,11 @@
   .gp-invoice td.gp-invoice-del { grid-column: 2; align-items: flex-end; justify-content: flex-end; }
   .gp-invoice td.gp-invoice-del::before { content: none; }
   .gp-invoice input, .gp-invoice textarea, .gp-invoice input[data-testid^="input-item-quantity-"] { width: 100%; min-width: 0; }
+  /* First card «شرح کالا» stays fully visible below the sticky «خرید کالا» bar (Armita polish-r1 r2). */
+  html:has(.gp-page),
+  .app-main:has(.gp-page) { scroll-padding-top: 72px; }
+  .gp-invoice-wrap,
+  .gp-invoice tbody tr { scroll-margin-top: 72px; }
 }
 
 .gp-doc.signed { border-color: #bfe3da; }

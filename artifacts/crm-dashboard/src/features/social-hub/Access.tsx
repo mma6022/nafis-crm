@@ -19,7 +19,7 @@ export function AccessPage({ botId }: { botId: number }) {
   const b = q.data.bot;
   return <div className="sh sh-page" dir="rtl" data-testid="sh-access">
     <div className="sh-row" style={{ marginBottom: 16 }}><Link href="/social-hub" className="sh-ib" aria-label="بازگشت"><ChevronRight aria-hidden="true" /></Link>
-      <div className="sh-sp"><h1 className="sh-h2">{b.name}</h1><div className="sh-sub" dir="ltr" style={{ textAlign: 'right' }}>{b.handle ? `@${b.handle.replace(/^@/, '')}` : 'هنوز نشانی ندارد'}</div></div>
+      <div className="sh-sp"><h1 className="sh-h2">{b.name}</h1><div className="sh-sub" dir="auto" style={{ textAlign: 'right' }}>{b.handle ? `@${b.handle.replace(/^@/, '')}` : 'هنوز نشانی ندارد'}</div></div>
       <span className={`sh-chip ${b.status === 'connected' ? 'ok' : 'amber'}`}>{b.status === 'connected' ? 'متصل' : 'در انتظار اتصال'}</span></div>
     <div className="sh-tbl">
       <div className="sh-tr acc hd"><span>تیم و کارشناس</span><span>مدیریت ربات</span><span>مشتریانش</span><span>دیدن گفتگوها</span></div>

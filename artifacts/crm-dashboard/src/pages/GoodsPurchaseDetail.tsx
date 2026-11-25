@@ -127,6 +127,15 @@ function Fig({ label, v, tone }: { label: string; v?: string | null; tone?: stri
 }
 
 type Row = { title: string; quantity: string; unitPriceToman: string };
+/** Display typography only: no space before «،», word-joiner so a line cannot start with the comma. Not contract/template text. */
+const TITLE_WJ = '\u2060';
+function displayItemTitle(s: string) {
+  return String(s ?? '').replace(/\s*،\s*/g, `${TITLE_WJ}، `);
+}
+function persistItemTitle(s: string) {
+  return String(s ?? '').replaceAll(TITLE_WJ, '').replace(/\s*،\s*/g, '، ').trim();
+}
+
 const pctText = (v: unknown) => {
   const n = Number(v);
   if (!Number.isFinite(n)) return '';
@@ -175,7 +184,7 @@ function InvoicePanel({ p, editable, adminRevise, onSaved }: { p: Purchase; edit
     }
   }, [p.id, p.invoice_version]); // eslint-disable-line react-hooks/exhaustive-deps
   const qty = (r: Row) => digitsOnly(r.quantity);
-  const itemsBody = () => rows.map((r) => ({ title: r.title.trim(), quantity: Number(qty(r) || 0), unitPriceToman: digitsOnly(r.unitPriceToman) }));
+  const itemsBody = () => rows.map((r) => ({ title: persistItemTitle(r.title), quantity: Number(qty(r) || 0), unitPriceToman: digitsOnly(r.unitPriceToman) }));
   const percentsBody = () => ({ customerPayoutPercent: payoutPct, developmentDiscountPercent: discountPct });
   const save = useMutation({
     mutationFn: (reason?: string) => adminRevise
@@ -192,7 +201,7 @@ function InvoicePanel({ p, editable, adminRevise, onSaved }: { p: Purchase; edit
     <div className="table-wrap gp-invoice-wrap"><table className="data-table gp-invoice">
       <thead><tr><th>شرح کالا</th><th>تعداد</th><th>قیمت واحد (تومان)</th><th>جمع</th>{editable ? <th /> : null}</tr></thead>
       <tbody>{rows.map((r, i) => <tr key={i}>
-        <td data-label="شرح کالا">{editable ? <textarea rows={1} value={r.title} onChange={(e) => set(i, { title: e.target.value })} placeholder="مثال: یخچال ساید بای ساید" data-testid={`input-item-title-${i}`} /> : r.title}</td>
+        <td data-label="شرح کالا">{editable ? <textarea rows={1} value={displayItemTitle(r.title)} onChange={(e) => set(i, { title: persistItemTitle(e.target.value) })} placeholder="مثال: یخچال ساید بای ساید" data-testid={`input-item-title-${i}`} /> : displayItemTitle(r.title)}</td>
         <td data-label="تعداد">{editable ? <input dir="ltr" inputMode="numeric" value={qty(r) ? faId(qty(r)) : ''} onChange={(e) => set(i, { quantity: digitsOnly(e.target.value) })} data-testid={`input-item-quantity-${i}`} aria-label="تعداد" /> : faId(qty(r) || '0')}</td>
         <td data-label="قیمت واحد (تومان)">{editable ? <input dir="ltr" inputMode="numeric" value={toBig(digitsOnly(r.unitPriceToman)) ? faGrouped(toBig(digitsOnly(r.unitPriceToman))) : ''} onChange={(e) => set(i, { unitPriceToman: digitsOnly(e.target.value) })} data-testid={`input-item-price-${i}`} aria-label="قیمت واحد" /> : toman(r.unitPriceToman)}</td>
         <td className="mono" data-label="جمع">{toman((toBig(digitsOnly(r.unitPriceToman)) * BigInt(Math.max(0, Math.floor(Number(qty(r) || '0') || 0)))).toString())}</td>
@@ -284,7 +293,7 @@ function DocumentPanel({ title, kind, doc, pid, templateId, active, canAct, read
     {active && !signed && !inFlight && fields.length ? <div className="form-grid gp-manual">{fields.map((f) => <div className="field" key={f.variable}><label>{f.label}</label><input value={values[f.variable] ?? ''} maxLength={5000} onChange={(e) => setValues({ ...values, [f.variable]: e.target.value })} data-testid={`input-manual-${f.variable}`} /></div>)}</div> : null}
     <div className="gp-doc-actions">
       {active && !signed && !inFlight ? <button className="btn btn-ghost" disabled={!canAct || busy || generate.isPending || missing} onClick={() => generate.mutate()} data-testid={`button-generate-${kind}`}><FileText size={14} />{generate.isPending ? 'در حال تولید…' : doc ? 'تولید نسخه تازه' : 'تولید سند'}</button> : null}
-      {doc ? <><button className="btn btn-ghost" onClick={() => open(false)} data-testid={`button-preview-${kind}`}>پیش‌نمایش PDF</button><button className="btn btn-ghost" onClick={() => open(true)}><Printer size={14} />چاپ</button></> : null}
+      {doc ? <><button className="btn btn-ghost" onClick={() => open(false)} data-testid={`button-preview-${kind}`}>پیش‌نمایش پی‌دی‌اف</button><button className="btn btn-ghost" onClick={() => open(true)}><Printer size={14} />چاپ</button></> : null}
       {active && doc && !signed && ['generated', 'rejected', 'failed', 'delivery_unknown'].includes(status ?? '') ? <button className="btn btn-primary" disabled={!canAct || busy} onClick={() => askRun({ title: 'ارسال برای امضا', body: `«${title}» برای امضای الکترونیک در امضامی ارسال شود؟`, label: 'ارسال به امضامی', path: `/documents/${kind}/send`, ok: 'سند به امضامی ارسال شد.' })} data-testid={`button-send-${kind}`}><Send size={14} />{rejected || status === 'failed' ? 'ارسال دوباره' : 'ارسال به امضامی'}</button> : null}
       {doc && !signed && inFlight ? <button className="btn btn-ghost" disabled={busy || inquireSignatureStatus.isPending} onClick={() => readOnlySignatureStatus ? inquireSignatureStatus.mutate() : run(`/documents/${kind}/refresh`, 'وضعیت امضا به‌روزرسانی شد.')} data-testid={`button-refresh-${kind}`}><RefreshCw size={14} />{inquireSignatureStatus.isPending ? 'در حال استعلام…' : 'استعلام وضعیت'}</button> : null}
     </div>
