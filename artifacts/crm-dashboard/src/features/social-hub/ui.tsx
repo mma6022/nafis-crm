@@ -19,11 +19,19 @@ export function IdBadge({ id }: { id: number }) {
     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); copyText(String(id)); } }}>{ok ? 'کپی شد' : `#${fa(id)}`}</span>;
 }
 export const Name = ({ name, id }: { name: string; id: number }) => <span className="sh-nm"><b>{name}</b><IdBadge id={id} /></span>;
-export function NumList({ primary, extras, copy = false }: { primary: string; extras: string[]; copy?: boolean }) {
+export type ExtraNum = { phone: string; label?: string | null };
+const digitsOf = (p: string) => String(p ?? '').replace(/\D/g, '');
+/** Same labels as the today card: a custom label, otherwise «شمارهٔ دیگر» (never «شمارهٔ اضافه ۱»). */
+export const extraPhoneLabel = (label?: string | null) => label?.trim() || 'شمارهٔ دیگر';
+export function NumList({ primary, extras = [], extraItems, copy = false }: { primary: string; extras?: string[]; extraItems?: ExtraNum[]; copy?: boolean }) {
+  const rows = extraItems ?? extras.map((phone) => ({ phone, label: null as string | null }));
   return <div className="sh-nlist">
     <div className="sh-nrow"><span className="sh-lbl">شمارهٔ اصلی</span><PhoneNum p={primary} copy={copy} /></div>
-    {extras.map((n, i) => <div key={n} className="sh-nrow"><span className="sh-lbl">{extras.length > 1 ? `شمارهٔ اضافه ${fa(i + 1)}` : 'شمارهٔ اضافه'}</span><PhoneNum p={n} copy={copy} /></div>)}
+    {rows.map((n) => <div key={n.phone} className="sh-nrow"><span className="sh-lbl">{extraPhoneLabel(n.label)}</span><PhoneNum p={n.phone} copy={copy} /></div>)}
   </div>;
+}
+export function extrasWithLabels(extras: string[], known?: { phone: string; label?: string | null }[]) {
+  return extras.map((phone) => ({ phone, label: known?.find((k) => digitsOf(k.phone) === digitsOf(phone))?.label ?? null }));
 }
 export const Switch = ({ on, label, onChange, disabled, testId }: { on: boolean; label: string; onChange?: (v: boolean) => void; disabled?: boolean; testId?: string }) =>
   <button type="button" role="switch" aria-checked={on} className={`sh-sw${on ? ' on' : ''}`} disabled={disabled} onClick={() => onChange?.(!on)} data-testid={testId}><i />{label}</button>;

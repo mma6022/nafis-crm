@@ -13,4 +13,11 @@ const all = readdirSync(new URL("../src/features/social-hub/", import.meta.url))
 ok(!all.includes("الان مشتری جدید دارم"), "dock item «الان مشتری جدید دارم» not reintroduced");
 ok(!/token/i.test(r("features/social-hub/Bots.tsx").replace(/کلید/g, "")), "add-bot wizard never asks for a bot token");
 ok(!/className="(?!sh)[a-z]/.test(all.replace(/className="(btn btn-ghost|rb|rl|hd|t|l|side-link)"/g, "")), "only sh-* classes (and sh-scoped child names) inside the feature, plus the incoming card's own btn and the shell drawer's side-link (ShellTools)");
+
+const docs = r("features/social-hub/Docs.tsx");
+ok(/sh-filechip/.test(docs) && /<FileLabel name=\{file\.name\} \/>، \{fileSize\(file\.size\)\}/.test(docs), "file chip keeps the comma in the same span as the label (no flex gap before ،)");
+const ui = r("features/social-hub/ui.tsx");
+ok(/extraPhoneLabel/.test(ui) && ui.includes("شمارهٔ دیگر") && !/شمارهٔ اضافه \$\{fa\(i \+ 1\)\}/.test(ui), "NumList uses the card labels (custom or شمارهٔ دیگر), not شمارهٔ اضافه ۱");
+const css = r("features/social-hub/social-hub.css");
+ok(/max-content max-content/.test(css) && /\.sh-tr\.leg \.sh-row\.sh-wrap\{flex-wrap:nowrap/.test(css), "legacy row at 1280 keeps action buttons on one row");
 console.log(`social-hub UI fixture ${n}/${n}`);

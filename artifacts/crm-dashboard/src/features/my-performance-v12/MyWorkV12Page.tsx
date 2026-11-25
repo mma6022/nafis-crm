@@ -330,7 +330,7 @@ export default function MyWorkV12Page() {
                   <article key={r.id} className={`mcall${r.waitingCallback ? ' wait-row' : ''}`}>
                     <div className="topr"><span>{r.atLabel}</span><span>{r.direction === 'incoming' ? 'ورودی' : r.direction === 'outgoing' ? 'خروجی' : '—'}</span></div>
                     <div className="who-c">{r.customerName || '—'}{r.customerId != null ? <span className="idb">#{faNum(r.customerId)}</span> : null}</div>
-                    <div className="row2"><bdi dir="ltr" className="phone">{r.phone ? faPhone(r.phone) : '—'}</bdi><span>{r.resultLabel} · {r.durationSec != null ? faDuration(r.durationSec) : '—'}</span></div>
+                    <div className="row2"><bdi dir="ltr" className="phone">{r.phone ? faPhone(r.phone) : '—'}</bdi><span>{r.resultLabel}، {r.durationSec != null ? faDuration(r.durationSec) : '—'}</span></div>
                     {r.waitingCallback && r.hasVoip ? <div className="acts"><button type="button" className="btn pri">تماس</button></div> : null}
                   </article>
                 ))}

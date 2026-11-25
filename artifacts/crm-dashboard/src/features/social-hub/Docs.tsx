@@ -49,7 +49,7 @@ function DocWizard({ plans, doc, onClose, onSaved }: { plans: ShPlan[]; doc: ShD
       <Upload aria-hidden="true" /><b>فایل را اینجا بیندازید یا انتخاب کنید</b><span className="sh-sub">پی‌دی‌اف، ویدیو یا تصویر، حداکثر ۲۰۰ مگابایت</span>
       <input ref={inp} type="file" hidden accept="application/pdf,image/*,video/*" onChange={(e) => pick(e.target.files?.[0])} data-testid="sh-doc-file" />
       <button type="button" className="sh-btn sec sm" onClick={() => inp.current?.click()}>انتخاب فایل</button>
-      {file ? <span className="sh-chip ok"><Check aria-hidden="true" /><FileLabel name={file.name} />، {fileSize(file.size)}</span> : null}
+      {file ? <span className="sh-chip ok"><Check aria-hidden="true" /><span className="sh-filechip"><FileLabel name={file.name} />، {fileSize(file.size)}</span></span> : null}
       {err ? <p className="sh-err" role="alert">{err}</p> : null}</div>
     : step === 1 ? <div className="sh-stack" style={{ gap: 14 }}>
       {file ? <div className="sh-row sh-card" style={{ padding: 12 }}><span className="sh-fic pdf"><FileText aria-hidden="true" /></span><div className="sh-sp"><b><FileLabel name={file.name} /></b><div className="sh-sub">{fileSize(file.size)}</div></div><span className="sh-chip ok"><Check aria-hidden="true" />آمادهٔ بارگذاری</span></div> : null}
