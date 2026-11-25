@@ -6,12 +6,13 @@ import { fa, faDate, messageError, shApi, type ShConnectView } from './api';
 import { AfterConnect, Radio, Switch, Wizard } from './ui';
 import { RedirectWizard } from './RedirectWizard';
 
-type Bot = { id: number; network: string; networkLabel: string; name: string; handle: string | null; unified: boolean; status: 'draft' | 'connected' | 'off'; managers: string[]; lastMessageAt: string | null };
+type Bot = { id: number; network: string; networkLabel: string; name: string; handle: string | null; unified: boolean; status: 'draft' | 'connected' | 'off' | 'pending_test'; managers: string[]; lastMessageAt: string | null };
 type Legacy = { id: number; name: string; liveStatus: string; customers: number; moved: number; percent: number; redirectAuto: boolean; migratedAt: string | null; offAt: string | null; state: 'redirecting' | 'readonly' | 'off' };
-type Data = { bots: Bot[]; legacy: Legacy[]; networks: { key: string; label: string }[]; redirectText: string; connectEnabled: boolean; redirectEnabled?: boolean; legacyFinish: boolean; connect?: ShConnectView; isSuperAdmin?: boolean; redirectDone?: boolean; redirectDoneAt?: string | null };
+type Data = { bots: Bot[]; legacy: Legacy[]; networks: { key: string; label: string }[]; redirectText: string; connectEnabled: boolean; redirectEnabled?: boolean; legacyFinish: boolean; connect?: ShConnectView; isSuperAdmin?: boolean; redirectDone?: boolean; redirectDoneAt?: string | null; redirectDisabledReason?: string | null };
 const NET_LETTER: Record<string, string> = { bale: 'ب', eitaa: 'ا', telegram: 'ت', whatsapp: 'و', instagram: 'ای', rubika: 'ر' };
-const STATUS: Record<Bot['status'], [string, string]> = { connected: ['متصل', 'ok'], draft: ['در انتظار اتصال', 'amber'], off: ['خاموش', ''] };
+const STATUS: Record<Bot['status'], [string, string]> = { connected: ['متصل', 'ok'], draft: ['وصل نشده', ''], pending_test: ['منتظر آزمایش اتصال', 'amber'], off: ['خاموش', ''] };
 
+function onceReady(d: Data) { return Boolean(d.isSuperAdmin && d.connect?.tokenSaved && d.connect?.tested && d.redirectEnabled && !d.redirectDisabledReason && !d.redirectDone); }
 export function BotsTab({ toast }: { toast: (t: string) => void }) {
   const q = useQuery<Data>({ queryKey: ['sh-bots'], queryFn: () => shApi('/bots'), retry: false });
   const [add, setAdd] = useState(false); const [redir, setRedir] = useState(false); const [err, setErr] = useState('');
@@ -37,8 +38,8 @@ export function BotsTab({ toast }: { toast: (t: string) => void }) {
     <div className="sh-sech" style={{ marginTop: 28 }}><div><h2 className="sh-h2">ربات‌های قدیمی</h2><div className="sh-sub">مشتری شناخته‌شده در ربات جدید دوباره احراز نمی‌شود</div></div>
       <span className="sh-row sh-wrap" style={{ justifyContent: 'flex-end' }}>
         {d.isSuperAdmin ? (d.redirectDone ? <button type="button" className="sh-btn pri sm" disabled data-testid="sh-redir-done">انجام شد {d.redirectDoneAt ? faDate(d.redirectDoneAt) : ''}</button>
-          : d.connect?.tokenSaved && d.redirectEnabled ? <button type="button" className="sh-btn pri sm" onClick={() => setCampaign(true)} data-testid="sh-redir-open">ارسال پیام انتقال به ربات نفیس وام</button>
-          : <span className="sh-ctl sh-off"><button type="button" className="sh-btn pri sm" disabled data-testid="sh-redir-open-off">ارسال پیام انتقال به ربات نفیس وام</button><span className="sh-chip sh-after" data-testid="sh-redir-after">پس از اتصال ربات نفیس وام</span></span>) : null}
+          : d.connect?.tokenSaved && d.connect?.tested && d.redirectEnabled && !d.redirectDisabledReason ? <button type="button" className="sh-btn pri sm" onClick={() => setCampaign(true)} data-testid="sh-redir-open">ارسال پیام انتقال به ربات نفیس وام</button>
+          : <span className="sh-ctl sh-off"><button type="button" className="sh-btn pri sm" disabled data-testid="sh-redir-open-off">ارسال پیام انتقال به ربات نفیس وام</button><span className="sh-chip sh-after" data-testid="sh-redir-after">{d.redirectDisabledReason || 'پس از اتصال ربات نفیس وام'}</span></span>) : null}
         <button type="button" className="sh-btn sec sm" onClick={() => setRedir(true)} data-testid="sh-redirect-edit"><Pencil aria-hidden="true" />ویرایش پیام هدایت</button>
       </span></div>
     {err ? <p className="sh-err" role="alert">{err}</p> : null}
@@ -49,7 +50,7 @@ export function BotsTab({ toast }: { toast: (t: string) => void }) {
         <span>{l.state === 'redirecting' ? <span className="sh-chip ok">هدایت فعال</span> : l.state === 'readonly' ? <span className="sh-chip"><Lock aria-hidden="true" />فقط‌خواندنی</span> : <span className="sh-chip">خاموش</span>}</span>
         {l.customers ? <span className="sh-legp"><span className="sh-bar" aria-hidden="true"><i style={{ width: `${l.percent}%` }} /></span><span className="sh-sub">{fa(l.moved)} از {fa(l.customers)} مشتری، {fa(l.percent)}٪</span></span> : <span className="sh-sub">مشتری ندارد</span>}
         {l.state === 'redirecting' ? <><span className={`sh-ctl${d.connectEnabled ? '' : ' sh-off'}`}><Switch on={l.redirectAuto} label="پیام هدایت" onChange={(v) => void act(() => shApi(`/legacy/${l.id}/redirect`, 'PUT', { on: v }), v ? 'هدایت خودکار روشن شد.' : 'هدایت خودکار خاموش شد.')} testId={`sh-legacy-auto-${l.id}`} />{d.connectEnabled ? null : <AfterConnect />}</span>
-          <span className="sh-row sh-wrap" style={{ justifyContent: 'flex-end' }}><span className={`sh-ctl${d.connectEnabled ? '' : ' sh-off'}`}><button type="button" className="sh-btn sec sm" disabled={!d.isSuperAdmin || !d.connect?.tokenSaved || !d.redirectEnabled} aria-describedby={d.connect?.tokenSaved && d.redirectEnabled ? undefined : `sh-once-after-${l.id}`} onClick={() => setCampaign(true)} data-testid={`sh-legacy-once-${l.id}`}>ارسال یک‌باره</button>{d.connect?.tokenSaved && d.redirectEnabled ? null : <span id={`sh-once-after-${l.id}`}><AfterConnect /></span>}</span>
+          <span className="sh-row sh-wrap" style={{ justifyContent: 'flex-end' }}><span className={`sh-ctl${onceReady(d) ? '' : ' sh-off'}`}><button type="button" className="sh-btn sec sm" disabled={!onceReady(d)} aria-disabled={!onceReady(d)} aria-describedby={onceReady(d) ? undefined : `sh-once-after-${l.id}`} onClick={() => { if (onceReady(d)) setCampaign(true); }} data-testid={`sh-legacy-once-${l.id}`}>ارسال یک‌باره</button>{onceReady(d) || d.redirectDone ? null : <span id={`sh-once-after-${l.id}`} className="sh-chip sh-after">{d.redirectDisabledReason || 'پس از اتصال ربات'}</span>}</span>
           {d.legacyFinish ? <button type="button" className="sh-btn ghost sm" onClick={() => setMig(l)} data-testid={`sh-legacy-finish-${l.id}`}>پایان انتقال</button> : null}</span></>
           : <><span className="sh-sub">{l.offAt ? `خاموش شدن: ${faDate(l.offAt)}` : 'خارج از این انتقال'}</span>
           {d.legacyFinish && l.state === 'readonly' ? <span className="sh-row" style={{ justifyContent: 'flex-end' }}><button type="button" className="sh-btn ghost sm" onClick={() => void act(() => shApi(`/legacy/${l.id}/migrated/undo`, 'POST'), 'انتقال بازگردانده شد؛ ربات قدیمی دوباره فعال است.')} data-testid={`sh-legacy-undo-${l.id}`}>بازگرداندن</button></span> : <span />}</>}

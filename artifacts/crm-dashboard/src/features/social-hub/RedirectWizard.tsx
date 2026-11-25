@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fa, faDate, faDateTime, messageError, shApi, type ShRedirectPreview, type ShRedirectStatus } from './api';
-import { CheckBox, Wizard, shRenderPreview } from './ui';
+import { CheckBox, Name, Wizard, shRenderPreview } from './ui';
 
 const digitsLatin = (s: string) => s.replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
 
@@ -63,10 +63,10 @@ export function RedirectWizard({ onClose, toast }: { onClose: () => void; toast:
       <div className="sh-stack">
         <div className="sh-lbl">پیشرفت ارسال</div>
         <div className="sh-prog" data-testid="sh-redir-bar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${pct}%` }} /></div>
-        <div className="sh-row sh-wrap"><span className="sh-chip ok">فرستاده شد {fa(st.counts.sent)}</span><span className="sh-chip amber">در صف {fa(st.counts.queued)}</span><span className="sh-chip bad">ارسال نشد {fa(st.counts.failed)}</span></div>
+        <div className="sh-row sh-wrap"><span className="sh-chip ok">فرستاده شد {fa(st.counts.sent)}</span><span className="sh-chip">در صف {fa(st.counts.queued)}</span><span className="sh-chip bad">ارسال نشد {fa(st.counts.failed)}</span></div>
         {st.campaign?.status === 'stopped' ? <p className="sh-sub">ارسال متوقف شد.</p> : null}
         {st.campaign?.status === 'done' ? <p className="sh-sub">انجام شد {st.campaign.finishedAt ? faDate(st.campaign.finishedAt) : ''}</p> : null}
-        {st.failures.length ? <div className="sh-stack"><div className="sh-lbl">ارسال‌نشده‌ها</div>{st.failures.map((f, i) => <div key={i} className="sh-sumr"><b>{f.customerName}</b><span className="sh-sub">{f.reason}</span></div>)}</div> : null}
+        {st.failures.length ? <div className="sh-stack"><div className="sh-lbl">ارسال‌نشده‌ها</div>{st.failures.map((f, i) => <div key={i} className="sh-sumr sh-failrow"><Name name={f.customerName} id={f.customerId} /><span className="sh-sub sh-failr">{f.reason}</span></div>)}</div> : null}
       </div>
     </Wizard>;
   }
@@ -94,7 +94,7 @@ export function RedirectWizard({ onClose, toast }: { onClose: () => void; toast:
         <div className="sh-sumr"><span className="sh-lbl">ربات‌های فرستنده</span><b>{fa(p.perBot.length)}</b></div>
         <div className="sh-sumr"><span className="sh-lbl">زمان تقریبی</span><b>حدود {fa(p.etaMinutes)} دقیقه</b></div>
       </div>
-      <CheckBox on={seen} onChange={setSeen} testId="sh-redir-seen" label="متن و تعداد گیرنده‌ها را دیدم و می‌دانم این پیام برگشت‌پذیر نیست" />
+      <CheckBox on={seen} onChange={setSeen} testId="sh-redir-seen" label={"متن و تعداد گیرنده‌ها را دیدم و می‌دانم این پیام برگشت‌پذیر نیست"} />
       <label className="sh-frow"><span className="sh-lbl">تعداد گیرنده‌ها را بنویسید</span><div className="sh-fld"><input value={typed} onChange={(e) => setTyped(e.target.value)} inputMode="numeric" aria-label="تعداد گیرنده‌ها" data-testid="sh-redir-count-input" /></div></label>
       {err ? <p className="sh-err" role="alert">{err}</p> : null}
     </div> : null}

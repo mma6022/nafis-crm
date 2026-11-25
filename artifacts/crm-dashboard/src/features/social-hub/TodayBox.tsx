@@ -16,11 +16,11 @@ function CopyChip({ label, value, testId }: { label: string; value: string; test
     <span className="sh-lbl">{label}</span><b className="l">{bidi(value)}</b>{ok ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}</button>;
 }
 function SendStatus({ s, onRetry }: { s: ShToday['sends'][number]; onRetry?: () => void }) {
-  const st = s.status === 'sent' ? 'ok' : s.status === 'failed' ? 'bad' : 'amber';
+  const st = s.status === 'sent' ? 'ok' : s.status === 'failed' ? 'bad' : '';
   const label = s.status === 'sent' ? 'ارسال شد' : s.status === 'failed' ? 'ارسال نشد' : 'در صف';
   const Icon = s.status === 'sent' ? Check : s.status === 'failed' ? AlertCircle : Clock;
-  return <div className={`sh-sendst ${st}`} data-testid={`sh-send-${s.status}`}>
-    <span className={`sh-chip ${st}`}><Icon aria-hidden="true" />{s.title}، {label}، {faDateTime(s.at)}</span>
+  return <div className={`sh-sendst ${st || 'queued'}`} data-testid={`sh-send-${s.status}`}>
+    <span className={`sh-chip ${st}`}><Icon aria-hidden="true" />{s.title}، {label}، {faDateTime(s.at)}{s.source === 'auto' ? <span className="sh-auto" data-testid="sh-send-auto">خودکار</span> : null}</span>
     {s.status === 'failed' && s.failReason ? <span className="sh-sub sh-failr">{s.failReason}</span> : null}
     {s.retryable ? <button type="button" className="sh-btn sec sm sh-retry" onClick={onRetry} data-testid="sh-send-retry"><RefreshCw aria-hidden="true" />تلاش دوباره</button> : null}
   </div>;
