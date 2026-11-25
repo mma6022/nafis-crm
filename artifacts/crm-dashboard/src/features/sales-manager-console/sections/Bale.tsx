@@ -1,7 +1,8 @@
 // «مدیریت فروش» v1.3 §9 — ربات‌های بله و پیام‌ها (bale-voice-v1.3.md §3; Mohammad t358s1326). Only while flag.sales_admin_bale_v13 + console flags are ON.
 // Ghasemi's read-only bot never appears here (server filters it). Tokens / keys: masked text field (no password field), cleared after save, never shown again.
 import { useState, type ReactNode } from 'react';
-import type { BaleState, QuickMessage, ViewLevel } from '../api';
+import type { BaleState, QuickMessage, SmcBotsState, ViewLevel } from '../api';
+import { ExpertBotsList } from './BotsEdit';
 import { c, fa, I, Chip, Seg, Tgl, safeN } from '../ui';
 import { BwsConsoleBlocks } from '@/features/bale-workspace/Admin'; // «فضای کار بله» د/ز/و (flag.bale_workspace_v1; nothing while OFF)
 
@@ -30,7 +31,7 @@ function Secret({ label, onSave, busy }: { label: string; onSave: (v: string) =>
   );
 }
 
-export function BaleSection({ bs, act }: { bs: BaleState; act: BaleAct }) {
+export function BaleSection({ bs, act, botEdit, onRefresh, onToast }: { bs: BaleState; act: BaleAct; botEdit?: SmcBotsState | null; onRefresh?: () => Promise<void>; onToast?: (msg: string, auditId?: number | null) => void }) {
   const b = bs.bots; const can = bs.canWrite;
   const [connect, setConnect] = useState<number | 'new' | null>(null);
   const [pickUser, setPickUser] = useState<number | null>(null);
@@ -60,6 +61,31 @@ export function BaleSection({ bs, act }: { bs: BaleState; act: BaleAct }) {
           </div>
         </div>
       ) : null}
+      {botEdit && onRefresh && onToast ? (
+        <>
+          <ExpertBotsList
+            state={botEdit}
+            canWrite={can}
+            aiLive={b.aiLive}
+            onRefresh={onRefresh}
+            onToast={onToast}
+            onModeChange={(userId, mode) => {
+              const ex = botEdit.experts.find((x) => x.userId === userId);
+              void act('/bale/mode', 'PUT', { userId, mode }, mode === 'shared' ? `${ex?.name ?? 'کارشناس'} از ربات مشترک جواب می‌گیرد.` : `${ex?.name ?? 'کارشناس'} با ربات خودش کار می‌کند.`);
+            }}
+            onAiChange={(botId, on) => {
+              const ex = botEdit.experts.find((x) => x.bot?.id === botId);
+              void act('/bale/ai', 'PUT', { botId, on }, `پاسخ هوش مصنوعی ربات ${ex?.name ?? 'کارشناس'} ${on ? 'روشن' : 'خاموش'} شد.`);
+            }}
+          />
+          {can ? (
+            <div className={c('row1 bact')}>
+              <button className={c('btn lk')} type="button" onClick={() => setAskAll(true)}><I n="copy" />یکسان برای همه: ربات مشترک</button>
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <>
       {b.experts.map((e) => (
         <div key={e.userId} className={c('bcard')} data-testid={`sab-expert-${e.userId}`}>
           <div className={c('brow')}>
@@ -89,6 +115,8 @@ export function BaleSection({ bs, act }: { bs: BaleState; act: BaleAct }) {
           {pickUser ? <Secret label="توکن ربات (از @botfather)" onSave={(t) => doConnect(pickUser, t)} /> : null}
         </div>
       ) : null}
+        </>
+      )}
       {askAll ? (
         <div className={c('bcard ask')} role="group" aria-label="یکسان برای همه">
           <b>همه‌ی کارشناس‌ها از ربات مشترک جواب بگیرند؟</b>

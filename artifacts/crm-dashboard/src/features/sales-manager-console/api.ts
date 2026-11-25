@@ -55,7 +55,7 @@ export async function smcApi<T>(path: string, init?: { method?: string; body?: u
 }
 
 /** Nav gate: 404 (flag OFF) and 403 (not a manager) both mean «no item». Never retried. `merged` only while flag.sales_admin_merge_v12 is ON. */
-export type SmcMe = { enabled: boolean; canManage: boolean; roleLabel: string; merged?: boolean; path?: string; accessRoles?: string[]; bale?: boolean };
+export type SmcMe = { enabled: boolean; canManage: boolean; roleLabel: string; merged?: boolean; path?: string; accessRoles?: string[]; bale?: boolean; botEdit?: boolean };
 export function useSmcMe(enabled: boolean) {
   return useQuery({ queryKey: ['smc-me'], enabled, retry: false, staleTime: 60_000, queryFn: () => smcApi<SmcMe>('/me') });
 }
@@ -121,4 +121,45 @@ export function useVoicePage(page: number, first: VoiceView) {
 }
 export function useBaleState(enabled: boolean) {
   return useQuery({ queryKey: ['smc-bale'], enabled, retry: false, staleTime: 0, refetchOnWindowFocus: false, queryFn: () => smcApi<BaleState>('/bale/state') });
+}
+
+/* ---------------- admin bot edit in SMC (flag.smc_bot_edit_v1) ---------------- */
+export type SmcExpertBot = {
+  userId: number;
+  name: string;
+  salespersonId: number | null;
+  baleFlagOn: boolean;
+  readonlySend: boolean;
+  readonlyReason: string | null;
+  mode: 'own' | 'shared';
+  paused: boolean;
+  bot: {
+    id: number;
+    name: string | null;
+    username: string | null;
+    botUserId: string | null;
+    status: 'on' | 'off' | 'err';
+    tokenSaved: boolean;
+    tokenStatusLabel: 'ثبت شده' | 'ثبت نشده';
+    ai: boolean;
+    connectedAt: string | null;
+    lastOkAt: string | null;
+    lastError: string | null;
+  } | null;
+};
+export type SmcBotsState = {
+  flag: string;
+  hasKey: boolean;
+  sabEnabled: boolean;
+  experts: SmcExpertBot[];
+};
+export function useSmcBots(enabled: boolean) {
+  return useQuery({
+    queryKey: ['smc-bots'],
+    enabled,
+    retry: false,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+    queryFn: () => smcApi<SmcBotsState>('/bots'),
+  });
 }

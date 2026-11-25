@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import './smc.css';
-import { smcApi, useSmcMe, useSmcState, useMergeState, useBaleState, SECTION_IDS, type ApiError, type BaleState, type Docs, type FoldKey, type LiveTeam, type MergeState, type SectionId, type SmcState, type TeamPreview } from './api';
+import { smcApi, useSmcMe, useSmcState, useMergeState, useBaleState, useSmcBots, SECTION_IDS, type ApiError, type BaleState, type Docs, type FoldKey, type LiveTeam, type MergeState, type SectionId, type SmcBotsState, type SmcState, type TeamPreview } from './api';
 import { MergeContext, type MergeCtx } from './merge-ctx';
 import { MergeBanner, MergeDaily, MergeDiscipline, MergeDist, MergeModel } from './MergeBlocks';
 import { c, fa, I, Chip } from './ui';
@@ -16,9 +16,10 @@ import { DistSection } from './sections/Dist';
 import { StepsSection } from './sections/Steps';
 import { AuditSection } from './sections/Audit';
 import { BaleSection } from './sections/Bale';
+import { BotsSection } from './sections/BotsEdit';
 import { VoiceSection, voiceModeFa } from './sections/Voice';
 
-type AnyId = SectionId | 'audit' | 'discipline' | 'bale' | 'voice';
+type AnyId = SectionId | 'audit' | 'discipline' | 'bale' | 'voice' | 'bots';
 const SECS_V11: [AnyId, string][] = [
   ['teams', 'تیم‌ها و کارشناس‌ها'], ['daily', 'لیست روزانه‌ی کارشناس‌ها'], ['access', 'دسترسی کارشناس‌ها'], ['valid', 'مدت اعتبار استعلام‌ها'],
   ['model', 'مدل چیدن لیست روزانه'], ['dist', 'تقسیم مشتری بین تیم‌ها و کارشناس‌ها'], ['steps', 'مراحل پرونده‌ی تسهیلات'], ['audit', 'تاریخچه‌ی تغییرات'],
@@ -30,7 +31,7 @@ const SECS_V12: [AnyId, string][] = [
 ];
 /** v1.3 (bale-voice-v1.3.md §2): eleven sections — Bale bots & messages and call-to-text before the history. */
 const SECS_V13: [AnyId, string][] = [...SECS_V12.slice(0, 8), ['bale', 'ربات‌های بله و پیام‌ها'], ['voice', 'تبدیل تماس به متن'], ['audit', 'تاریخچه‌ی تغییرات']];
-const isDoc = (id: AnyId): id is SectionId => id !== 'audit' && id !== 'discipline' && id !== 'bale' && id !== 'voice';
+const isDoc = (id: AnyId): id is SectionId => id !== 'audit' && id !== 'discipline' && id !== 'bale' && id !== 'voice' && id !== 'bots';
 export type SectionProps<K extends SectionId> = {
   st: SmcState; doc: Docs[K]; docs: Docs; set: (next: Docs[K], changes?: number) => void; saveNow: () => Promise<void>;
 };
@@ -43,17 +44,20 @@ export default function SalesManagerConsolePage() {
   const mq = useMergeState(merged);
   const bale = merged && Boolean(me.data?.bale);
   const bq = useBaleState(bale);
-  if (q.isLoading || me.isLoading || (merged && mq.isLoading) || (bale && bq.isLoading)) return <main className="smc-root smc-page" dir="rtl" lang="fa"><p className={c('loading')}>در حال باز کردن…</p></main>;
+  const botEdit = Boolean(me.data?.botEdit);
+  const beq = useSmcBots(botEdit);
+  if (q.isLoading || me.isLoading || (merged && mq.isLoading) || (bale && bq.isLoading) || (botEdit && beq.isLoading)) return <main className="smc-root smc-page" dir="rtl" lang="fa"><p className={c('loading')}>در حال باز کردن…</p></main>;
   const err = q.error as ApiError | null;
   if (err) {
     const msg = err.status === 403 ? 'این صفحه فقط برای مدیر فروش و ادمین است.' : err.status === 404 ? 'این صفحه هنوز فعال نیست.' : 'صفحه باز نشد؛ دوباره تلاش کنید.';
     return <main className="smc-root smc-page" dir="rtl" lang="fa"><div className={c('card denied')} role="alert"><I n="lock" /><b>{msg}</b></div></main>;
   }
-  return <Console st={q.data!} m={merged ? mq.data ?? null : null} bs={bale ? bq.data ?? null : null} roles={me.data?.accessRoles} />;
+  return <Console st={q.data!} m={merged ? mq.data ?? null : null} bs={bale ? bq.data ?? null : null} be={botEdit ? beq.data ?? null : null} roles={me.data?.accessRoles} />;
 }
 
-function Console({ st, m, bs, roles }: { st: SmcState; m: MergeState | null; bs: BaleState | null; roles?: string[] }) {
-  const SECS = m && bs ? SECS_V13 : m ? SECS_V12 : SECS_V11;
+function Console({ st, m, bs, be, roles }: { st: SmcState; m: MergeState | null; bs: BaleState | null; be: SmcBotsState | null; roles?: string[] }) {
+  const BASE_SECS = m && bs ? SECS_V13 : m ? SECS_V12 : SECS_V11;
+  const SECS: [AnyId, string][] = be && !bs ? [...BASE_SECS.slice(0, -1), ['bots', 'ربات‌ها'], BASE_SECS[BASE_SECS.length - 1]!] : BASE_SECS;
   const qc = useQueryClient();
   const [work, setWork] = useState<Partial<Docs>>({});
   const [chg, setChg] = useState<Partial<Record<SectionId, number>>>({});
@@ -62,7 +66,9 @@ function Console({ st, m, bs, roles }: { st: SmcState; m: MergeState | null; bs:
   const initialOpen = useMemo(() => {
     const fromHash = /^#s-([a-z]+)$/.exec(location.hash)?.[1];
     const q = new URLSearchParams(location.search).get('open');
-    return new Set((q ?? fromHash ?? 'teams').split(',').concat(fromHash && q ? [fromHash] : []));
+    const base = (q ?? fromHash ?? 'teams').split(',').concat(fromHash && q ? [fromHash] : []);
+    if (bs && base.includes('bots')) base.push('bale');
+    return new Set(base);
   }, []);
   const [open, setOpen] = useState<Set<string>>(initialOpen);
   const [active, setActive] = useState<string>('teams');
@@ -191,14 +197,15 @@ function Console({ st, m, bs, roles }: { st: SmcState; m: MergeState | null; bs:
     valid: () => <ValidSection {...props('valid')} />, model: () => <ModelSection {...props('model')} />, dist: () => <DistSection {...props('dist')} />,
     steps: () => <StepsSection {...props('steps')} />, audit: () => <AuditSection st={st} onReverted={() => { void qc.invalidateQueries({ queryKey: ['smc-merge'] }); return reload([]); }} />,
     discipline: () => (m ? <MergeDiscipline m={m} /> : <></>),
-    bale: () => (bs ? <BaleSection bs={bs} act={baleAct} /> : <></>),
+    bale: () => (bs ? <BaleSection bs={bs} act={baleAct} botEdit={be} onRefresh={refresh} onToast={(msg, aid) => { setToast(msg); setUndoId(aid ?? null); }} /> : <></>),
+    bots: () => (be ? <BotsSection state={be} onRefresh={refresh} onToast={(msg, aid) => { setToast(msg); setUndoId(aid ?? null); }} /> : <></>),
     voice: () => (bs ? <VoiceSection bs={bs} act={baleAct} /> : <></>),
   };
   const extra: Partial<Record<AnyId, () => ReactElement>> = m ? { daily: () => <MergeDaily m={m} />, model: () => <MergeModel m={m} />, dist: () => <MergeDist m={m} /> } : {};
   const [busy, setBusy] = useState<number | null>(null);
   const [saving, setSaving] = useState<FoldKey | null>(null);
   const [undoId, setUndoId] = useState<number | null>(null);
-  const refresh = async () => { await qc.invalidateQueries({ queryKey: ['smc-bale'] }); await qc.invalidateQueries({ queryKey: ['smc-merge'] }); await qc.invalidateQueries({ queryKey: ['smc-state'] }); await qc.invalidateQueries({ queryKey: ['smc-audit'] }); };
+  const refresh = async () => { await qc.invalidateQueries({ queryKey: ['smc-bots'] }); await qc.invalidateQueries({ queryKey: ['smc-bale'] }); await qc.invalidateQueries({ queryKey: ['smc-merge'] }); await qc.invalidateQueries({ queryKey: ['smc-state'] }); await qc.invalidateQueries({ queryKey: ['smc-audit'] }); };
   const liveWrite = async (teamId: number, body: { name?: string; enabled?: boolean }, okMsg: string) => {
     setBusy(teamId);
     try { const r = await smcApi<{ auditId?: number }>(`/merge/teams/${teamId}`, { method: 'PUT', body }); setToast(okMsg); setUndoId(r.auditId || null); await refresh(); }
@@ -273,8 +280,8 @@ function Console({ st, m, bs, roles }: { st: SmcState; m: MergeState | null; bs:
                 <header className={c('sh')}>
                   <button className={c('sh-tg')} type="button" aria-expanded={o} aria-controls={`b-${id}`} onClick={() => toggle(id)}>
                     <span className={c('sn')}>{fa(i + 1)}</span>
-                    <span className={c('stx')}><h2>{title}</h2><p>{id === 'discipline' ? (m ? disciplineSum(m) : '') : id === 'bale' ? (bs ? baleSum(bs) : '') : id === 'voice' ? (bs ? voiceSum(bs) : '') : st.sums[id as SectionId | 'audit']}</p></span>
-                    {d ? <Chip k="g">{fa(d)} تغییر ذخیره‌نشده</Chip> : !isDoc(id) ? (id === 'discipline' ? (m?.canWriteFolded ? <Chip k="ok">ذخیره‌شده</Chip> : <Chip k="lock">فقط نمایش</Chip>) : id === 'bale' || id === 'voice' ? <Chip k="ok">ذخیره‌شده</Chip> : null) : <Chip k="ok">ذخیره‌شده</Chip>}
+                    <span className={c('stx')}><h2>{title}</h2><p>{id === 'discipline' ? (m ? disciplineSum(m) : '') : id === 'bale' ? (bs ? baleSum(bs) : '') : id === 'bots' ? (be ? botsSum(be) : '') : id === 'voice' ? (bs ? voiceSum(bs) : '') : st.sums[id as SectionId | 'audit']}</p></span>
+                    {d ? <Chip k="g">{fa(d)} تغییر ذخیره‌نشده</Chip> : !isDoc(id) ? (id === 'discipline' ? (m?.canWriteFolded ? <Chip k="ok">ذخیره‌شده</Chip> : <Chip k="lock">فقط نمایش</Chip>) : id === 'bale' || id === 'voice' || id === 'bots' ? <Chip k="ok">ذخیره‌شده</Chip> : null) : <Chip k="ok">ذخیره‌شده</Chip>}
                     <I n="chev" cls="chev" />
                   </button>
                   {d ? (
@@ -296,6 +303,7 @@ function Console({ st, m, bs, roles }: { st: SmcState; m: MergeState | null; bs:
     </MergeContext.Provider>
   );
 }
+const botsSum = (be: SmcBotsState) => `${fa(be.experts.length)} کارشناس، ${fa(be.experts.filter((e) => e.bot?.tokenSaved).length)} ربات متصل`;
 const baleSum = (bs: BaleState) => `${bs.bots.shared ? `ربات مشترک ${bs.bots.shared.name}؛ ` : ''}${fa(bs.bots.experts.length)} کارشناس، ${fa(bs.bots.experts.filter((e) => e.mode === 'own' && e.bot).length)} با ربات خودش`;
 const voiceSum = (bs: BaleState) => `${voiceModeFa(bs.voice.mode)}؛ ${fa(bs.voice.total)} تماس با صدا و بدون متن`;
 const disciplineSum = (m: MergeState) => `پنجره‌ی به‌موقع ${fa(m.values.discipline.onTimeMin)} دقیقه؛ تحویل مشتری: ${m.values.discipline.transferMode === 'block' ? 'جلوگیری' : 'فقط هشدار'}`;
