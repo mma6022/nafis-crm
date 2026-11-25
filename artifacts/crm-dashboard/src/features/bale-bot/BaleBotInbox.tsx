@@ -145,10 +145,11 @@ function ListPane({ me, data, loading, sel, filter, setFilter, q, setQ, expert, 
   return <section className="pane lst" aria-label="گفتگوها">
     {me.view === 'own' && me.bot?.status === 'err' ? <div className="offb" role="alert"><I n="alert" /><div><b>ربات شما قطع است</b><span>بله توکن ربات را قبول نکرد و پیام تازه نمی‌رسد. پیام‌های این مدت فقط ۲۴ ساعت روی بله می‌ماند؛ به مدیر سیستم بگویید توکن را عوض کند.</span></div></div> : null}
     <div className="lh"><div className="r1"><h2>گفتگوهای بله</h2>{me.canManage ? <Link className="btn lk sm" href="/bale-bot/admin"><I n="shield" />ربات‌ها</Link> : null}</div>
-      {me.view === 'all' ? <div className="mgf" role="radiogroup" aria-label="کارشناس">
+      {me.view === 'all' || (data?.experts?.length ?? 0) > 0 ? <div className="mgf" role="radiogroup" aria-label="کارشناس">
         <button className="fb" type="button" role="radio" aria-checked={expert === ''} onClick={() => setExpert('')}>همه‌ی کارشناس‌ها</button>
         {(data?.experts ?? []).map((e) => <button key={e.id} className="fb" type="button" role="radio" aria-checked={expert === e.id} onClick={() => setExpert(e.id)}>{e.name}</button>)}</div>
-        : u ? <div className="botl"><span className="lg-b"><I n="bale" /></span><span className="bk">ربات من</span><span className="u">@{u}</span><button className="btn lk sm" type="button" aria-label={`کپی لینک ربات من، ble.ir/${u}`} onClick={() => copyText(`https://ble.ir/${u}`, toast)}><I n="copy" />لینک ربات من</button></div> : null}
+        : null}
+      {me.view === 'own' && u ? <div className="botl"><span className="lg-b"><I n="bale" /></span><span className="bk">ربات من</span><span className="u">@{u}</span><button className="btn lk sm" type="button" aria-label={`کپی لینک ربات من، ble.ir/${u}`} onClick={() => copyText(`https://ble.ir/${u}`, toast)}><I n="copy" />لینک ربات من</button></div> : null}
       <label className="srch"><I n="search" /><input type="search" placeholder="جستجوی نام، نام کاربری یا شناسه" aria-label="جستجوی گفتگو" value={q} onChange={(e) => setQ(e.target.value)} /></label>
       <div className="flt" role="radiogroup" aria-label="فیلتر گفتگوها">{fb('all', 'همه', 0)}{fb('unread', 'خوانده‌نشده', data?.counts.unread ?? 0)}{me.contactFeature ? fb('pending', 'در انتظار شماره', data?.counts.pending ?? data?.counts.unlinked ?? 0) : fb('unlinked', 'وصل‌نشده به مشتری', data?.counts.unlinked ?? 0)}</div>
       <BwStarFilter counts={data?.counts.stars} /></div>
@@ -166,7 +167,7 @@ function ListPane({ me, data, loading, sel, filter, setFilter, q, setQ, expert, 
           if (!linked(c)) tags.push(<span key="nl" className="chip r"><I n="user-x" />وصل‌نشده به مشتری</span>);
           if (otherFile(c)) tags.push(<span key="ot" className="exc">پرونده‌ی {c.customer?.expert}</span>);
         }
-        if (me.view === 'all' && c.expert.name) tags.push(<span key="ex" className="exc">{c.expert.name}</span>);
+        if ((me.view === 'all' || !c.mine) && c.expert.name) tags.push(<span key="ex" className="exc">{c.expert.name}</span>);
         if (c.notices.some((n) => n.kind === 'mgr_wrote')) tags.push(<span key="mg" className="chip g"><I n="bell" />پیام مدیر</span>);
         const pvKind = c.lastPreview && PREV_IC[c.lastPreview] ? c.lastPreview : null;
         const showCid = !!c.customer && !c.pendingTypedPhone;
@@ -343,8 +344,8 @@ function ChatPane({ me, chat, messages, toast, err, refresh, onAsk, onSearch, on
       : <>وصل شد به {fresh ? 'لید تازه' : 'پرونده‌ی'} {chat.customer.name}<Cid id={chat.customer.id} toast={toast} /> با ورود دستی {actor}</>}</span></div>);
   }
   const sub = chat.contactFeature
-    ? (chat.pendingTypedPhone ? <p className="bc-un">در انتظار تأیید کارشناس</p> : chat.waitingNumber ? <p className="bc-un">هنوز به مشتری وصل نشده</p> : <p className="bc-un">{chat.username ? <Uname u={chat.username} /> : 'بدون نام کاربری'}{me.view === 'all' && chat.expert.name ? `، کارشناس: ${chat.expert.name}` : ''}</p>)
-    : <p>{chat.username ? <Uname u={chat.username} /> : 'بدون نام کاربری'}{me.view === 'all' && chat.expert.name ? `، کارشناس: ${chat.expert.name}` : ''}</p>;
+    ? (chat.pendingTypedPhone ? <p className="bc-un">در انتظار تأیید کارشناس</p> : chat.waitingNumber ? <p className="bc-un">هنوز به مشتری وصل نشده</p> : <p className="bc-un">{chat.username ? <Uname u={chat.username} /> : 'بدون نام کاربری'}{(me.view === 'all' || !chat.mine) && chat.expert.name ? `، کارشناس: ${chat.expert.name}` : ''}</p>)
+    : <p>{chat.username ? <Uname u={chat.username} /> : 'بدون نام کاربری'}{(me.view === 'all' || !chat.mine) && chat.expert.name ? `، کارشناس: ${chat.expert.name}` : ''}</p>;
   return <section className="pane ch" aria-label={`گفتگو با ${chat.name}`}>
     <div className="chh"><button className="ib bkb" type="button" onClick={back} aria-label="برگشت به گفتگوها"><I n="next" /></button><Ava name={chat.name} seed={chat.id} />
       <div className="t"><div className="nmr"><Nm name={chat.name} />{chat.customer && !chat.pendingTypedPhone ? <Cid id={chat.customer.id} toast={toast} /> : null}</div>{sub}<BwHead chatId={chat.id} toast={toast} /></div></div>
@@ -426,6 +427,7 @@ function Composer({ me, chat, reply, edit, clear, toast, err, refresh }: { me: B
     return () => window.removeEventListener('resize', onResize);
   }, [bw.on]);
   // bot off/err: the design's disabled state. Read-only bot (server-enforced no_send): the design has no wording → disabled silently.
+  if (!chat.canWrite && chat.sendBlocked === 'view_only') return <div className="cz"><p className="czoff"><I n="lock" />فقط مشاهده — پاسخ از ربات این کارشناس را خود او می‌فرستد.</p></div>;
   if (!chat.canWrite && chat.sendBlocked !== 'no_send') return <div className="cz"><p className="czoff"><I n="alert" />ربات قطع است؛ تا وصل شدن دوباره پیامی فرستاده نمی‌شود.</p></div>;
   if (!chat.canWrite) return bw.on
     ? <div className="cz"><textarea ref={taRef} className="ta3" rows={1} aria-label={`پیام به ${chat.name}`} placeholder="پیام بنویسید" disabled data-testid="bws-composer" />
@@ -548,7 +550,7 @@ function LeadModal({ me, chat, toast, close, onAsk, done }: { me: BbMe; chat: Bb
       <div className="r"><span className="k">موبایل</span><span className="v"><Ph phone={chk?.phone ?? toLatin(phone)} toast={toast} />{chk && !chk.verified ? <Unverified /> : null}</span></div>
       {chat.username ? <div className="r"><span className="k">بله</span><span className="v"><Uname u={chat.username} /></span></div> : null}
       <div className="r"><span className="k">منبع</span><span className="v"><span className="chip b"><I n="bale" />بله</span></span></div>
-      <div className="r"><span className="k">کارشناس</span><span className="v"><I n="lock" />{chat.expert.name}{chat.expert.id && me.view === 'own' ? '، خود شما' : ''}</span></div>
+      <div className="r"><span className="k">کارشناس</span><span className="v"><I n="lock" />{chat.expert.name}{chat.mine && chat.expert.id ? '، خود شما' : ''}</span></div>
       {note.trim() ? <div className="r"><span className="k">یادداشت</span><span className="v">{note}</span></div> : null}</div>
       <p className="hint">{chk?.state === 'own' ? `این شماره مال مشتری خود شما ${chk.customer?.name} است؛ سرنخ تازه ساخته نمی‌شود و گفتگو به همان پرونده وصل می‌شود.` : 'بعد از ثبت، این گفتگو به پرونده‌ی تازه وصل می‌شود.'}</p></>;
   const foot = s === 1 ? <><button className="btn pri" type="button" aria-disabled={!ok || busy || state === 'dup'} aria-describedby={sub ? 'lme' : undefined} onClick={next}>بعدی: بررسی<I n="arrow" /></button><button className="btn gh" type="button" onClick={close}>انصراف</button></>
