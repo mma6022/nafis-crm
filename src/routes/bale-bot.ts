@@ -14,6 +14,7 @@ import type { AuthUser } from "../lib/auth";
 import { execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "../lib/crm-db";
 import { insertCustomerRecord } from "../lib/customer-create";
 import { baleBotAad, baleBotHasKey, sealBotToken } from "../lib/bale-bot-crypto";
+import { setShSendKick } from "../lib/social-hub-send";
 import {
   ASK_CONTACT_TEXT, BaleBotWorker, BB_LIMITS, baleCall, bbCanManage, bbLog, bbMasterOn, bbNoSendSp, bbUser, bbUserOn, bbView, botById, botLive, botOfUser, botSends,
   bbNotice, chatName, messageView, redactPhonesInText, ensureBaleBotSchema, fileOwnerUsers, normPhone, filesDir, isBotExpert, BB_EXTRA_EXPERT_USER_IDS, BB_SHARED_BOT_USER_ID, isSharedCustomerBot, nameOf, redact, tokenShapeOk, type BbUser,
@@ -144,6 +145,7 @@ export function createBaleBotRouter(): IRouter {
   });
   const U = (res: Response) => res.locals.bbUser as BbUser;
   const kick = () => { setImmediate(() => { void baleBotWorker.flushOutbox(); }); };
+  setShSendKick(kick);
 
   r.get("/bale-bot/me", (_req, res) => {
     const u = U(res);

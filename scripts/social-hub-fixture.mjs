@@ -3,6 +3,7 @@
  * Usage: SOCIAL_HUB_FIXTURE_DB=/workspace/t861/masked.db node scripts/run-bundled-fixture.mjs scripts/social-hub-fixture.mjs
  */
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -15,10 +16,12 @@ if (fs.realpathSync(src) === "/var/lib/nafisvam/customers.db") throw new Error("
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sh-fixture-"));
 const dbPath = path.join(dir, "crm.db");
 fs.copyFileSync(src, dbPath);
+const keyFile = path.join(dir, "bot.key"); fs.writeFileSync(keyFile, crypto.randomBytes(32).toString("hex"), { mode: 0o600 });
 Object.assign(process.env, {
   CRM_DATABASE_PATH: dbPath, NODE_ENV: "production", LOG_LEVEL: "warn", SMS_DISABLED: "1", SOCIAL_HUB_FILES_DIR: path.join(dir, "docs"),
   SESSION_SECRET: `fixture-only-${Math.random().toString(36).slice(2)}-not-a-real-secret-0123456789`,
   SAB_FEEDER: "0", BALE_BOT_WORKER: "0", LOAN_REQUEST_DRAFTS_JOBS: "off", SITE_LEAD_ALERTS: "off",
+  BALE_BOT_KEY_FILE: keyFile, BALE_BOT_FILES_DIR: path.join(dir, "bot-files"),
 });
 let netCalls = 0;
 globalThis.fetch = async () => { netCalls++; throw new Error("unexpected network call in social-hub fixture"); };
@@ -28,6 +31,7 @@ let server;
 try {
   const { queryRow, queryRows, execute } = await import("../src/lib/crm-db.ts");
   const sh = await import("../src/lib/social-hub.ts");
+  const shs = await import("../src/lib/social-hub-send.ts");
   const shb = await import("../src/lib/social-hub-bot.ts");
   const cph = await import("../src/lib/customer-phones.ts");
   const el = await import("../src/lib/expert-lockdown.ts");
@@ -35,7 +39,7 @@ try {
   cph.ensureCustomerPhonesSchema();
   const flag = (k, v) => v == null ? execute("DELETE FROM call_queue_settings WHERE key=?", [k])
     : execute("INSERT INTO call_queue_settings(key,value,updated_at) VALUES(?,?,datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [k, v]);
-  for (const k of [sh.SH_FLAG, sh.SH_PHONE_FLAG, sh.SH_SEND_FLAG, sh.SH_CONNECT_FLAG, sh.SH_LEGACY_FINISH_FLAG]) flag(k, null);
+  for (const k of [sh.SH_FLAG, sh.SH_PHONE_FLAG, sh.SH_SEND_FLAG, sh.SH_CONNECT_FLAG, sh.SH_REDIRECT_FLAG, sh.SH_LEGACY_FINISH_FLAG]) flag(k, null);
   flag("flag.expert_lockdown", null);
 
   const perms = ["customers.view", "customers.update", "customers.create", "calls.create", "calls.view"];
@@ -251,11 +255,102 @@ try {
     assert.deepEqual(shb.shbIdNext({ nationalId: true, birth: true, docs: new Set(["national_card_front"]) }), { step: "doc", doc: "national_card_back", label: "پشت کارت ملی" });
     assert.deepEqual(shb.shbPlanKeyboard([{ id: 3, publicLabel: "لندتک / ملت" }]), [[{ text: "لندتک / ملت", data: "shp:3" }]]);
   });
-  await ok("never wrote loan_plans / team_sales_config / notification_settings / bale_bots; no network", async () => {
+
+  await ok("send gates: Ghasemi bot is read-only; cross-expert blocked; 10-minute dedupe", async () => {
+    const gBot = queryRow("SELECT id FROM bale_bots WHERE user_id=3");
+    const hBot = queryRow("SELECT id FROM bale_bots WHERE user_id=2");
+    const kBot = queryRow("SELECT id FROM bale_bots WHERE user_id=8");
+    assert.ok(gBot && hBot && kBot);
+    execute("INSERT INTO bale_bot_chats(bot_id,chat_id,customer_id,created_at,last_at) VALUES(?,?,?,?,datetime('now'))", [gBot.id, `fx-g-${A}`, A, "2026-11-25T06:00:00Z"]);
+    const gToday = await req("ghasemi", "GET", `/api/social-hub/customers/${A}/today`);
+    assert.equal(gToday.status, 200, JSON.stringify(gToday.data));
+    assert.equal(gToday.data.sendBlock?.error, "send_closed");
+    assert.equal(gToday.data.sendBlock?.message, "ارسال از این ربات بسته است");
+    const gSend = await req("ghasemi", "POST", `/api/social-hub/customers/${A}/send`, { messageId: freeId });
+    assert.equal(gSend.status, 409); assert.equal(gSend.data.error, "send_closed");
+    // auto-send on Ghasemi's chat must also stay off
+    assert.equal(sh.shOnPlanLinked(A, planId, new Date(), { chatRow: queryRow("SELECT id FROM bale_bot_chats WHERE customer_id=?", [A]).id, botId: gBot.id }), 0);
+    // newer chat on Hasani's bot for Kazemi's customer B → Kazemi cannot send from Hasani's bot
+    execute("INSERT INTO bale_bot_chats(bot_id,chat_id,customer_id,created_at,last_at) VALUES(?,?,?,?,?)", [hBot.id, `fx-h-${B}`, B, "2026-11-25T07:00:00Z", "2026-11-25T07:00:00Z"]);
+    const cross = await req("kazemi", "POST", `/api/social-hub/customers/${B}/send`, { messageId: freeId });
+    assert.equal(cross.status, 409, JSON.stringify(cross.data)); assert.equal(cross.data.error, "other_expert");
+    assert.match(cross.data.message, /ربات/);
+    // put B back on Kazemi's bot as the latest chat
+    execute("UPDATE bale_bot_chats SET last_at=? WHERE bot_id=? AND customer_id=?", ["2026-11-25T08:00:00Z", kBot.id, B]);
+    const first = await req("kazemi", "POST", `/api/social-hub/customers/${B}/send`, { messageId: freeId });
+    assert.equal(first.status, 201, JSON.stringify(first.data));
+    const again = await req("kazemi", "POST", `/api/social-hub/customers/${B}/send`, { messageId: freeId });
+    assert.equal(again.status, 409); assert.equal(again.data.error, "recent");
+    assert.equal(again.data.message, "همین الان فرستاده شد؛ ارسال دوباره بعد از ۱۰ دقیقه.");
+    assert.equal(netCalls, 0);
+  });
+  await ok("choiceLabel never uses لندتک; planChoiceLabel is what the customer sees", async () => {
+    const plans = sh.shPlans();
+    assert.ok(plans.length > 0);
+    assert.ok(plans.every((p) => !String(p.choiceLabel).includes("لندتک")));
+    const rendered = sh.shRender("طرح ‹نام طرح›", { plan: plans[0].choiceLabel });
+    assert.ok(!rendered.includes("لندتک"));
+  });
+  await ok("connect flag OFF still refuses tokens; ON tests and saves only through getMe hook (no network)", async () => {
+    const fake = "123456789:AAHfake_fixture_token_xx";
+    assert.equal((await req("sm", "POST", "/api/social-hub/bots/test", { token: fake })).status, 409);
+    flag(sh.SH_CONNECT_FLAG, "1");
+    let seen = 0;
+    shs.setShGetMeForTests(async () => { seen++; return { ok: true, bot: { id: "9001", name: "نفیس وام", username: "nafisvam_bot" } }; });
+    const t = await req("sm", "POST", "/api/social-hub/bots/test", { token: fake });
+    assert.equal(t.status, 200, JSON.stringify(t.data)); assert.equal(t.data.bot.username, "nafisvam_bot");
+    const saved = await req("sm", "POST", "/api/social-hub/bots/connect", { token: fake });
+    assert.equal(saved.status, 201, JSON.stringify(saved.data)); assert.equal(saved.data.saved, true);
+    assert.equal(saved.data.username, "nafisvam_bot");
+    assert.ok(!JSON.stringify(saved.data).includes(fake));
+    const view = (await req("sm", "GET", "/api/social-hub/bots")).data.connect;
+    assert.equal(view.tokenSaved, true); assert.equal(view.username, "nafisvam_bot");
+    assert.ok(!JSON.stringify(view).includes(fake));
+    assert.ok(seen >= 2);
+    assert.equal(netCalls, 0);
+  });
+  await ok("redirect: Ghasemi's customers are included (t931s3334); flag off and missing confirm cannot send; tick uses her bot", async () => {
+    const previewOff = await req("admin", "GET", "/api/social-hub/redirect/preview");
+    assert.equal(previewOff.status, 200, JSON.stringify(previewOff.data));
+    assert.equal(previewOff.data.flagOn, false);
+    assert.equal(previewOff.data.disabledReason, "پس از اتصال ربات نفیس وام");
+    assert.equal((await req("sm", "GET", "/api/social-hub/redirect/preview")).status, 403);
+    flag(sh.SH_REDIRECT_FLAG, "1");
+    const preview = await req("admin", "GET", "/api/social-hub/redirect/preview");
+    assert.equal(preview.status, 200, JSON.stringify(preview.data));
+    assert.ok(preview.data.recipients.some((r) => r.customerId === A && r.expertUserId === 3), "Ghasemi customer must be in the redirect");
+    assert.ok(!preview.data.skipped.some((s) => /قاسمی/.test(s.label)), "no Ghasemi exclusion row");
+    const n = preview.data.recipientCount;
+    assert.equal((await req("admin", "POST", "/api/social-hub/redirect/start", { seen: true, count: n - 1 })).status, 400);
+    assert.equal((await req("admin", "POST", "/api/social-hub/redirect/start", { count: n })).status, 400);
+    const start = await req("admin", "POST", "/api/social-hub/redirect/start", { seen: true, count: String(n).replace(/[0-9]/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[d]) });
+    assert.equal(start.status, 201, JSON.stringify(start.data));
+    assert.ok(start.data.queued >= 1);
+    // drain remaining (tick already ran once on start)
+    shs.shRedirectTick(500);
+    const item = queryRow("SELECT from_bot_id, status, out_msg_id FROM sh_redirect_items WHERE customer_id=?", [A]);
+    assert.ok(item, "Ghasemi customer got a redirect row");
+    const gBot = queryRow("SELECT id FROM bale_bots WHERE user_id=3");
+    assert.equal(item.from_bot_id, gBot.id);
+    if (item.out_msg_id) {
+      const msg = queryRow("SELECT chat_row FROM bale_bot_messages WHERE id=?", [item.out_msg_id]);
+      const chat = queryRow("SELECT bot_id FROM bale_bot_chats WHERE id=?", [msg.chat_row]);
+      assert.equal(chat.bot_id, gBot.id);
+    } else {
+      assert.fail("redirect item for Ghasemi's customer was not queued to the outbox");
+    }
+    // Today send from Ghasemi is still blocked after the campaign
+    assert.equal((await req("ghasemi", "POST", `/api/social-hub/customers/${A}/send`, { messageId: freeId })).data.error, "send_closed");
+    // once per customer: already queued/sent cannot start again for that customer; full run marks done after settle
+    const start2 = await req("admin", "POST", "/api/social-hub/redirect/start", { seen: true, count: n });
+    assert.equal(start2.status, 409);
+    assert.equal(netCalls, 0);
+  });
+  await ok("never wrote loan_plans / team_sales_config / notification_settings; no network", async () => {
     assert.equal(netCalls, 0);
     for (const t of ["loan_plans", "bale_bots"]) assert.ok(queryRow(`SELECT COUNT(*) n FROM ${t}`).n >= 0);
   });
-  console.log(`social-hub fixture ${passed}/17`);
-  if (passed !== 17) process.exitCode = 1;
+  console.log(`social-hub fixture ${passed}/21`);
+  if (passed !== 21) process.exitCode = 1;
 } catch (err) { console.error(err); process.exitCode = 1; }
 finally { if (server) await new Promise((r) => server.close(r)); try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* tmp */ } }

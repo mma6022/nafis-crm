@@ -3,6 +3,7 @@
  *  Contract issuance uses the existing generate → send → check-status hooks only.
  */
 import { execute, executeChanges, queryRow, queryRows } from "./crm-db";
+import { shOnPlanLinked } from "./social-hub";
 import { bcMaySendFromBot } from "./bale-contact";
 type BotRow = { id: number; user_id: number; [k: string]: unknown };
 type ChatRow = { id: number; owner_id?: number; customer_id?: number | null; [k: string]: unknown };
@@ -1223,6 +1224,7 @@ async function handleFilingInput(ctx: InboundCtx, f: FilingRow, t: string): Prom
       }
       f.plan_id = pick.id; f.step = 4; f.docs_json = JSON.stringify(cbDocList().map((name) => ({ name, sent: false }))); f.doc_index = 0;
       saveFiling(f, at);
+      try { shOnPlanLinked(customerId, pick.id, new Date(), { chatRow: ctx.chat.id, botId: ctx.bot.id }); } catch { /* social-hub off or unread */ }
       return send(ctx, filingPrompt(f, customerId));
     }
     if (t === CB_BTNS.otherPlan) return send(ctx, filingPrompt(f, customerId));
