@@ -24,6 +24,7 @@
  * Do not rename loan_plans rows. Multi-case screens label a plan from bank_name.
  */
 import { crmDb, execute, executeChanges, queryRow, queryRows } from "./crm-db";
+import { smcCanViewCustomer, type SmcResource } from "./smc-access-scope";
 
 export const MC_FLAG = "flag.multi_case_v1";
 
@@ -361,13 +362,15 @@ export function resolveCaseLink(actor: McActor, customerId: number, body: unknow
   return applicationId;
 }
 
-export function customerVisible(actor: McActor, customerId: number): boolean {
+export function customerVisible(actor: McActor & { id?: number }, customerId: number, resource: SmcResource = "customers"): boolean {
   const row = queryRow<{ salesperson_id: number | null }>(
     "SELECT salesperson_id FROM customers WHERE id=? AND merged_into_customer_id IS NULL",
     [customerId],
   );
   if (!row) return false;
-  if (actor.customerScope === "assigned" && Number(row.salesperson_id) !== Number(actor.salespersonId)) return false;
+  if (actor.customerScope === "assigned" && Number(row.salesperson_id) !== Number(actor.salespersonId)) {
+    return smcCanViewCustomer(actor as any, customerId, resource);
+  }
   return true;
 }
 

@@ -10,6 +10,7 @@ import {
 } from "../lib/social-hub-send";
 import { requireAuth, getAuthenticatedUser, type AuthUser } from "../lib/auth";
 import { elCustomerAccess, elFlagOn, elTarget } from "../lib/expert-lockdown";
+import { smcCanViewCustomer } from "../lib/smc-access-scope";
 import { addCustomerPhone } from "../lib/customer-phones";
 import { s132bLinkToCustomer } from "../lib/simotel132b";
 import {
@@ -93,7 +94,7 @@ router.get("/social-hub/docs/:id/file", requireAuth, user, hubOn, staff, (req, r
 /* -- today card (any staff with access to that customer) -- */
 router.get("/social-hub/customers/:id/today", requireAuth, user, hubOn, staff, (req, res) => {
   const cid = id(req.params.id); const u = me(res);
-  if (!cid || !shCanSeeCustomer(u, cid, lockdown(u, cid))) { fail(res, 404, "not_found"); return; }
+  if (!cid || (!shCanSeeCustomer(u, cid, lockdown(u, cid)) && !smcCanViewCustomer(u, cid, "customers"))) { fail(res, 404, "not_found"); return; }
   run(res, () => shTodayBox(u, cid));
 });
 router.post("/social-hub/customers/:id/send", requireAuth, user, hubOn, staff, express.json({ limit: "4kb" }), (req, res) => {

@@ -12,6 +12,7 @@
 import { queryRow, queryRows } from "./crm-db";
 import { ANY_PHONE_LIKE_SQL, ensureCustomerPhonesSchema } from "./customer-phones";
 import { cpkOn, cpkNextReminderAt } from "./customers-priority-kanban";
+import { smcAccessScope, type SmcResource } from "./smc-access-scope";
 
 const setting = (key: string): string | null => {
   try { return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [key])?.value ?? null; }
@@ -32,38 +33,61 @@ const FD = "۰۱۲۳۴۵۶۷۸۹";
 const toLatin = (s: string) => s.replace(/[۰-۹]/g, (d) => String(FD.indexOf(d))).replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
 const normName = (s: string) => s.replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/\u200c/g, " ").replace(/\s+/g, " ").trim();
 
-/** Own scope for a sales expert = customers whose salesperson is theirs. Admin / manager (never user 29) = everyone. Anyone else = nothing. */
-function scopeSql(u: U): { sql: string; args: any[] } | null {
+/** Own scope for a sales expert = own customers, widened to team/all when «مدیریت فروش» grants it (flag.sales_manager_console_v1 = '1'). Admin / manager (never user 29) = everyone. Anyone else = nothing. */
+function scopeSql(u: U, resource: SmcResource = "customers"): { sql: string; args: any[] } | null {
   if (Number(u.id) === 29) return null;
   if (u.role === "admin" || u.role === "manager") return { sql: "1=1", args: [] };
   if (u.salespersonId == null) return null;
+  const smc = smcAccessScope(u as any, resource);
+  if (smc.kind === "all") return { sql: "1=1", args: [] };
+  if (smc.kind === "team") {
+    const ids = [...smc.salespersonIds].filter((n) => Number.isSafeInteger(n) && n > 0);
+    if (!ids.length) return { sql: "1=0", args: [] };
+    return ids.length === 1
+      ? { sql: "c.salesperson_id=?", args: ids }
+      : { sql: `c.salesperson_id IN (${ids.map(() => "?").join(",")})`, args: ids };
+  }
   return { sql: "c.salesperson_id=?", args: [Number(u.salespersonId)] };
 }
 
 const LIFE = (status: string | null, stage: string | null) => status === "rejected" ? "cancelled" : stage === "completed" ? "completed" : "in_progress";
 
-/** GET /sales-fixes/search?q= — the centred search: matching OWN customers and their existing cases (پرونده‌های تسهیلات). */
+/** GET /sales-fixes/search?q= — the centred search: matching accessible customers and their accessible cases (پرونده‌های تسهیلات). */
 export function sf480Search(u: U, rawQ: unknown): { status: number; body: any } {
-  const sc = scopeSql(u);
-  if (!sc) return { status: 403, body: { error: "forbidden", message: "جست‌وجو برای این حساب باز نیست." } };
+  const custSc = scopeSql(u, "customers");
+  const loanSc = scopeSql(u, "loan_files");
+  if (!custSc || !loanSc) return { status: 403, body: { error: "forbidden", message: "جست‌وجو برای این حساب باز نیست." } };
   const q = normName(toLatin(String(rawQ ?? "")));
   if (q.length < 2) return { status: 200, body: { q, items: [] } };
   const digits = q.replace(/\D/g, "");
   const byId = /^#?\d{1,7}$/.test(q) ? Number(q.replace("#", "")) : null;
   const like = `%${q.replace(/[%_]/g, "")}%`;
   if (digits.length >= 4) ensureCustomerPhonesSchema();
+  const sameScope = custSc.sql === loanSc.sql && JSON.stringify(custSc.args) === JSON.stringify(loanSc.args);
+  const scopeWhere = sameScope
+    ? custSc.sql
+    : `((${custSc.sql}) OR ((${loanSc.sql}) AND EXISTS (SELECT 1 FROM loan_applications la0 WHERE la0.customer_id=c.id AND la0.deleted_at IS NULL)))`;
+  const scopeArgs = sameScope ? custSc.args : [...custSc.args, ...loanSc.args];
   const rows = queryRows<any>(
-    `SELECT c.id, c.name, c.phone, c.priority, c.status FROM customers c
-     WHERE c.merged_into_customer_id IS NULL AND ${sc.sql}
+    `SELECT c.id, c.name, c.phone, c.priority, c.status, c.salesperson_id FROM customers c
+     WHERE c.merged_into_customer_id IS NULL AND (${scopeWhere})
        AND (replace(replace(replace(c.name,'ي','ی'),'ك','ک'),char(8204),' ') LIKE ?
             ${digits.length >= 4 ? "OR c.phone LIKE ? OR " + ANY_PHONE_LIKE_SQL : ""} ${byId ? "OR c.id=?" : ""})
      ORDER BY CASE WHEN c.name LIKE ? THEN 0 ELSE 1 END, c.id DESC LIMIT 20`,
-    [...sc.args, like, ...(digits.length >= 4 ? [`%${digits}%`, `%${digits}%`] : []), ...(byId ? [byId] : []), `${q}%`]);
-  const ids = rows.map((r) => Number(r.id));
-  const cases = ids.length ? queryRows<any>(
+    [...scopeArgs, like, ...(digits.length >= 4 ? [`%${digits}%`, `%${digits}%`] : []), ...(byId ? [byId] : []), `${q}%`]);
+  const loanAllowedIds = rows
+    .filter((r) => {
+      if (u.role === "admin" || u.role === "manager") return true;
+      const smcLoan = smcAccessScope(u as any, "loan_files");
+      if (smcLoan.kind === "all") return true;
+      if (smcLoan.kind === "team") return r.salesperson_id != null && smcLoan.salespersonIds.has(Number(r.salesperson_id));
+      return u.salespersonId != null && Number(r.salesperson_id) === Number(u.salespersonId);
+    })
+    .map((r) => Number(r.id));
+  const cases = loanAllowedIds.length ? queryRows<any>(
     `SELECT la.id, la.customer_id, la.stage, la.status, la.requested_amount, la.created_at, p.name plan_name
      FROM loan_applications la LEFT JOIN loan_plans p ON p.id=la.plan_id
-     WHERE la.deleted_at IS NULL AND la.customer_id IN (${ids.map(() => "?").join(",")}) ORDER BY la.id DESC`, ids) : [];
+     WHERE la.deleted_at IS NULL AND la.customer_id IN (${loanAllowedIds.map(() => "?").join(",")}) ORDER BY la.id DESC`, loanAllowedIds) : [];
   const items = rows.map((r) => ({
     id: Number(r.id), name: String(r.name ?? ""), phoneLast4: String(r.phone ?? "").slice(-4), priority: r.priority == null ? null : Number(r.priority),
     status: String(r.status ?? "in_progress"),
@@ -145,7 +169,7 @@ export function sf480MyCustomers(u: U, rawQ: unknown, rawOffset: unknown, rawExt
 /** GET /sales-fixes/cases — «پرونده‌های من» kanban: the expert's own cases (customers they own), every open case plus cases closed in the last 30 days.
  *  The client puts each card in its status column (FB_COLUMNS). Read-only; no turn / lock state. */
 export function sf480Cases(u: U, now = new Date()): { status: number; body: any } {
-  const sc = scopeSql(u);
+  const sc = scopeSql(u, "loan_files");
   if (!sc) return { status: 403, body: { error: "forbidden", message: "این فهرست برای این حساب باز نیست." } };
   if (u.role === "admin" || u.role === "manager") return { status: 200, body: { total: 0, cases: [], note: "admin_uses_full_list" } };
   const since = new Date(now.getTime() - 30 * 86400_000).toISOString();

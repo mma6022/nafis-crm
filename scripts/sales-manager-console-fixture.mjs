@@ -167,7 +167,7 @@ try {
     await call(ADMIN, "DELETE", "/sales-admin/drafts/daily");
   });
 
-  await ok("access: «قفل» → expert list 403, search still finds own; «فقط خودش» narrows on the server; «همه» never widens", async () => {
+  await ok("access: «قفل» → expert list 403, search still finds own; «فقط خودش» = own; «تیمش» = team; «همه» = all", async () => {
     const st = await state(); const d = structuredClone(st.docs.access);
     const kz = st.docs.teams.experts.find((e) => e.userId === EXPERT).id;
     const baseList = await call(EXPERT, "GET", "/customers?limit=50");
@@ -182,10 +182,19 @@ try {
     r = await call(EXPERT, "GET", "/customers?limit=50");
     if (r.status === 200) { const list = Array.isArray(r.body) ? r.body : r.body.items ?? r.body.customers ?? r.body.rows ?? r.body.data ?? [];
       for (const c of list) assert.equal(queryRow("SELECT salesperson_id sp FROM customers WHERE id=?", [c.id]).sp, 6); }
+    const kzExpert = st.docs.teams.experts.find((e) => e.userId === EXPERT);
+    const teamSps = new Set(st.docs.teams.experts.filter((e) => e.teamId === kzExpert.teamId).map((e) => Number(e.salespersonId)));
+    d.policies[kz] = { customers: "team", loan_files: "team" }; r = await apply(ADMIN, "access", d); assert.equal(r.status, 200);
+    r = await call(EXPERT, "GET", "/customers?limit=50"); assert.equal(r.status, 200);
+    { const list = Array.isArray(r.body) ? r.body : r.body.items ?? r.body.customers ?? r.body.rows ?? r.body.data ?? [];
+      assert.ok(list.length >= 1);
+      for (const c of list) { const sp = queryRow("SELECT salesperson_id sp FROM customers WHERE id=?", [c.id]).sp; assert.ok(teamSps.has(Number(sp)), `team sp ${sp}`); } }
     d.policies[kz] = { customers: "all", loan_files: "all" }; r = await apply(ADMIN, "access", d); assert.equal(r.status, 200);
-    const wide = await call(EXPERT, "GET", "/customers?limit=50"); assert.equal(wide.status, baseList.status);
-    const idsOf = (b) => (Array.isArray(b) ? b : b?.items ?? b?.customers ?? b?.rows ?? b?.data ?? []).map((c) => c.id).sort((x, y) => x - y).join(",");
-    if (wide.status === 200) assert.equal(idsOf(wide.body), idsOf(baseList.body), "«همه» = the existing server rules, nothing more");
+    const wide = await call(EXPERT, "GET", "/customers?limit=50"); assert.equal(wide.status, 200);
+    { const list = Array.isArray(wide.body) ? wide.body : wide.body.items ?? wide.body.customers ?? wide.body.rows ?? wide.body.data ?? [];
+      assert.ok(list.some((c) => queryRow("SELECT salesperson_id sp FROM customers WHERE id=?", [c.id]).sp !== 6), "«همه» widens list beyond own"); }
+    // Reset to own so subsequent checks start clean
+    d.policies[kz] = { customers: "own", loan_files: "own" }; r = await apply(ADMIN, "access", d); assert.equal(r.status, 200);
   });
   await ok("validity: 36h credit applies only to checks after save; a fresh check → POST credit check 409 smc_credit_still_valid", async () => {
     const st = await state(); const d = structuredClone(st.docs.valid); d.credit = { mode: "hours", hours: 36 };

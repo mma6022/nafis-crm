@@ -16,6 +16,7 @@ import { nonP1QualifierDisplayName, setNonP1TransferredHeader } from "../lib/non
 import { addWorkingHours, type QualifierAnswers } from "../lib/team-sales-rules";
 import { ConsultProfileError, canActOnCustomerProfile, consultProfile, editConsultProfile } from "../lib/consult-profile";
 import { isAdminRole } from "../lib/customer-integrity";
+import { smcCanViewCustomer } from "../lib/smc-access-scope";
 import { HX_REASON_MAX, callHistory, fileCard, saveFileOnly, expertUpgrade, expertUpgradesReport, historySummary, hxCanSee, hxExpert, selfNextCloser, upgradeReasonOf } from "../lib/history-a";
 import { saveDossier } from "../lib/customer-dossier";
 import { siteAnswersForCustomer } from "../lib/site-apply";
@@ -29,7 +30,7 @@ function customerId(raw: unknown): number | null {
 }
 function actorOf(res: Response) {
   const u = res.locals.authUser as AuthUser;
-  return { id: u.id, role: u.role, salespersonId: u.salespersonId, fullName: u.fullName };
+  return { id: u.id, role: u.role, salespersonId: u.salespersonId, fullName: u.fullName, customerScope: u.customerScope };
 }
 function fail(res: Response, error: unknown): void {
   if (error instanceof TeamSalesError) { res.status(error.status).json({ error: error.message }); return; }
@@ -56,14 +57,14 @@ router.get("/team-sales/config", requirePermission("customers.view"), (_req, res
 
 router.get("/customers/:id/priority-history", requirePermission("customers.view"), (req, res): void => {
   const id = customerId(req.params.id);
-  if (!id || !getCustomer(id, res.locals.authUser as AuthUser)) { res.status(404).json({ error: "Customer not found" }); return; }
+  if (!id || !getCustomer(id, res.locals.authUser as AuthUser, false, true)) { res.status(404).json({ error: "Customer not found" }); return; }
   res.json(priorityHistory(id));
 });
 
 /** v82: the customer's own answers from the site's 7-step form (newest first). Same scope as the customer file. */
 router.get("/customers/:id/site-answers", requirePermission("customers.view"), (req, res): void => {
   const id = customerId(req.params.id);
-  if (!id || !getCustomer(id, res.locals.authUser as AuthUser)) { res.status(404).json({ error: "Customer not found" }); return; }
+  if (!id || !getCustomer(id, res.locals.authUser as AuthUser, false, true)) { res.status(404).json({ error: "Customer not found" }); return; }
   res.setHeader("Cache-Control", "no-store");
   res.json(siteAnswersForCustomer(id));
 });
@@ -119,20 +120,21 @@ router.post("/customers/:id/team-sales/promote", requirePermission("customers.up
 router.post("/customers/:id/priority", requirePermission("customers.update"), (req, res): void => upgrade(req, res));
 
 /** HISTORY-A scope for the read endpoints: experts 8/2/3 own customers only, admins any; everyone else 403. Returns the id or null (response sent). */
-function hxScope(req: { params: { id?: string } }, res: Response): number | null {
+function hxScope(req: { params: { id?: string } }, res: Response, allowSmcView = false): number | null {
   const id = customerId(req.params.id);
   const u = res.locals.authUser as AuthUser;
-  if (!id || !getCustomer(id, u)) { res.status(404).json({ error: "Customer not found" }); return null; }
+  if (!id || !getCustomer(id, u, false, allowSmcView)) { res.status(404).json({ error: "Customer not found" }); return null; }
   const actor = actorOf(res);
   if (!hxCanSee(actor)) { res.status(403).json({ error: "history_a_scope" }); return null; }
-  if (hxExpert(actor) && !queryRow("SELECT 1 FROM customers WHERE id=? AND salesperson_id=?", [id, actor.salespersonId])) {
+  if (hxExpert(actor) && !queryRow("SELECT 1 FROM customers WHERE id=? AND salesperson_id=?", [id, actor.salespersonId])
+      && !(allowSmcView && smcCanViewCustomer(actor, id, "customers"))) {
     res.status(403).json({ error: "expert_lockdown_customer" }); return null;
   }
   return id;
 }
 /** HISTORY-A v1.2 prep: Today card «پرونده» column (read-only). */
 router.get("/customers/:id/file-card", requirePermission("customers.view"), (req, res): void => {
-  const id = hxScope(req, res); if (id == null) return;
+  const id = hxScope(req, res, true); if (id == null) return;
   const out = fileCard(id, actorOf(res));
   if (!out) { res.status(404).json({ error: "Customer not found" }); return; }
   res.json(out);
@@ -151,14 +153,14 @@ router.post("/customers/:id/file-card", requirePermission("customers.update"), (
 });
 /** HISTORY-A v1.2 prep: Today card «سابقه‌ی تماس» column (read-only, keyset paging ?limit=&before=). */
 router.get("/customers/:id/call-history", requirePermission("customers.view"), (req, res): void => {
-  const id = hxScope(req, res); if (id == null) return;
+  const id = hxScope(req, res, true); if (id == null) return;
   const before = Number(req.query.before); 
   res.json(callHistory(id, Number(req.query.limit) || 20, Number.isFinite(before) && before > 0 ? before : null));
 });
 
 /** HISTORY-A: «.hx» history box data for one customer (own customers for the experts; getCustomer scopes everyone else). */
 router.get("/customers/:id/history-summary", requirePermission("customers.view"), (req, res): void => {
-  const id = hxScope(req, res); if (id == null) return;
+  const id = hxScope(req, res, true); if (id == null) return;
   const actor = actorOf(res);
   const out = historySummary(id, actor);
   if (!out) { res.status(404).json({ error: "Customer not found" }); return; }
@@ -220,7 +222,7 @@ router.post("/customers/:id/team-sales/qualify", requirePermission("calls.create
  */
 router.get("/customers/:id/team-sales/first-call/edit-info", requirePermission("customers.view"), (req, res): void => {
   const id = customerId(req.params.id);
-  if (!id || !getCustomer(id, res.locals.authUser as AuthUser)) { res.status(404).json({ error: "Customer not found" }); return; }
+  if (!id || !getCustomer(id, res.locals.authUser as AuthUser, false, true)) { res.status(404).json({ error: "Customer not found" }); return; }
   try { res.json(firstCallEditInfo(id, actorOf(res))); } catch (e) { fail(res, e); }
 });
 router.post("/customers/:id/team-sales/first-call/edit", requirePermission("customers.update"), (req, res): void => {
@@ -252,15 +254,15 @@ router.get("/team-sales/cities", requirePermission("customers.view"), (req, res)
  * View: anyone who can see the customer (existing scoping). Edit: admin / registrar / the customer's own salesperson;
  * an edit is a new version (the old one stays) with the editor and the changed fields.
  */
-function consultAccess(res: Response, raw: unknown) {
+function consultAccess(res: Response, raw: unknown, allowSmcView = false) {
   const id = customerId(raw);
   const user = res.locals.authUser as AuthUser;
-  if (!id || !getCustomer(id, user)) { res.status(404).json({ error: "Customer not found" }); return null; }
+  if (!id || !getCustomer(id, user, false, allowSmcView)) { res.status(404).json({ error: "Customer not found" }); return null; }
   const sp = queryRow<{ salesperson_id: number | null }>("SELECT salesperson_id FROM customers WHERE id=?", [id])?.salesperson_id ?? null;
   return { id, user, canEdit: canActOnCustomerProfile(user, sp, isAdminRole) };
 }
 router.get("/customers/:id/consult-profile", requirePermission("customers.view"), (req, res): void => {
-  const a = consultAccess(res, req.params.id); if (!a) return;
+  const a = consultAccess(res, req.params.id, true); if (!a) return;
   res.json({ ...consultProfile(a.id), canEdit: a.canEdit });
 });
 router.patch("/customers/:id/consult-profile", requirePermission("customers.view"), (req, res): void => {

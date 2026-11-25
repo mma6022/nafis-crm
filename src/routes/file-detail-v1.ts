@@ -16,7 +16,7 @@ router.get("/file-detail-v1/files/:id/link-resends", (req, res) => {
   if (!fdOn(Number(u.id))) { res.status(404).json({ error: "not_found" }); return; }
   const appId = Number(req.params.id); if (!Number.isInteger(appId) || appId <= 0) { res.status(400).json({ error: "invalid_id" }); return; }
   const app = queryRow<{ customer_id: number }>("SELECT customer_id FROM loan_applications WHERE id=? AND deleted_at IS NULL", [appId]);
-  if (!app || !fdSeesApp(u, Number(app.customer_id))) { res.status(404).json({ error: "not_found" }); return; }
+  if (!app || !fdSeesApp(u, Number(app.customer_id), true)) { res.status(404).json({ error: "not_found" }); return; }
   res.setHeader("Cache-Control", "private, no-store");
   res.json(fdLinkResendState(appId));
 });

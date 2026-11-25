@@ -1,5 +1,6 @@
 import { registrarCanTag } from "../lib/registrar-view";
-import { bvaAssignedOwnerClause } from "../lib/bale-view-as";
+import { bvaAssignedOwnerClause, bvaSalespersonIds } from "../lib/bale-view-as";
+import { smcAccessScope, smcAssignedOwnerClause, smcCanViewSalesperson } from "../lib/smc-access-scope";
 import { cpkOn, cpkNextReminderAt } from "../lib/customers-priority-kanban";
 import { perfCacheGetOrSet, perfCacheInvalidate } from "../lib/perf-poll-cache";
 import { caseChoiceErrorBody, mcFlagOn, resolveCaseLink } from "../lib/multi-case";
@@ -1515,8 +1516,9 @@ function normalizePostalCode(value: string | null | undefined): string | null {
   return digits;
 }
 
-export function getCustomer(id: number, user?: AuthUser, includeArchivedReadOnly = false) {
-  const assigned = user?.customerScope === "assigned" ? bvaAssignedOwnerClause(user, "c.salesperson_id") : { sql: "", params: [] };
+export function getCustomer(id: number, user?: AuthUser, includeArchivedReadOnly = false, allowSmcView = false) {
+  const smc = allowSmcView && user?.customerScope === "assigned" ? smcAssignedOwnerClause(user, "c.salesperson_id", "customers", true) : null;
+  const assigned = smc ? { sql: smc.sql, params: smc.params } : user?.customerScope === "assigned" ? bvaAssignedOwnerClause(user, "c.salesperson_id") : { sql: "", params: [] };
   const archiveFilter = includeArchivedReadOnly && user && isAdminRole(user.role)
     ? ""
     : " AND c.merged_into_customer_id IS NULL";
@@ -1595,14 +1597,20 @@ router.get(
   requirePermission("dashboard.view"),
   (req, res): void => {
     const user = res.locals.authUser as AuthUser;
-    const salespersonId =
-      user.customerScope === "assigned" ? user.salespersonId : null;
-    const customerScope =
-      user.customerScope === "assigned" ? " WHERE salesperson_id = ?" : "";
-    const customerScopeAnd =
-      user.customerScope === "assigned" ? " AND salesperson_id = ?" : "";
-    const customerParams: SqlValue[] =
-      user.customerScope === "assigned" ? [salespersonId] : [];
+    const smcSummary = user.customerScope === "assigned" ? smcAssignedOwnerClause(user, "salesperson_id", "customers") : null;
+    const smcSummaryC = user.customerScope === "assigned" ? smcAssignedOwnerClause(user, "c.salesperson_id", "customers") : null;
+    const customerScope = smcSummary
+      ? (smcSummary.sql ? ` WHERE ${smcSummary.sql.replace(/^ AND /, "")}` : "")
+      : (user.customerScope === "assigned" ? " WHERE salesperson_id = ?" : "");
+    const customerScopeAnd = smcSummary
+      ? smcSummary.sql
+      : (user.customerScope === "assigned" ? " AND salesperson_id = ?" : "");
+    const customerScopeC = smcSummaryC
+      ? (smcSummaryC.sql ? `WHERE ${smcSummaryC.sql.replace(/^ AND /, "")}` : "")
+      : (user.customerScope === "assigned" ? "WHERE c.salesperson_id = ?" : "");
+    const customerParams: SqlValue[] = smcSummary
+      ? smcSummary.params
+      : (user.customerScope === "assigned" ? [user.salespersonId] : []);
     const totals = queryRow<{
       total_customers: number;
       active_customers: number;
@@ -1615,7 +1623,7 @@ router.get(
       (SELECT COUNT(*) FROM customers WHERE COALESCE(status, 'in_progress') = 'in_progress'${customerScopeAnd}) AS active_customers,
       (SELECT COUNT(*) FROM reminders WHERE done = 0 AND user_id = ?) AS open_reminders,
       (SELECT COUNT(*) FROM call_logs cl JOIN customers c ON c.id = cl.customer_id
-        ${user.customerScope === "assigned" ? "WHERE c.salesperson_id = ?" : ""}) AS total_calls
+        ${customerScopeC}) AS total_calls
   `,
       [...customerParams, ...customerParams, user.id, ...customerParams],
     );
@@ -1653,7 +1661,7 @@ router.get(
     FROM call_logs cl
     JOIN customers c ON c.id = cl.customer_id
     LEFT JOIN salespersons s ON s.id = cl.salesperson_id
-    ${user.customerScope === "assigned" ? "WHERE c.salesperson_id = ?" : ""}
+    ${customerScopeC}
     ORDER BY cl.created_at DESC
     LIMIT 6
   `,
@@ -1751,9 +1759,15 @@ router.get(
     // registrar_view (assistants53): «ثبت‌های من» = customers I registered (any owner), read-only; only for the capability holder.
     const registeredScope = req.query.scope === "registered";
     if (registeredScope && !user.registrarView) { res.status(403).json({ error: "registrar_view_only" }); return; }
+    const smcCust = !registeredScope && user.customerScope === "assigned" ? smcAssignedOwnerClause(user, "c.salesperson_id", "customers") : null;
     if (registeredScope) {
       filters.push("c.registered_by = ?");
       params.push(user.id);
+    } else if (smcCust) {
+      if (smcCust.sql) {
+        filters.push(smcCust.sql.replace(/^ AND /, ""));
+        params.push(...smcCust.params);
+      }
     } else if (user.customerScope === "assigned") {
       filters.push("c.salesperson_id = ?");
       params.push(user.salespersonId);
@@ -1804,7 +1818,7 @@ router.get(
     } else if (hasPriority === true) {
       filters.push("c.priority IS NOT NULL");
     }
-    if (salespersonId !== undefined && user.customerScope !== "assigned") {
+    if (salespersonId !== undefined && (user.customerScope !== "assigned" || smcCanViewSalesperson(user, salespersonId, "customers"))) {
       filters.push("c.salesperson_id = ?");
       params.push(salespersonId);
     }
@@ -1882,7 +1896,7 @@ router.get(
     const suggested = latestSelectedPlans(listBody.items.map((item) => Number(item.id)));
     // crm-id-search-everywhere: a salesperson's exact id / mobile / full-name search also returns
     // other salespersons' matches as minimal faded hints (id, name, owner) — after their own rows.
-    const crossOwner = !registeredScope && search && offset === 0 && customerId === undefined && crossOwnerEligible(user)
+    const crossOwner = !registeredScope && smcCust?.kind !== "all" && search && offset === 0 && customerId === undefined && crossOwnerEligible(user)
       ? findOtherOwnerMatches(user, search)
       : null;
     // crm-no-plan-option: grey «بدون طرح مناسب» chip.
@@ -2213,6 +2227,7 @@ router.get(
     const customer = getCustomer(
       parsed.data.id,
       res.locals.authUser as AuthUser,
+      true,
       true,
     );
     if (!customer) {
@@ -3850,7 +3865,7 @@ router.get("/credit-panel/me", cpGate, (_req, res): void => {
 router.get("/credit-panel/customers/:id", cpGate, requirePermission("customers.credit_check"), (req, res): void => {
   const id = Number(req.params.id);
   const user = res.locals.authUser as AuthUser;
-  if (!Number.isInteger(id) || id <= 0 || !getCustomer(id, user)) { res.status(404).json({ error: "Customer not found" }); return; }
+  if (!Number.isInteger(id) || id <= 0 || !getCustomer(id, user, false, true)) { res.status(404).json({ error: "Customer not found" }); return; }
   const { code: _code, ...facts } = cpCustomerFacts(id);
   res.setHeader("Cache-Control", "private, no-store");
   res.json({ ...cpView(id), customer: facts });
@@ -3906,7 +3921,7 @@ router.get(
   (req, res): void => {
     const parsed = ListCustomerCreditChecksParams.safeParse(req.params);
     const user = res.locals.authUser as AuthUser;
-    if (!parsed.success || !getCustomer(parsed.data.id, user)) {
+    if (!parsed.success || !getCustomer(parsed.data.id, user, false, true)) {
       res.status(404).json({ error: "Customer not found" });
       return;
     }
@@ -4647,7 +4662,7 @@ router.get(
   async (req, res): Promise<void> => {
     const params = RefreshCustomerCreditCheckStatusParams.safeParse(req.params);
     const user = res.locals.authUser as AuthUser;
-    if (!params.success || !getCustomer(params.data.id, user)) {
+    if (!params.success || !getCustomer(params.data.id, user, false, true)) {
       res.status(404).json({ error: "Customer not found" });
       return;
     }
@@ -4692,7 +4707,7 @@ router.get(
       res.status(400).json({ error: parsed.error.message });
       return;
     }
-    if (!getCustomer(parsed.data.id, res.locals.authUser as AuthUser)) {
+    if (!getCustomer(parsed.data.id, res.locals.authUser as AuthUser, false, true)) {
       res.status(404).json({ error: "Customer not found" });
       return;
     }
@@ -4705,7 +4720,17 @@ router.get(
   requirePermission("customers.view"),
   (_req, res): void => {
     const user = res.locals.authUser as AuthUser;
-    const ownIdentityOnly = user.customerScope === "assigned";
+    const smcSp = user.customerScope === "assigned" ? smcAccessScope(user, "customers") : { kind: "none" as const };
+    const ownIdentityOnly = user.customerScope === "assigned" && smcSp.kind === "none";
+    const spTeamIds = smcSp.kind === "team" ? [...smcSp.salespersonIds].filter((n) => Number.isSafeInteger(n) && n > 0) : null;
+    const spWhere = ownIdentityOnly
+      ? "WHERE s.id = ?"
+      : spTeamIds
+        ? (spTeamIds.length ? `WHERE s.id IN (${spTeamIds.map(() => "?").join(",")})` : "WHERE 1=0")
+        : "";
+    const spParams = ownIdentityOnly
+      ? (user.salespersonId !== null ? [user.salespersonId] : [-1])
+      : spTeamIds ?? [];
     const rows = queryRows<{
       id: number;
       name: string;
@@ -4722,10 +4747,10 @@ router.get(
     FROM salespersons s
     LEFT JOIN users u ON u.salesperson_id = s.id AND u.role = 'salesperson'
     LEFT JOIN customers c ON c.salesperson_id = s.id
-    ${ownIdentityOnly ? "WHERE s.id = ?" : ""}
+    ${spWhere}
     GROUP BY s.id, u.id
     ORDER BY s.active DESC, name
-  `, ownIdentityOnly && user.salespersonId !== null ? [user.salespersonId] : ownIdentityOnly ? [-1] : []);
+  `, spParams);
     res.json(
       ListSalespersonsResponse.parse(
         rows.map((row) => ({
@@ -5129,7 +5154,7 @@ router.get("/calls", requirePermission("calls.view"), (req, res): void => {
       ...(callIdSearch.idQuery ? [callIdSearch.idQuery.id, ...ownerParams] : []));
   }
   if (customerId !== undefined) {
-    if (!getCustomer(customerId, user)) { res.status(404).json({ error: "Customer not found" }); return; }
+    if (!getCustomer(customerId, user, false, true)) { res.status(404).json({ error: "Customer not found" }); return; }
     filters.push("cl.customer_id = ?");
     params.push(customerId);
   }
@@ -5421,12 +5446,13 @@ const consultationSelect = `
   LEFT JOIN salespersons s ON s.id = c.salesperson_id
 `;
 
-export function getConsultation(id: number, user?: AuthUser) {
-  const ownerFilter =
-    user?.customerScope === "assigned" ? " AND c.salesperson_id = ?" : "";
+export function getConsultation(id: number, user?: AuthUser, allowSmcView = false) {
+  const smc = allowSmcView && user?.customerScope === "assigned" ? smcAssignedOwnerClause(user, "c.salesperson_id", "customers") : null;
+  const ownerFilter = smc ? smc.sql : (user?.customerScope === "assigned" ? " AND c.salesperson_id = ?" : "");
+  const ownerParams = smc ? smc.params : (user?.customerScope === "assigned" ? [user.salespersonId] : []);
   const row = queryRow<ConsultationRow>(
     `${consultationSelect} WHERE cf.id = ?${ownerFilter}`,
-    user?.customerScope === "assigned" ? [id, user.salespersonId] : [id],
+    [id, ...ownerParams],
   );
   return row ? consultationFromRow(row) : undefined;
 }
@@ -5548,7 +5574,10 @@ router.get(
     const filters: string[] = [];
     const params: SqlValue[] = [];
     const user = res.locals.authUser as AuthUser;
-    if (user.customerScope === "assigned") {
+    const smcCons = user.customerScope === "assigned" ? smcAssignedOwnerClause(user, "c.salesperson_id", "customers") : null;
+    if (smcCons) {
+      if (smcCons.sql) { filters.push(smcCons.sql.replace(/^ AND /, "")); params.push(...smcCons.params); }
+    } else if (user.customerScope === "assigned") {
       filters.push("c.salesperson_id = ?");
       params.push(user.salespersonId);
     }
@@ -5678,6 +5707,7 @@ router.get(
     const consultation = getConsultation(
       parsed.data.id,
       res.locals.authUser as AuthUser,
+      true,
     );
     if (!consultation) {
       res.status(404).json({ error: "Consultation not found" });

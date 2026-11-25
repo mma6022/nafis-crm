@@ -6,6 +6,7 @@
 import type { AuthUser } from "./auth";
 import { crmDb, execute, queryRow, queryRows } from "./crm-db";
 import { isAdminRole, normalizeCustomerMobile } from "./customer-integrity";
+import { smcCanViewCustomer } from "./smc-access-scope";
 
 /** social-hub v1.1 (flag.social_hub_phone_attach_v1, Mohammad t418s1654): any expert may add numbers to any customer, several extras.
  *  Read here directly (not via social-hub.ts) to keep this module free of new imports. OFF → exactly the t853u rules. */
@@ -236,6 +237,7 @@ export function canViewCustomerPhones(user: AuthUser, customerId: number, lockdo
   if (!row) return false;
   if (isAdminRole(user.role) || user.customerScope === "all") return true;
   if (user.salespersonId != null && row.salespersonId === Number(user.salespersonId)) return true;
+  if (smcCanViewCustomer(user, customerId, "customers")) return true;
   if (shPhoneAttachOn() && user.permissions.includes("customers.update")) return true;
   return Boolean(lockdownAccess);
 }

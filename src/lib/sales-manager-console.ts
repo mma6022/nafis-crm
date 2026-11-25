@@ -16,6 +16,7 @@ import { getAuthUserById } from "./auth";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import { dqBlocks, dqQueue, type DqItem, type DqKind } from "./dci-queue";
 import { withPlanPrefix } from "./plan-label";
+import { bvaSalespersonIds } from "./bale-view-as";
 
 export const SMC_FLAG = "flag.sales_manager_console_v1";
 export const SMC_NEVER_USER = 29;
@@ -1088,12 +1089,15 @@ export function accessLevel(u: AuthUser, resource: "customers" | "loan_files"): 
   if (!e) return null; // not an expert of the console → existing behaviour only
   return loadDoc("access").policies[e.id]?.[resource] ?? "own"; // §3.2: a new expert starts on «فقط خودش»
 }
-/** null = no extra narrowing («همه» keeps the existing server rules; this console never widens them). */
+/** null = no extra narrowing («همه» leaves all rows visible when widened by smc-access-scope). */
 export function allowedSalespersons(u: AuthUser, level: Level): Set<number> | null {
   if (level === "all") return null;
   const t = loadDoc("teams"); const e = expertOfUser(t, u.id);
   const ids = new Set<number>(u.salespersonId != null ? [Number(u.salespersonId)] : []);
-  if (level === "team" && e?.teamId) for (const x of t.experts) if (x.teamId === e.teamId && x.salespersonId) ids.add(x.salespersonId);
+  if (level === "team") {
+    if (e?.teamId) for (const x of t.experts) if (x.teamId === e.teamId && x.salespersonId) ids.add(x.salespersonId);
+    for (const sp of bvaSalespersonIds(u)) ids.add(sp);
+  }
   return ids;
 }
 /** §3.3 / §6-5: only checks completed after the policy was saved count; until then the old behaviour stays. */

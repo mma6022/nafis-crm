@@ -20,6 +20,7 @@ import { isCustomerLevelDocumentKey, sf816CustomerDocReuse } from "../lib/sf816-
 import { requirePermission } from "../lib/access-control";
 import type { AuthUser } from "../lib/auth";
 import { bvaAssignedOwnerClause, bvaOwnsOrDelegated } from "../lib/bale-view-as";
+import { smcAssignedOwnerClause, smcCanViewCustomer } from "../lib/smc-access-scope";
 import { canCancelLoanCase, registerLoanCaseCancellation } from "../lib/loan-case-cancellation";
 import { loanCaseFinancialTermsLocked, registerLoanCaseAdminControls } from "../lib/loan-case-admin-controls";
 import { registerLoanCaseNotes } from "../lib/loan-case-notes";
@@ -105,8 +106,9 @@ function storeIdentityFile(customerId: number, f: Express.Multer.File): string {
   fs.writeFileSync(target, f.buffer, { mode: 0o600 }); return target;
 }
 
-function scoped(id: number, u: AuthUser): any {
-  const assigned = u.role !== "admin" && u.customerScope === "assigned" ? bvaAssignedOwnerClause(u, "current_customer.salesperson_id") : { sql: "", params: [] };
+function scoped(id: number, u: AuthUser, allowSmcView = false): any {
+  const smc = allowSmcView && u.role !== "admin" && u.customerScope === "assigned" ? smcAssignedOwnerClause(u, "current_customer.salesperson_id", "loan_files", true) : null;
+  const assigned = smc ? { sql: smc.sql, params: smc.params } : u.role !== "admin" && u.customerScope === "assigned" ? bvaAssignedOwnerClause(u, "current_customer.salesperson_id") : { sql: "", params: [] };
   const params: any[] = [id, ...assigned.params];
   return queryRow<any>(`SELECT a.*,c.name customer_name,cs.id customer_salesperson_id,cs.name customer_salesperson_name,p.name plan_name, p.bank_name plan_bank_name
     FROM loan_applications a JOIN customers c ON c.id=a.customer_id
@@ -586,12 +588,12 @@ router.post("/customers/:customerId/identity-documents", requirePermission("cust
   res.status(201).json(queryRow("SELECT id,customer_id AS customerId,document_type AS documentType,original_name AS originalName,mime_type AS mimeType,size_bytes AS sizeBytes,sha256,created_at AS createdAt FROM customer_identity_documents WHERE id=?", [id]));
 });
 router.get("/customers/:customerId/identity-documents", requirePermission("customers.view"), (req, res) => {
-  const c = getScopedCustomer(Number(req.params.customerId), user(res));
+  const c = getScopedCustomer(Number(req.params.customerId), user(res), true);
   if (!c) return error(res, 404, "customer_not_found");
   res.json(queryRows("SELECT id,customer_id AS customerId,document_type AS documentType,original_name AS originalName,mime_type AS mimeType,size_bytes AS sizeBytes,sha256,created_at AS createdAt FROM customer_identity_documents WHERE customer_id=? AND is_latest=1 ORDER BY document_type", [c.id]));
 });
 router.get("/customers/:customerId/identity-documents/:documentId/download", requirePermission("customers.view"), (req, res) => {
-  const c = getScopedCustomer(Number(req.params.customerId), user(res));
+  const c = getScopedCustomer(Number(req.params.customerId), user(res), true);
   const d = c && queryRow<any>("SELECT * FROM customer_identity_documents WHERE id=? AND customer_id=?", [Number(req.params.documentId), c.id]);
   if (!d?.storage_path) return error(res, 404, "document_not_found");
   let p: string; try { p = fs.realpathSync(d.storage_path); } catch { return error(res, 404, "document_not_found"); }
@@ -600,7 +602,7 @@ router.get("/customers/:customerId/identity-documents/:documentId/download", req
   return res.download(p, d.original_name);
 });
 router.get("/loan-applications/:id/identity-documents/:documentId/download", requirePermission("loan_applications.view"), (req, res) => {
-  const r = scoped(Number(req.params.id), user(res));
+  const r = scoped(Number(req.params.id), user(res), true);
   const d = r && queryRow<any>("SELECT * FROM customer_identity_documents WHERE id=? AND customer_id=? AND is_latest=1", [Number(req.params.documentId), r.customer_id]);
   if (!d?.storage_path) return error(res, 404, "document_not_found");
   let p: string; try { p = fs.realpathSync(d.storage_path); } catch { return error(res, 404, "document_not_found"); }
@@ -621,7 +623,10 @@ router.post("/loan-applications/:id/identity-documents/:documentId/review", requ
   });
   res.json({ ok: true, status: decision });
 });
-function getScopedCustomer(id: number, u: AuthUser) {
+function getScopedCustomer(id: number, u: AuthUser, allowSmcView = false) {
+  if (allowSmcView && u.customerScope === "assigned" && (smcCanViewCustomer(u, id, "customers") || smcCanViewCustomer(u, id, "loan_files"))) {
+    return queryRow<any>("SELECT id,salesperson_id FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [id]);
+  }
   return queryRow<any>(`SELECT id,salesperson_id FROM customers WHERE id=? AND merged_into_customer_id IS NULL${u.customerScope === "assigned" ? " AND salesperson_id=?" : ""}`, u.customerScope === "assigned" ? [id, u.salespersonId] : [id]);
 }
 function netLoanAmount(app: any): string {
@@ -1381,8 +1386,10 @@ router.get("/loan-applications", requirePermission("loan_applications.view"), (r
   // The files board hides in-progress pre-registration drafts. A customer-page list
   // (customerId set) must include them so a just-created multi-case row is visible.
   const hidePreRegDrafts = !req.query.customerId;
-  const where = `${u.role === "admin" || u.customerScope !== "assigned" ? "" : " AND current_customer.salesperson_id = ?"}${hidePreRegDrafts ? " AND (COALESCE(a.is_pre_registration,0)=0 OR a.stage<>'draft')" : ""}`;
-  const params: any[] = u.role === "admin" || u.customerScope !== "assigned" ? [] : [u.salespersonId];
+  const smcLoan = u.role !== "admin" && u.customerScope === "assigned" ? smcAssignedOwnerClause(u, "current_customer.salesperson_id", "loan_files") : null;
+  const scopeSql = smcLoan ? smcLoan.sql : (u.role === "admin" || u.customerScope !== "assigned" ? "" : " AND current_customer.salesperson_id = ?");
+  const where = `${scopeSql}${hidePreRegDrafts ? " AND (COALESCE(a.is_pre_registration,0)=0 OR a.stage<>'draft')" : ""}`;
+  const params: any[] = smcLoan ? [...smcLoan.params] : (u.role === "admin" || u.customerScope !== "assigned" ? [] : [u.salespersonId]);
   const filters: string[] = [];
   const add = (sql: string, value: any) => { filters.push(sql); params.push(value); };
   if (req.query.status) add("a.status=?", String(req.query.status));
@@ -1531,9 +1538,9 @@ router.get("/loan-applications/dashboard-stats", requirePermission("loan_applica
   const actionableStages = Object.entries(actionPolicy)
     .filter(([, roles]) => roles.includes(u.role) || (u.role === "admin" && roles.length > 0))
     .map(([stage]) => stage);
-  const scope = u.role === "admin" || u.customerScope !== "assigned" ? "" : " AND c.salesperson_id = ?";
-  const params: any[] = [...actionableStages];
-  if (scope) params.push(u.salespersonId);
+  const smcStats = u.role !== "admin" && u.customerScope === "assigned" ? smcAssignedOwnerClause(u, "c.salesperson_id", "loan_files") : null;
+  const scope = smcStats ? smcStats.sql : (u.role === "admin" || u.customerScope !== "assigned" ? "" : " AND c.salesperson_id = ?");
+  const params: any[] = [...actionableStages, ...(smcStats ? smcStats.params : scope ? [u.salespersonId] : [])];
   const row = queryRow<any>(`SELECT
       COALESCE(SUM(CASE WHEN a.status <> 'rejected' AND a.stage IN (${actionableStages.map(() => "?").join(",") || "NULL"}) THEN 1 ELSE 0 END),0) awaiting_action,
       COALESCE(SUM(CASE WHEN a.status <> 'rejected' AND a.stage <> 'completed' THEN 1 ELSE 0 END),0) in_progress,
@@ -1757,7 +1764,7 @@ router.post("/loan-applications/filing-fee-charges", requirePermission("loan_app
   }
 });
 router.get("/loan-applications/:id", requirePermission("loan_applications.view"), (req, res) => {
-  const r = scoped(Number(req.params.id), user(res)); if (!r) return error(res, 404, "loan_application_not_found");
+  const r = scoped(Number(req.params.id), user(res), true); if (!r) return error(res, 404, "loan_application_not_found");
   // REL-83 (v1.0.1): the expert opening the file page clears its «پرونده برگشت خورد» badge (own rows only; flag.fc_categories).
   { const me = user(res) as any; if (me?.salespersonId && fcCatOn()) { try { fcMarkOpened(Number(me.salespersonId), Number(r.id)); } catch { /* badge only */ } } }
   r.documents = loanProcessingDocuments(r.id)
@@ -2149,7 +2156,7 @@ router.post("/loan-applications/:id/guarantor/documents", requirePermission("loa
   res.status(201).json({ id, status: "uploaded" });
 });
 router.get("/loan-applications/:id/guarantor/documents/:documentId/download", requirePermission("loan_applications.view"), (req, res) => {
-  const r = scoped(Number(req.params.id), user(res)); const d = r && queryRow<any>("SELECT d.* FROM loan_application_guarantor_documents d JOIN loan_application_guarantors g ON g.id=d.guarantor_id WHERE d.id=? AND g.application_id=?", [Number(req.params.documentId), r.id]);
+  const r = scoped(Number(req.params.id), user(res), true); const d = r && queryRow<any>("SELECT d.* FROM loan_application_guarantor_documents d JOIN loan_application_guarantors g ON g.id=d.guarantor_id WHERE d.id=? AND g.application_id=?", [Number(req.params.documentId), r.id]);
   if (!d?.storage_path) return error(res, 404, "document_not_found"); let p: string; try { p = fs.realpathSync(d.storage_path); } catch { return error(res, 404, "document_not_found"); }
   if (!loanFileOk(p)) return error(res, 404, "document_not_found");
   if (req.query.preview === "1" && (rasterImageType(d.mime_type) || d.mime_type === "application/pdf")) {
@@ -2200,7 +2207,7 @@ router.post("/loan-applications/:id/collateral", requirePermission("loan_applica
   res.status(201).json({ id, status: "submitted", ...metadata });
 });
 router.get("/loan-applications/:id/collateral/:collateralId/download", requirePermission("loan_applications.view"), (req, res) => {
-  const r = scoped(Number(req.params.id), user(res)); const d = r && queryRow<any>("SELECT * FROM loan_application_collateral WHERE id=? AND application_id=?", [Number(req.params.collateralId), r.id]);
+  const r = scoped(Number(req.params.id), user(res), true); const d = r && queryRow<any>("SELECT * FROM loan_application_collateral WHERE id=? AND application_id=?", [Number(req.params.collateralId), r.id]);
   if (!d?.storage_path) return error(res, 404, "collateral_not_found");
   let p: string; try { p = fs.realpathSync(d.storage_path); } catch { return error(res, 404, "collateral_not_found"); }
   if (!loanFileOk(p)) return error(res, 404, "collateral_not_found");
@@ -2229,7 +2236,7 @@ router.post("/loan-applications/:id/collateral/:collateralId/review", requirePer
   res.json({ ok: true, status: decision, rejectionReason: decision === "approved" ? null : String(req.body.reason).trim() });
 });
 router.get("/loan-applications/:id/documents/:documentId/download", requirePermission("loan_applications.view"), (req, res) => {
-  const r = scoped(Number(req.params.id), user(res)); const d = r && queryRow<any>("SELECT * FROM loan_application_documents WHERE id=? AND application_id=?", [Number(req.params.documentId), r.id]);
+  const r = scoped(Number(req.params.id), user(res), true); const d = r && queryRow<any>("SELECT * FROM loan_application_documents WHERE id=? AND application_id=?", [Number(req.params.documentId), r.id]);
   if (!d?.storage_path) return error(res, 404, "document_not_found");
   let real: string; try { real = fs.realpathSync(d.storage_path); } catch { return error(res, 404, "document_not_found"); }
   if (!loanFileOk(real) || !["plan", "manual"].includes(d.source)) return error(res, 404, "document_not_found");
@@ -2588,7 +2595,7 @@ router.post("/loan-applications/:id/physical-documents", requirePermission("loan
   }
 });
 router.get("/loan-applications/:id/physical-documents/:documentId/download", requirePermission("loan_applications.view"), (req, res) => {
-  const r = scoped(Number(req.params.id), user(res));
+  const r = scoped(Number(req.params.id), user(res), true);
   if (!r) return error(res, 404, "loan_application_not_found");
   const document = queryRow<any>("SELECT * FROM loan_physical_documents WHERE application_id=? AND id=?", [r.id, Number(req.params.documentId)]);
   if (!document) return error(res, 404, "physical_document_not_found");
@@ -3193,7 +3200,7 @@ export async function getGeneratedDocumentSignatureStatus(applicationId: number,
 
 router.get("/loan-applications/:id/generated-documents/:documentId/signature-status", requirePermission("loan_applications.view"), async (req, res): Promise<void> => {
   const applicationId = Number(req.params.id);
-  const r = scoped(applicationId, user(res));
+  const r = scoped(applicationId, user(res), true);
   if (!r) { error(res, 404, "loan_application_not_found"); return; }
   try {
     res.setHeader("Cache-Control", "private, no-store");

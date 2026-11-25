@@ -37,6 +37,7 @@ import { csOn } from "./call-summary-fields-core";
 import { sf480OpenLists } from "./sales-fixes-480000";
 import { psFlagOn, psIsStatusPriorityOnlyBody } from "./sales-experts-priority-status";
 import { bvaCanAccessSalesperson } from "./bale-view-as";
+import { smcAccessScope, smcCanViewCustomer } from "./smc-access-scope";
 const csOnSafe = (id: number) => { try { return csOn(id); } catch { return false; } };
 
 export const EL_FLAG_KEY = "flag.expert_lockdown";
@@ -246,10 +247,16 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   // VOIP-CALL (flag.voip_call for this user only): «تماس از تلفن ویپ» + the customer's call history follow the same single-customer rule.
   // cs-fields v1 (flag.call_summary_fields_v1[.user.<id>] only): «موارد اجباری» on the call view / file follow the same single-customer rule.
   // REMINDER-VOIP (flag.reminder_voip for this user only): «تماس» on an own reminder = the same single-customer rule as the VoIP click call.
-  const ctIds = ctLockdownIds(req, path, Number(u!.id)) ?? vcLockdownIds(req, path, Number(u!.id)) ?? csLockdownIds(req, path, Number(u!.id)) ?? rvLockdownIds(req.method, path, Number(u!.id)) ?? mcLockdownIds(req, path) ?? dciLockdownIds(req, path) ?? shLockdownIds(req, path);
+  const isRead = req.method === "GET" || req.method === "HEAD";
+  const mcCaseIds = mcLockdownIds(req, path);
+  const isMcCaseRead = Boolean(mcCaseIds && /^\/multi-case\/cases\/\d+$/.test(path));
+  const ctIds = ctLockdownIds(req, path, Number(u!.id)) ?? vcLockdownIds(req, path, Number(u!.id)) ?? csLockdownIds(req, path, Number(u!.id)) ?? rvLockdownIds(req.method, path, Number(u!.id)) ?? mcCaseIds ?? dciLockdownIds(req, path) ?? shLockdownIds(req, path);
   if (ctIds) {
-    for (const id of ctIds) if (!elCustomerAccess(u!, id) && !elOwnCustomer(u!, id))
-      return deny(res, "expert_lockdown_customer", "این مشتری فعلاً برای شما باز نیست (فقط مشتری‌های «کارهای امروز»، پرونده‌های خودت یا «تماس ورودی»).");
+    for (const id of ctIds) {
+      const smcView = isRead && (smcCanViewCustomer(u!, id, "customers") || (isMcCaseRead && smcCanViewCustomer(u!, id, "loan_files")));
+      if (!elCustomerAccess(u!, id) && !elOwnCustomer(u!, id) && !smcView)
+        return deny(res, "expert_lockdown_customer", "این مشتری فعلاً برای شما باز نیست (فقط مشتری‌های «کارهای امروز»، پرونده‌های خودت یا «تماس ورودی»).");
+    }
     next(); return;
   }
   const ids = path === "/expert-lockdown/incoming/first-call-logged" ? [] : idsOf(req);
@@ -296,13 +303,15 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   const ownReminderList = req.method === "GET" && path === "/reminders" && ids.length === 0 && ssOn(Number(u!.id));
   const cpMe = path === "/credit-panel/me" && cpOn(); // credit-panel v1: its flag read only (no customer rows); flag OFF → today's deny
   const paMe = (path === "/plan-advisor/me" || path === "/plan-advisor/customers") && paOn();
-  if (!customerRoute && !customerWrite && !listedCustomerRead && !reminderWrite && !ownReminderList && !cpMe && !paMe && !newCustomerWrite && !ALLOW.some((re) => re.test(path))) {
+  const smcCustomersListRead = isRead && path === "/customers" && smcAccessScope(u!, "customers").kind !== "none";
+  if (!customerRoute && !customerWrite && !listedCustomerRead && !reminderWrite && !ownReminderList && !cpMe && !paMe && !newCustomerWrite && !smcCustomersListRead && !ALLOW.some((re) => re.test(path))) {
     if (process.env.EL_TRACE === "1") console.warn(`[expert-lockdown] deny ${req.method} ${path}`);
     return deny(res, "expert_lockdown", "این بخش فعلاً برای شما بسته است. از «کارهای امروز من» کار کن.");
   }
   if ((customerRoute || customerWrite) && !ids.length) return deny(res, "expert_lockdown", "این بخش فعلاً برای شما بسته است.");
   for (const id of ids) {
-    if (!elCustomerAccess(u!, id) && !(ownLevel && elOwnCustomer(u!, id)) && !(req.method === "POST" && path === "/calls" && elMustReminderCustomer(u!, id))) {
+    const smcView = isRead && (smcCanViewCustomer(u!, id, "customers") || (/^\/customers\/\d+\/identity-documents/.test(path) && smcCanViewCustomer(u!, id, "loan_files")));
+    if (!elCustomerAccess(u!, id) && !(ownLevel && elOwnCustomer(u!, id)) && !smcView && !(req.method === "POST" && path === "/calls" && elMustReminderCustomer(u!, id))) {
       if (process.env.EL_TRACE === "1") console.warn(`[expert-lockdown] deny-customer ${req.method} ${path}`);
       return deny(res, "expert_lockdown_customer", "این مشتری فعلاً برای شما باز نیست (فقط مشتری‌های «کارهای امروز»، پرونده‌های خودت یا «تماس ورودی»).");
     }

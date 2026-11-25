@@ -13,6 +13,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { getNotificationSettings, normalizeIranianMobile, sendWalletShareSms } from "../lib/customer-notifications";
 import { verifyProvider, updatePaymentAttempt, verifyAndCreditWalletPayment, createWalletPaymentReceipt, readWalletPaymentReceipt, walletPaymentReceiptData } from "../lib/wallet-payment-recovery";
 import { conditionDurations as planConditionDurations } from "../lib/plan-condition-durations";
+import { smcCanViewCustomer } from "../lib/smc-access-scope";
 
 ensureWalletSchema();
 const router = Router();
@@ -97,7 +98,7 @@ const scopedCustomer: RequestHandler = (req, res, next): void => {
   if (!staffRoles.has(u.role) || !u.permissions.includes("customers.view")) { res.status(403).json({ error: "Forbidden" }); return; }
   const customer = queryRow<{ id: number; salesperson_id: number | null }>("SELECT id,salesperson_id FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [id]);
   if (!customer) { res.status(404).json({ error: "Customer not found" }); return; }
-  if (u.customerScope === "assigned" && customer.salesperson_id !== u.salespersonId) { res.status(403).json({ error: "Forbidden" }); return; }
+  if (u.customerScope === "assigned" && customer.salesperson_id !== u.salespersonId && !(req.method === "GET" && smcCanViewCustomer(u, id, "customers"))) { res.status(403).json({ error: "Forbidden" }); return; }
   next();
 };
 

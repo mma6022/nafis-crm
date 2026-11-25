@@ -18,6 +18,7 @@
  *   WHERE key = 'flag.daily_customer_inline_v1' OR key LIKE 'flag.daily_customer_inline_v1.user.%';
  */
 import type { AuthUser } from "./auth";
+import { smcCanViewCustomer } from "./smc-access-scope";
 import { crmDb, execute, queryRow, queryRows } from "./crm-db";
 import { dpToday } from "./daily-plan";
 import { callHistory, currentFileAnswers } from "./history-a";
@@ -132,12 +133,13 @@ export function dciDeniedBody(customerId: number): DciDenied {
   };
 }
 
-/** Experts with assigned scope (or any salesperson): only own customers. Managers/admins: any. Missing customer: null. */
-export function dciAccess(user: AuthUser, customerId: number): "own" | "manager" | "denied" | "missing" {
+/** Experts with assigned scope (or any salesperson): own customers, or read-only "view" when granted by «مدیریت فروش». Managers/admins: any. */
+export function dciAccess(user: AuthUser, customerId: number): "own" | "manager" | "view" | "denied" | "missing" {
   const meta = dciCustomerMeta(customerId);
   if (!meta) return "missing";
   if (dciIsManager(user)) return "manager";
   if (dciOwnsCustomer(user, customerId)) return "own";
+  if (smcCanViewCustomer(user, customerId, "customers")) return "view";
   return "denied";
 }
 

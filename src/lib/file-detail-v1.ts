@@ -3,6 +3,7 @@
  *  Resend never creates, regenerates or re-templates a contract: it only addresses the SAME current
  *  generation that is already with the signing provider. Contract rows are only read here. */
 import { bvaOwnsOrDelegated } from "./bale-view-as";
+import { smcCanViewCustomer } from "./smc-access-scope";
 import { crmDb, queryRow, queryRows } from "./crm-db";
 import type { AuthUser } from "./auth";
 
@@ -41,10 +42,11 @@ export let fdDeliverResend: ResendDelivery = async () => "unsupported";
 export function setFdDeliverResendForTests(fn: ResendDelivery) { fdDeliverResend = fn; }
 
 /** Salespeople only see their own customers' files (same scope as the loan list). */
-export function fdSeesApp(u: AuthUser, customerId: number): boolean {
+export function fdSeesApp(u: AuthUser, customerId: number, allowSmcView = false): boolean {
   if (u.role !== "salesperson") return true;
   const owner = queryRow<{ sp: number | null }>("SELECT salesperson_id sp FROM customers WHERE id=?", [customerId]);
-  return bvaOwnsOrDelegated(u, owner?.sp ?? null);
+  if (bvaOwnsOrDelegated(u, owner?.sp ?? null)) return true;
+  return allowSmcView && smcCanViewCustomer(u, customerId, "loan_files");
 }
 
 export type ResendResult =

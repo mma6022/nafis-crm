@@ -36,7 +36,7 @@ router.get("/multi-case/cases/:id", requireAuth, (req, res) => {
   if (!mcFlagOn(user.id)) { res.json({ enabled: false }); return; }
   const applicationId = Number(req.params.id);
   const row = getCaseRow(applicationId);
-  if (!row || row.deleted_at || !customerVisible(user, Number(row.customer_id))) {
+  if (!row || row.deleted_at || !customerVisible(user, Number(row.customer_id), "loan_files")) {
     res.status(404).json({ error: "case_not_found", message: "این پرونده پیدا نشد یا در دسترس شما نیست." });
     return;
   }

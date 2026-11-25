@@ -69,7 +69,7 @@ router.post("/daily-customer-inline/customers/:id/notes", dciAuth, (req, res) =>
   }
   const access = dciAccess(user, customerId);
   if (access === "missing") { res.status(404).json({ error: "customer_not_found" }); return; }
-  if (access === "denied") { res.status(403).json(dciDeniedBody(customerId)); return; }
+  if (access === "denied" || access === "view") { res.status(403).json(dciDeniedBody(customerId)); return; }
   ensureDciSchema();
   try {
     const notes = dciAddNote(customerId, user.id, String(req.body?.body ?? req.body?.note ?? ""));

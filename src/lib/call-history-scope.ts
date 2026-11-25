@@ -1,4 +1,5 @@
 import type { AuthUser } from "./auth";
+import { smcAssignedOwnerClause } from "./smc-access-scope";
 
 // Call history attribution is independent of customer ownership. PBX history
 // follows the user's current internal extension; manual history follows the
@@ -19,6 +20,10 @@ export function callAuthoredBySql(actor: AuthUser) {
 export function callHistoryScope(actor: AuthUser) {
   if (actor.role === "admin") return { sql: "", params: [] as (number | string | null)[] };
   if (actor.customerScope === "assigned") {
+    const smc = smcAssignedOwnerClause(actor, "c.salesperson_id", "customers");
+    if (smc?.kind === "all") return { sql: "", params: [] as (number | string | null)[] };
+    const custClause = smc ? smc.sql.replace(/^ AND /, "") : "c.salesperson_id=?";
+    const custParams = smc ? smc.params : [actor.salespersonId ?? -1];
     return {
       sql: `((EXISTS (SELECT 1 FROM voip_after_call_events mobile WHERE mobile.call_log_id=cl.id AND mobile.mobile_device_id IS NOT NULL AND mobile.expert_user_id=?))
       OR (EXISTS (SELECT 1 FROM voip_after_call_events e
@@ -27,8 +32,8 @@ export function callHistoryScope(actor: AuthUser) {
       WHERE e.call_log_id=cl.id))
       OR (NOT EXISTS (SELECT 1 FROM voip_after_call_events e WHERE e.call_log_id=cl.id) AND cl.salesperson_id=?)
       OR EXISTS (SELECT 1 FROM team_sales_qualifications authored WHERE authored.call_log_id=cl.id AND authored.actor_user_id=?)
-      OR c.salesperson_id=?)`,
-      params: [actor.id, actor.id, actor.salespersonId ?? -1, actor.id, actor.salespersonId ?? -1],
+      OR ${custClause})`,
+      params: [actor.id, actor.id, actor.salespersonId ?? -1, actor.id, ...custParams],
     };
   }
   return {
@@ -102,13 +107,16 @@ export function callListActorScope(actor: AuthUser, purpose: "list" | "export") 
   if (scope.sql) { filters.push(scope.sql); params.push(...scope.params); }
   const forced = purpose === "export" ? undefined : forcedCallScope(actor);
   if (forced) { filters.push(forced.sql); params.push(...forced.params); }
-  const unrestricted = actor.role === "admin" || actor.customerScope === "all";
+  const smc = purpose === "list" && actor.customerScope === "assigned" ? smcAssignedOwnerClause(actor, "c.salesperson_id", "customers") : null;
+  const unrestricted = actor.role === "admin" || actor.customerScope === "all" || smc?.kind === "all";
   const authoredBy = callAuthoredBySql(actor);
   const ownerOnly = unrestricted
     ? { sql: "1=1", params: [] as (number | string | null)[] }
     : purpose === "export"
       ? { sql: "c.salesperson_id=?", params: [actor.salespersonId] as (number | string | null)[] }
-      : { sql: `(c.salesperson_id=? OR ${authoredBy.sql})`, params: [actor.salespersonId, ...authoredBy.params] as (number | string | null)[] };
+      : smc
+        ? { sql: `(${smc.sql.replace(/^ AND /, "")} OR ${authoredBy.sql})`, params: [...smc.params, ...authoredBy.params] as (number | string | null)[] }
+        : { sql: `(c.salesperson_id=? OR ${authoredBy.sql})`, params: [actor.salespersonId, ...authoredBy.params] as (number | string | null)[] };
   const forcedSalespersonId = purpose === "export" ? legacyExportForcedCallSalespersonId(actor) : forcedCallSalespersonId(actor);
   return { filters, params, ownerOnly, forcedSalespersonId };
 }

@@ -7,6 +7,7 @@
 import { execute, queryRow, queryRows } from "./crm-db";
 import type { AuthUser } from "./auth";
 import { isSalesManagerUser } from "./sales-manager";
+import { smcAccessScope } from "./smc-access-scope";
 import { buildXlsx } from "./customer-segments-xlsx";
 import { tehranJalaliFileDay } from "./jalali-file-day";
 
@@ -29,7 +30,7 @@ export function segmentsOn(): boolean {
  * Admin and sales_manager (effective role admin) see everyone. Salespersons and trainees (salesperson role) see only their own.
  * Registrar and other roles cannot use this report.
  */
-export type ActorScope = { kind: "all" } | { kind: "own"; salespersonId: number };
+export type ActorScope = { kind: "all" } | { kind: "team"; salespersonIds: Set<number> } | { kind: "own"; salespersonId: number };
 
 export class SegmentScopeError extends Error {
   status = 403;
@@ -44,7 +45,12 @@ export class SegmentScopeError extends Error {
 export function actorScope(u: AuthUser | null | undefined): ActorScope | null {
   if (!u) return null;
   if (u.role === "admin" || isSalesManagerUser(u)) return { kind: "all" };
-  if (u.role === "salesperson" && u.salespersonId != null) return { kind: "own", salespersonId: Number(u.salespersonId) };
+  if (u.role === "salesperson") {
+    const smc = smcAccessScope(u, "customers");
+    if (smc.kind === "all") return { kind: "all" };
+    if (smc.kind === "team") return { kind: "team", salespersonIds: smc.salespersonIds };
+    if (u.salespersonId != null) return { kind: "own", salespersonId: Number(u.salespersonId) };
+  }
   return null;
 }
 
@@ -54,14 +60,17 @@ export function isSegmentsViewer(u: AuthUser | null | undefined): boolean {
 
 /** 403 if an assigned viewer asks for another owner's customers or another customer's id. */
 export function assertQueryScope(q: SegmentQuery, scope: ActorScope): void {
-  if (scope.kind !== "own") return;
-  const own = String(scope.salespersonId);
+  if (scope.kind === "all") return;
+  const allowed = scope.kind === "own" ? new Set([scope.salespersonId]) : scope.salespersonIds;
+  const msg = scope.kind === "own"
+    ? "فقط مشتری‌های خودتان را می‌توانید ببینید یا خروجی بگیرید."
+    : "فقط مشتری‌های تیم خودتان را می‌توانید ببینید یا خروجی بگیرید.";
   for (const c of q.conditions) {
     if (c.field === "ownerId") {
       const vals = (c.values ?? []).map(String).filter(Boolean);
       if (c.op === "exists" || c.op === "not_exists") continue;
-      if (vals.length && vals.some((v) => v !== own)) {
-        throw new SegmentScopeError("فقط مشتری‌های خودتان را می‌توانید ببینید یا خروجی بگیرید.");
+      if (vals.length && vals.some((v) => !allowed.has(Number(v)))) {
+        throw new SegmentScopeError(msg);
       }
     }
     if (c.field === "customerId") {
@@ -72,14 +81,14 @@ export function assertQueryScope(q: SegmentQuery, scope: ActorScope): void {
       if (c.op === "eq" || c.op === "in") {
         for (const id of ids) {
           const row = queryRow<{ salesperson_id: number | null }>("SELECT salesperson_id FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [id]);
-          if (!row || Number(row.salesperson_id) !== scope.salespersonId) {
-            throw new SegmentScopeError("فقط مشتری‌های خودتان را می‌توانید ببینید یا خروجی بگیرید.");
+          if (!row || row.salesperson_id == null || !allowed.has(Number(row.salesperson_id))) {
+            throw new SegmentScopeError(msg);
           }
         }
       }
       if (c.op === "range" && (min != null || max != null)) {
         // Range of ids could include others; refuse rather than silently widen.
-        throw new SegmentScopeError("فقط مشتری‌های خودتان را می‌توانید ببینید یا خروجی بگیرید.");
+        throw new SegmentScopeError(msg);
       }
     }
   }
@@ -87,6 +96,7 @@ export function assertQueryScope(q: SegmentQuery, scope: ActorScope): void {
 
 export function applyActorScope(rows: Profile[], scope: ActorScope): Profile[] {
   if (scope.kind === "all") return rows;
+  if (scope.kind === "team") return rows.filter((p) => p.kind === "customer" && p.ownerId != null && scope.salespersonIds.has(Number(p.ownerId)));
   const own = String(scope.salespersonId);
   return rows.filter((p) => p.kind === "customer" && p.ownerId === own);
 }
@@ -1141,7 +1151,7 @@ export function orderPreviewColumns(cols: string[]): string[] {
   return [...head, ...rest, ...extra];
 }
 
-export function preview(q: SegmentQuery, actor: AuthUser, page = 1, pageSize = 20): { total: number; page: number; pageSize: number; columns: string[]; rows: PublicRow[]; scope: ActorScope["kind"] } {
+export function preview(q: SegmentQuery, actor: AuthUser, page = 1, pageSize = 20): { total: number; page: number; pageSize: number; columns: string[]; rows: PublicRow[]; scope: "all" | "own" } {
   const scope = actorScope(actor);
   if (!scope) throw new SegmentScopeError("این گزارش فقط برای مدیر، مدیر فروش و کارشناس است.");
   assertQueryScope(q, scope);
@@ -1152,7 +1162,7 @@ export function preview(q: SegmentQuery, actor: AuthUser, page = 1, pageSize = 2
   const size = Math.min(100, Math.max(1, pageSize));
   const start = (safePage - 1) * size;
   const rows = all.slice(start, start + size).map((p) => toPublicRow(p, unique, { phones: false, national: false }));
-  return { total: all.length, page: safePage, pageSize: size, columns: unique, rows, scope: scope.kind };
+  return { total: all.length, page: safePage, pageSize: size, columns: unique, rows, scope: scope.kind === "all" ? "all" : "own" };
 }
 
 export function exportXlsx(q: SegmentQuery, actor: AuthUser, includePhones: boolean): { buffer: Buffer; filename: string; rowCount: number; columns: string[] } {

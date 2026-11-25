@@ -6,6 +6,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { requirePermission } from "../lib/access-control";
 import type { AuthUser } from "../lib/auth";
+import { smcAssignedOwnerClause } from "../lib/smc-access-scope";
 import { queryRows, type SqlValue } from "../lib/crm-db";
 import { customerSearchSql } from "../lib/customer-id-search";
 import {
@@ -55,7 +56,12 @@ function customerExtras(ids: number[]): Map<number, CustomerExtras> {
 /** Role-scoped rows (SQL: scope, search, salesperson), then derived facts + the remaining filters in memory. */
 export function consultationReport(user: AuthUser, q: ConsultFilters): ReportEntry[] {
   const where: string[] = [], params: SqlValue[] = [];
-  if (user.customerScope === "assigned") { where.push("c.salesperson_id = ?"); params.push(user.salespersonId); }
+  const smc = user.customerScope === "assigned" ? smcAssignedOwnerClause(user, "c.salesperson_id", "customers") : null;
+  if (smc) {
+    if (smc.sql) { where.push(smc.sql.replace(/^ AND /, "")); params.push(...smc.params); }
+  } else if (user.customerScope === "assigned") {
+    where.push("c.salesperson_id = ?"); params.push(user.salespersonId);
+  }
   const idSearch = q.search ? customerSearchSql(q.search) : null;
   if (q.search && idSearch) {
     const t = idSearch.text;
@@ -129,7 +135,7 @@ router.get("/consultations/report", requirePermission("consultations.view"), (re
     total: all.length, limit, offset,
     summary: summarize(all.map((e) => e.facts)),
     plans: plans.map((p) => ({ id: Number(p.id), name: p.name, active: Boolean(p.active), ...(admin ? { loanType: p.loan_type } : {}) })),
-    canExport: admin, canFilterPlanType: admin, salespersonScoped: user.customerScope === "assigned",
+    canExport: admin, canFilterPlanType: admin, salespersonScoped: user.customerScope === "assigned" && smcAssignedOwnerClause(user, "c.salesperson_id", "customers")?.kind !== "all",
   });
 });
 
