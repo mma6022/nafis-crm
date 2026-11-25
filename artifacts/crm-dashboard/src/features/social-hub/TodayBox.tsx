@@ -20,7 +20,10 @@ function SendStatus({ s, onRetry }: { s: ShToday['sends'][number]; onRetry?: () 
   const label = s.status === 'sent' ? 'ارسال شد' : s.status === 'failed' ? 'ارسال نشد' : 'در صف';
   const Icon = s.status === 'sent' ? Check : s.status === 'failed' ? AlertCircle : Clock;
   return <div className={`sh-sendst ${st || 'queued'}`} data-testid={`sh-send-${s.status}`}>
-    <span className={`sh-chip ${st}`}><Icon aria-hidden="true" />{s.title}، {label}، {faDateTime(s.at)}{s.source === 'auto' ? <span className="sh-auto" data-testid="sh-send-auto">خودکار</span> : null}</span>
+    <div className="sh-sendmeta">
+      <span className={`sh-chip ${st}`}><Icon aria-hidden="true" />{s.title}، {label}، {faDateTime(s.at)}</span>
+      {s.source === 'auto' ? <span className="sh-auto" data-testid="sh-send-auto">خودکار</span> : null}
+    </div>
     {s.status === 'failed' && s.failReason ? <span className="sh-sub sh-failr">{s.failReason}</span> : null}
     {s.retryable ? <button type="button" className="sh-btn sec sm sh-retry" onClick={onRetry} data-testid="sh-send-retry"><RefreshCw aria-hidden="true" />تلاش دوباره</button> : null}
   </div>;
