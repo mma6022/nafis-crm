@@ -219,12 +219,18 @@ try {
     const before = queryRow("SELECT COUNT(*) n FROM sh_sends WHERE source='auto'").n;
     assert.equal(sh.shOnPlanLinked(B, planId), 0);
     assert.equal(queryRow("SELECT COUNT(*) n FROM sh_sends WHERE source='auto'").n, before);
-    const queued = queryRow("SELECT id, status, out_msg_id FROM sh_sends WHERE source='auto' AND status='queued' LIMIT 1");
+    const queued = queryRow("SELECT id, status, out_msg_id, created_at FROM sh_sends WHERE source='auto' AND status='queued' LIMIT 1");
     assert.ok(queued);
     shs.shDeliverSend(queued.id);
     const after = queryRow("SELECT status, out_msg_id FROM sh_sends WHERE id=?", [queued.id]);
     assert.equal(after.status, "queued"); assert.equal(after.out_msg_id, null);
-    flag(sh.SH_SEND_FLAG, null);
+    // turning auto-send ON later must not backfill rows from past plan picks
+    execute("UPDATE sh_sends SET created_at=? WHERE id=?", ["2026-01-01T00:00:00.000Z", queued.id]);
+    flag(sh.SH_AUTO_SEND_FLAG, "1");
+    shs.shDeliverSend(queued.id);
+    const still = queryRow("SELECT status, out_msg_id FROM sh_sends WHERE id=?", [queued.id]);
+    assert.equal(still.status, "queued"); assert.equal(still.out_msg_id, null);
+    flag(sh.SH_AUTO_SEND_FLAG, null); flag(sh.SH_SEND_FLAG, null);
     assert.equal(netCalls, 0);
   });
 
