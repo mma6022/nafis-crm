@@ -84,7 +84,7 @@ export function RedirectWizard({ onClose, toast }: { onClose: () => void; toast:
       {p.skipped.length ? <div className="sh-stack"><div className="sh-lbl">کنار گذاشته‌شده‌ها</div>{p.skipped.map((s) => <div key={s.reason} className="sh-sumr"><span>{s.label}</span><b>{fa(s.count)}</b></div>)}</div> : null}
     </div> : null}
     {step === 1 ? <div className="sh-stack" data-testid="sh-redir-step2">
-      {sampleRow ? <><div className="sh-bubble" data-testid="sh-redir-bubble"><div className="sh-sub sh-bubble-head"><Name name={sampleRow.customerName} id={sampleRow.customerId} /><span>، کارشناس {sampleRow.expertName}</span></div><div style={{ whiteSpace: 'pre-wrap' }}>{shRenderPreview(p.text, { customer: sampleRow.customerName, expert: sampleRow.expertName })}</div><div className="sh-chip tint" style={{ alignSelf: 'flex-start' }}>{p.button}</div></div>
+      {sampleRow ? <><div className="sh-bubble" data-testid="sh-redir-bubble"><div className="sh-sub sh-bubble-head"><Name name={sampleRow.customerName} id={sampleRow.customerId} />، کارشناس {sampleRow.expertName}</div><div style={{ whiteSpace: 'pre-wrap' }}>{shRenderPreview(p.text, { customer: sampleRow.customerName, expert: sampleRow.expertName })}</div><div className="sh-chip tint" style={{ alignSelf: 'flex-start' }}>{p.button}</div></div>
         {recipients.length > 1 ? <button type="button" className="sh-btn sec sm" onClick={() => setSample((n) => n + 1)} data-testid="sh-redir-next-cust">مشتری بعدی</button> : null}</>
         : <p className="sh-sub">گیرنده‌ای نیست.</p>}
     </div> : null}
