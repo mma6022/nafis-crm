@@ -38,7 +38,7 @@ function CrmName({ c, toast, refresh }: { c: { id: number; name: string }; toast
   );
 }
 
-const STATUS: Record<string, [string, string]> = { sending: ['refresh', 'در حال ارسال'], sent: ['check', 'ارسال شد'], failed: ['alert', 'ارسال ناموفق'], wait: ['clock', 'کمی صبر کنید، دوباره ارسال می‌شود'] };
+const STATUS: Record<string, [string, string]> = { sending: ['refresh', 'در صف'], sent: ['check', 'ارسال شد'], failed: ['alert', 'ارسال نشد'], wait: ['clock', 'در صف'] };
 const WV = [6, 12, 18, 10, 22, 14, 8, 16, 24, 12, 7, 18, 13, 20, 9, 15, 11, 6, 14, 19, 10, 8];
 const OTHER_HINT = 'مشتری کارشناس دیگر با این جستجو پیدا نمی‌شود؛ برای اتصال، از مشتری «درخواست شماره» بزنید';
 const PREV_IC: Record<string, string> = { photo: 'img', video: 'video', animation: 'video', document: 'doc', audio: 'play', voice: 'mic', sticker: 'img', contact: 'contact', location: 'pin' };
@@ -392,8 +392,10 @@ function Bubble({ m, chat, me, reply, sel, toast, onClick, onRetry }: { m: BbMes
       {au ? <span className="au"><I n="user" />{au}</span> : null}
       {reply ? <span className="rq"><b>{reply.dir === 'in' ? chat.name : 'شما'}</b>{(reply.text ?? 'پیوست').slice(0, 60)}</span> : null}{inner}</div>
     <div className="meta"><span>{bbTime(m.at)}</span>{m.editedAt ? <em className="ed">ویرایش شده</em> : null}
+      {m.auto ? <span className="chip mut" data-testid="bb-auto">خودکار</span> : null}
       {st ? <span className={`st ${m.status}`}><I n={st[0]} />{st[1]}</span> : null}
-      {m.status === 'failed' && chat.canWrite ? <button className="btn lk sm rty" type="button" onClick={onRetry}><I n="refresh" />دوباره بفرست</button> : null}</div>
+      {m.status === 'failed' && m.failReason ? <span className="st failed">{m.failReason}</span> : null}
+      {m.status === 'failed' && m.retryable && chat.canWrite ? <button className="btn lk sm rty" type="button" onClick={onRetry} data-testid="bb-retry"><I n="refresh" />تلاش دوباره</button> : null}</div>
   </div>;
 }
 

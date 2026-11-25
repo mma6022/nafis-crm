@@ -714,3 +714,5 @@
 .qbar{display:flex;flex-wrap:wrap;gap:8px;padding:8px 2px 10px}
 .qbar .qb{min-height:44px;padding:0 14px;border-radius:12px;border:1px solid var(--nf-line,#E3E6F0);background:var(--nf-brand-50,#EEF0FA);color:var(--nf-ink,#0B1450);font:inherit;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap}
 .qbar .qb:disabled{opacity:.6;cursor:default}
+
+.bbt .btn.rty{min-height:44px;padding:0 14px}

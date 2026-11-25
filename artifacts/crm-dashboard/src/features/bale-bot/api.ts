@@ -43,6 +43,7 @@ export type BbMessage = {
   file: { name: string | null; mime: string | null; size: number | null; duration: number | null; state: string; url: string | null } | null;
   contact: { phone: string | null; name: string | null; own: boolean; hidden?: boolean } | null; location: { lat: number; lng: number } | null; replyTo: number | null; askContact: boolean;
   status: 'sending' | 'sent' | 'failed' | 'wait' | null; errorCode: string | null; author: string | null; canEdit: boolean; canDelete: boolean; deleteExpired: boolean;
+  failReason?: string | null; retryable?: boolean; auto?: boolean;
   inlineButtons?: { text: string; url?: string }[];
 };
 export type BbChats = { counts: { all: number; unread: number; unlinked: number; pending?: number; typedPending?: number; stars?: Record<string, number> }; chats: BbChat[]; experts: { id: number; name: string }[] };
