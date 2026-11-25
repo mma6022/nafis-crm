@@ -87,7 +87,7 @@
 .sh-tbl{background:#fff;border:1px solid var(--sh-line);border-radius:var(--sh-r);overflow:hidden}
 .sh-tr{display:grid;align-items:center;gap:12px;padding:8px 14px;border-bottom:1px solid var(--sh-line);min-height:56px}
 .sh-tr:last-child{border-bottom:0}.sh-tr.hd{background:var(--sh-tint);font-size:12px;font-weight:700;color:var(--sh-navy-d);min-height:36px}
-.sh-tr.leg{grid-template-columns:minmax(160px,1.1fr) 120px minmax(140px,1fr) max-content max-content}.sh-legp{display:flex;flex-direction:column;align-items:stretch;gap:6px}.sh-legp .sh-bar{flex:none;width:100%}
+.sh-tr.leg{grid-template-columns:minmax(90px,1fr) 104px minmax(120px,1.2fr) auto auto}.sh-legp{display:flex;flex-direction:column;align-items:stretch;gap:6px}.sh-legp .sh-bar{flex:none;width:100%}
 .sh-tr.acc{grid-template-columns:minmax(160px,1fr) 150px 220px minmax(240px,1.2fr)}
 .sh-tr.msg{grid-template-columns:minmax(0,1fr) 200px 250px}.sh-tr.msg.free{grid-template-columns:minmax(0,1fr) 200px}
 .sh-tr .t b{display:block;color:var(--sh-navy-d);font-weight:800}.sh-tr .t span{display:block;font-size:12px;color:var(--sh-mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -156,8 +156,9 @@ body:has(.topbar.sh-compact) .diag-floating{display:none!important}
 .sh-off{opacity:.55}
 .sh-ctl{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
 .sh-filechip{display:inline;white-space:nowrap}
-/* 1280: keep «ارسال یک‌باره» and «پایان انتقال» on one row; give the action column room (Armita r3 optional). */
+/* 1280: both action buttons on one row and visible; earlier columns shrink instead of clipping «پایان انتقال». */
 @media (min-width:1024px){
+  .sh-tr.leg{grid-template-columns:minmax(0,1.1fr) 100px minmax(0,1fr) max-content max-content;gap:8px 10px}
   .sh-tr.leg .sh-row.sh-wrap{flex-wrap:nowrap;gap:8px}
   .sh-tr.leg > b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 }
