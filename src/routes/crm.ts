@@ -1,4 +1,5 @@
 import { registrarCanTag } from "../lib/registrar-view";
+import { bvaAssignedOwnerClause } from "../lib/bale-view-as";
 import { cpkOn, cpkNextReminderAt } from "../lib/customers-priority-kanban";
 import { perfCacheGetOrSet, perfCacheInvalidate } from "../lib/perf-poll-cache";
 import { caseChoiceErrorBody, mcFlagOn, resolveCaseLink } from "../lib/multi-case";
@@ -1515,14 +1516,13 @@ function normalizePostalCode(value: string | null | undefined): string | null {
 }
 
 export function getCustomer(id: number, user?: AuthUser, includeArchivedReadOnly = false) {
-  const ownerFilter =
-    user?.customerScope === "assigned" ? " AND c.salesperson_id = ?" : "";
+  const assigned = user?.customerScope === "assigned" ? bvaAssignedOwnerClause(user, "c.salesperson_id") : { sql: "", params: [] };
   const archiveFilter = includeArchivedReadOnly && user && isAdminRole(user.role)
     ? ""
     : " AND c.merged_into_customer_id IS NULL";
   const row = queryRow<CustomerRow>(
-    `${customerSelect} WHERE c.id = ?${ownerFilter}${archiveFilter} GROUP BY c.id ORDER BY c.created_at DESC`,
-    user?.customerScope === "assigned" ? [id, user.salespersonId] : [id],
+    `${customerSelect} WHERE c.id = ?${assigned.sql}${archiveFilter} GROUP BY c.id ORDER BY c.created_at DESC`,
+    [id, ...assigned.params],
   );
   return row ? customerFromRow(row) : undefined;
 }

@@ -22,11 +22,12 @@ import {
   bcApproveTyped, bcCanAct, bcCommitManual, bcCustomerForViewer, bcFlagOn, bcInboxTitle, bcPreviewManual, bcRejectTyped,
   BC_GHASEMI_USER_ID, bcResendAsk, bcSourceLine, bcTypedMatch, ensureBaleContactSchema, runBaleContactBatch,
 } from "../lib/bale-contact";
+import { bvaCanAccessSalesperson, bvaCanSeeBotOwner, bvaOwnerUserIds } from "../lib/bale-view-as";
 
 export const baleBotWorker = new BaleBotWorker();
 const ERR_FA: Record<string, string> = {
   not_enabled: "گفتگوی بله برای شما روشن نیست.", forbidden: "دسترسی ندارید.", not_found: "پیدا نشد.", bad_text: "متن پیام خالی است یا از ۴۰۹۶ نویسه بیشتر است.",
-  bot_off: "ربات قطع است؛ تا وصل شدن دوباره پیامی فرستاده نمی‌شود.", no_send: "فعلاً از این ربات پیامی فرستاده نمی‌شود.",
+  bot_off: "ربات قطع است؛ تا وصل شدن دوباره پیامی فرستاده نمی‌شود.", no_send: "فعلاً از این ربات پیامی فرستاده نمی‌شود.", view_only: "فقط مشاهده است؛ پاسخ را کارشناس صاحب ربات می‌فرستد.",
   photo_too_big: "بله عکس را تا ۱۰ مگابایت می‌فرستد. فایل کوچک‌تری انتخاب کنید.", file_too_big: "بله فایل را تا ۵۰ مگابایت می‌فرستد. فایل کوچک‌تری انتخاب کنید.",
   bad_file: "فایل خالی است.", not_editable: "این پیام قابل ویرایش نیست.", delete_expired: "پیام‌ها فقط تا ۴۸ ساعت بعد از ارسال حذف می‌شوند.",
   bale_error: "بله درخواست را انجام نداد. دوباره تلاش کنید.", no_verified_phone: "اول مشتری باید شماره‌ی خودش را با دکمه‌ی اشتراک بفرستد.",
@@ -57,7 +58,11 @@ function sharedBotAssignedTo(u: BbUser, c: { owner_id: number; customer_id?: num
 function chatFor(u: BbUser, id: number): (ChatRow & { owner_id: number }) | undefined {
   const c = queryRow<ChatRow & { owner_id: number }>("SELECT c.*, b.user_id owner_id FROM bale_bot_chats c JOIN bale_bots b ON b.id=c.bot_id WHERE c.id=?", [id]);
   if (!c) return undefined;
-  return bbView(u) === "all" || c.owner_id === u.id || sharedBotAssignedTo(u, c) ? c : undefined;
+  return bbView(u) === "all" || c.owner_id === u.id || sharedBotAssignedTo(u, c) || bvaCanSeeBotOwner(u, c.owner_id) ? c : undefined;
+}
+/** Write (send / link / lead) on a chat: managers and the bot owner (or the assigned shared-bot expert). A view-as grant is read-only. */
+function bbCanSendAs(u: BbUser, c: { owner_id: number; customer_id?: number | null }): boolean {
+  return bbView(u) === "all" || c.owner_id === u.id || sharedBotAssignedTo(u, c);
 }
 function customerBrief(cid: number | null) {
   if (!cid) return null;
@@ -96,7 +101,7 @@ function chatView(c: ChatRow & { owner_id: number }, u: BbUser) {
   return { id: c.id, name: title, firstName: c.first_name, lastName: c.last_name, username: c.username, bio: c.bio, unread: c.unread, lastAt: c.last_at, lastPreview, lastOut: !!c.last_out,
     customer: cust, linkMethod: c.link_method, otherExpert: !!full && owner?.salesperson_id !== full.salespersonId, notices: noticesFor(u, c.id),
     lastByManager: !!lastOutAuthor && lastOutAuthor !== c.owner_id, verifiedPhone: (cust && cust.restricted && !cust.phone) ? null : c.verified_phone, phoneVerified: c.customer_id == null ? null : c.link_method === 'contact' || c.link_method === 'contact_other' ? true : c.lead_phone_verified == null ? null : !!c.lead_phone_verified, contactAskedAt: c.contact_asked_at, matchNote: c.match_note,
-    expert: { id: shared ? 0 : c.owner_id, name: shared ? assignedName : nameOf(owner) }, bot: { username: bot.bot_username, status: bot.status, shared, displayName: shared ? (bot.bot_name || "ربات نفیس وام") : bot.bot_name }, canWrite: botLive(bot) && botSends(bot), sendBlocked: !botSends(bot) ? "no_send" : !botLive(bot) ? "bot_off" : null,
+    expert: { id: shared ? 0 : c.owner_id, name: shared ? assignedName : nameOf(owner) }, bot: { username: bot.bot_username, status: bot.status, shared, displayName: shared ? (bot.bot_name || "ربات نفیس وام") : bot.bot_name }, canWrite: bbCanSendAs(u, c) && botLive(bot) && botSends(bot), sendBlocked: !bbCanSendAs(u, c) ? "view_only" : !botSends(bot) ? "no_send" : !botLive(bot) ? "bot_off" : null,
     mine: c.owner_id === u.id || sharedBotAssignedTo(u, c),
     sharedCustomerBot: shared,
     sourceChip: shared ? "ربات نفیس وام" : null,
@@ -149,20 +154,24 @@ export function createBaleBotRouter(): IRouter {
     const u = U(res);
     res.json(perfCacheGetOrSet(`bale-bot-me:${u.id}`, 3_000, () => {
       const v = bbView(u)!;
+      const extra = bvaOwnerUserIds(u);
       const unread = v === "all" ? queryRow<{ n: number }>("SELECT COUNT(*) n FROM bale_bot_chats WHERE unread>0")!.n
-        : queryRow<{ n: number }>("SELECT COUNT(*) n FROM bale_bot_chats c JOIN bale_bots b ON b.id=c.bot_id WHERE b.user_id=? AND c.unread>0", [u.id])!.n;
-      return { enabled: true, view: v, canManage: bbCanManage(u), name: nameOf(u), bot: botView(botOfUser(u.id)), unread, limits: BB_LIMITS, contactFeature: bcFlagOn(), customerBot: customerBotFlagsPayload(), signReminder: srFlagOn(), ...(bwsOn() ? { workspace: true } : {}) };
+        : queryRow<{ n: number }>(`SELECT COUNT(*) n FROM bale_bot_chats c JOIN bale_bots b ON b.id=c.bot_id WHERE c.unread>0 AND b.user_id IN (${[u.id, ...extra].map(() => "?").join(",")})`, [u.id, ...extra])!.n;
+      return { enabled: true, view: v, canManage: bbCanManage(u), name: nameOf(u), bot: botView(botOfUser(u.id)), unread, limits: BB_LIMITS, contactFeature: bcFlagOn(), customerBot: customerBotFlagsPayload(), signReminder: srFlagOn(), ...(bwsOn() ? { workspace: true } : {}), ...(extra.length ? { viewAs: extra } : {}) };
     }));
   });
 
   r.get("/bale-bot/chats", (req, res) => {
     const u = U(res); const v = bbView(u)!; const f = String(req.query.filter ?? "all"); const q = String(req.query.q ?? "").trim().slice(0, 60); const ex = num(req.query.expert);
+    const extra = bvaOwnerUserIds(u);
     const w: string[] = []; const p: any[] = [];
     if (v === "own") {
-      if (u.salesperson_id != null) {
-        w.push("(b.user_id=? OR (b.user_id=? AND c.customer_id IS NOT NULL AND EXISTS (SELECT 1 FROM customers cu WHERE cu.id=c.customer_id AND cu.salesperson_id=?)))");
-        p.push(u.id, BB_SHARED_BOT_USER_ID, u.salesperson_id);
-      } else { w.push("b.user_id=?"); p.push(u.id); }
+      const allowed = [u.id, ...extra];
+      if (ex && allowed.includes(ex)) { w.push("b.user_id=?"); p.push(ex); }
+      else if (u.salesperson_id != null) {
+        w.push(`(b.user_id IN (${allowed.map(() => "?").join(",")}) OR (b.user_id=? AND c.customer_id IS NOT NULL AND EXISTS (SELECT 1 FROM customers cu WHERE cu.id=c.customer_id AND cu.salesperson_id=?)))`);
+        p.push(...allowed, BB_SHARED_BOT_USER_ID, u.salesperson_id);
+      } else { w.push(`b.user_id IN (${allowed.map(() => "?").join(",")})`); p.push(...allowed); }
     } else if (ex) { w.push("b.user_id=?"); p.push(ex); }
     const base = w.length ? `WHERE ${w.join(" AND ")}` : "";
     const all = queryRows<ChatRow & { owner_id: number }>(`SELECT c.*, b.user_id owner_id FROM bale_bot_chats c JOIN bale_bots b ON b.id=c.bot_id ${base} ORDER BY COALESCE(c.last_at,c.created_at) DESC LIMIT 500`, p);
@@ -179,7 +188,9 @@ export function createBaleBotRouter(): IRouter {
           || (cust?.name ?? "").includes(q) || (c.customer_id != null && String(c.customer_id) === qn);
       });
     }
-    const experts = v === "all" ? queryRows<any>("SELECT b.user_id id, u.full_name, u.username FROM bale_bots b JOIN users u ON u.id=b.user_id ORDER BY b.user_id").map(e => ({ id: e.id, name: nameOf(e) })) : [];
+    const expertIds = v === "all" ? null : extra.length ? [u.id, ...extra] : [];
+    const experts = v === "all" ? queryRows<any>("SELECT b.user_id id, u.full_name, u.username FROM bale_bots b JOIN users u ON u.id=b.user_id ORDER BY b.user_id").map(e => ({ id: e.id, name: nameOf(e) }))
+      : expertIds.length ? queryRows<any>(`SELECT b.user_id id, u.full_name, u.username FROM bale_bots b JOIN users u ON u.id=b.user_id WHERE b.user_id IN (${expertIds.map(() => "?").join(",")}) ORDER BY b.user_id`, expertIds).map(e => ({ id: e.id, name: nameOf(e) })) : [];
     if (bwsOn()) {
       // «فضای کار بله» ج: three stars above two above one above none, newest inside a level; filter all / 3 / 2 / 1 / 0 (= no star).
       const st = String(req.query.star ?? "all"); const sv = /^[0-3]$/.test(st) ? Number(st) : null;
@@ -204,6 +215,7 @@ export function createBaleBotRouter(): IRouter {
 
   const writable = (u: BbUser, id: number, res: Response) => {
     const c = chatFor(u, id); if (!c) { fail(res, 404, "not_found"); return null; }
+    if (!bbCanSendAs(u, c)) { fail(res, 403, "view_only"); return null; }
     const bot = botById(c.bot_id)!;
     if (!botSends(bot)) { fail(res, 409, "no_send"); return null; }
     if (!botLive(bot)) { fail(res, 409, "bot_off"); return null; }
@@ -341,6 +353,7 @@ export function createBaleBotRouter(): IRouter {
   });
   r.post("/bale-bot/chats/:id/link", express.json(), (req, res) => {
     const u = U(res); const c = chatFor(u, num(req.params.id)); if (!c) return fail(res, 404, "not_found");
+    if (!bbCanSendAs(u, c)) return fail(res, 403, "view_only");
     if (c.customer_id) return fail(res, 409, "already_linked");
     const owner = bbUser(c.owner_id); const cid = num(req.body?.customerId);
     // Own refusal (independent of expert_lockdown): only the bot owner's own customers can be linked by hand.
@@ -369,6 +382,7 @@ export function createBaleBotRouter(): IRouter {
   });
   r.post("/bale-bot/chats/:id/lead", express.json(), (req, res) => {
     const u = U(res); const c = chatFor(u, num(req.params.id)); if (!c) return fail(res, 404, "not_found");
+    if (!bbCanSendAs(u, c)) return fail(res, 403, "view_only");
     if (c.customer_id) return fail(res, 409, "already_linked");
     const raw = String(req.body?.phone ?? c.verified_phone ?? "").trim(); if (!raw) return fail(res, 400, "no_phone");
     const phone = normPhone(raw); if (!phone) return fail(res, 400, "bad_phone");
@@ -400,10 +414,10 @@ export function createBaleBotRouter(): IRouter {
     const u = U(res); const cid = num(req.params.cid); const v = bbView(u);
     const cust = queryRow<any>("SELECT id,salesperson_id FROM customers WHERE id=?", [cid]); if (!cust) return fail(res, 404, "not_found");
     const chats = queryRows<ChatRow & { owner_id: number }>("SELECT c.*, b.user_id owner_id FROM bale_bot_chats c JOIN bale_bots b ON b.id=c.bot_id WHERE c.customer_id=? ORDER BY c.last_at DESC", [cid])
-      .filter(c => v === "all" || c.owner_id === u.id || (u.salesperson_id != null && cust.salesperson_id === u.salesperson_id));
+      .filter(c => v === "all" || c.owner_id === u.id || (u.salesperson_id != null && cust.salesperson_id === u.salesperson_id) || bvaCanSeeBotOwner(u, c.owner_id) || bvaCanAccessSalesperson(u, cust.salesperson_id));
     res.json({ chats: chats.map(c => {
       const view = chatView(c, u);
-      return { ...view, canOpen: v === "all" || c.owner_id === u.id,
+      return { ...view, canOpen: v === "all" || c.owner_id === u.id || bvaCanSeeBotOwner(u, c.owner_id) || bvaCanAccessSalesperson(u, cust.salesperson_id),
         timeline: queryRows<any>("SELECT * FROM bale_bot_messages WHERE chat_row=? ORDER BY id DESC LIMIT 30", [c.id]).map(m => messageView(m, c.owner_id, { hidePhone: !!view.customer?.restricted && !view.customer?.phone })) };
     }) });
   });

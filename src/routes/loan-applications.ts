@@ -19,6 +19,7 @@ import { rememberApprovedPlanDocument, seedPlanSlotFromVault, profileOrLoanFileA
 import { isCustomerLevelDocumentKey, sf816CustomerDocReuse } from "../lib/sf816-documents";
 import { requirePermission } from "../lib/access-control";
 import type { AuthUser } from "../lib/auth";
+import { bvaAssignedOwnerClause, bvaOwnsOrDelegated } from "../lib/bale-view-as";
 import { canCancelLoanCase, registerLoanCaseCancellation } from "../lib/loan-case-cancellation";
 import { loanCaseFinancialTermsLocked, registerLoanCaseAdminControls } from "../lib/loan-case-admin-controls";
 import { registerLoanCaseNotes } from "../lib/loan-case-notes";
@@ -105,15 +106,15 @@ function storeIdentityFile(customerId: number, f: Express.Multer.File): string {
 }
 
 function scoped(id: number, u: AuthUser): any {
-  const condition = u.role === "admin" || u.customerScope !== "assigned" ? "" : " AND current_customer.salesperson_id = ?";
-  const params: any[] = [id]; if (condition) params.push(u.salespersonId);
+  const assigned = u.role !== "admin" && u.customerScope === "assigned" ? bvaAssignedOwnerClause(u, "current_customer.salesperson_id") : { sql: "", params: [] };
+  const params: any[] = [id, ...assigned.params];
   return queryRow<any>(`SELECT a.*,c.name customer_name,cs.id customer_salesperson_id,cs.name customer_salesperson_name,p.name plan_name, p.bank_name plan_bank_name
     FROM loan_applications a JOIN customers c ON c.id=a.customer_id
     LEFT JOIN customer_merge_audit merge_audit ON merge_audit.source_customer_id=c.id AND merge_audit.survivor_customer_id=c.merged_into_customer_id
     JOIN customers current_customer ON current_customer.id=CASE WHEN c.merged_into_customer_id IS NULL THEN c.id ELSE merge_audit.survivor_customer_id END AND current_customer.merged_into_customer_id IS NULL
     LEFT JOIN salespersons cs ON cs.id=current_customer.salesperson_id
     LEFT JOIN loan_plans p ON p.id=COALESCE(a.plan_id, CASE WHEN json_valid(a.plan_ids) THEN CAST(json_extract(a.plan_ids,'$[0]') AS INTEGER) ELSE CAST(a.plan_ids AS INTEGER) END)
-    WHERE a.id=? AND a.deleted_at IS NULL${condition}`, params);
+    WHERE a.id=? AND a.deleted_at IS NULL${assigned.sql}`, params);
 }
 // Persian explanation sent with every loan-case refusal so the dialog can show
 // the real reason. Sub-reasons explain current_primary_terms_not_verified.
@@ -1906,7 +1907,7 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
   const conditionId = Number(b.conditionId);
   if (!customerId || !plan || !conditionId || !/^[1-9]\d*$/.test(amount) || !Number.isInteger(duration) || duration < 1) return error(res, 400, "invalid_application_input");
    const u = user(res), customer = queryRow<any>("SELECT * FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [customerId]);
-   if (!customer || (u.customerScope === "assigned" && customer.salesperson_id !== u.salespersonId)) return error(res, 404, "loan_application_not_found");
+   if (!customer || (u.customerScope === "assigned" && !bvaOwnsOrDelegated(u, customer.salesperson_id))) return error(res, 404, "loan_application_not_found");
   if (mcFlagOn(u.id)) {
     const templateId = Number(plan.contract_template_id ?? plan.primary_contract_template_id) || null;
     const block = newCasePlanBlock(primaryTemplateReady(templateId));
@@ -2004,7 +2005,7 @@ router.patch("/loan-applications/:id", requirePermission("loan_applications.upda
   const r = scoped(Number(req.params.id), user(res)); if (!r) return error(res, 404, "loan_application_not_found");
   const actor = user(res);
   if (actor.role === "salesperson" && (actor.salespersonId == null ||
-      Number(r.customer_salesperson_id) !== actor.salespersonId)) return error(res, 403, "action_forbidden");
+      !bvaOwnsOrDelegated(actor, r.customer_salesperson_id))) return error(res, 403, "action_forbidden");
   if (!["draft", "funder_initial_approval"].includes(r.stage) || r.status === "rejected") return error(res, 409, "application_not_editable");
   const hasPrimaryContract = Boolean(queryRow(
     `SELECT 1 FROM loan_application_generated_documents d

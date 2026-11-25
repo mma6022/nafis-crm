@@ -11,6 +11,7 @@
  * The one-time batch to existing customers stays disabled unless
  * bale_contact.batch_enabled = '1' (needs Mohammad's approval after release).
  */
+import { bvaCanAccessSalesperson } from "./bale-view-as";
 import { execute, executeChanges, queryRow, queryRows, crmDb } from "./crm-db";
 import { insertCustomerRecord, lastCustomerCreateOutcome } from "./customer-create";
 import {
@@ -297,7 +298,7 @@ export type BcCustomerHeader = BcCustomerBrief & { restricted: boolean; canOpen:
  *  `restricted` stays true so message bodies / lastPreview still redact phones.
  *  Approve / reject / manual stay behind bcCanAct (own expert + admin). The case page is unchanged. */
 export function bcCustomerForViewer(u: BbUser, full: BcCustomerBrief, flagOn = bcFlagOn()): BcCustomerHeader {
-  const own = bbView(u) === "all" || (u.salesperson_id != null && full.salespersonId === u.salesperson_id);
+  const own = bbView(u) === "all" || (u.salesperson_id != null && full.salespersonId === u.salesperson_id) || bvaCanAccessSalesperson(u, full.salespersonId);
   if (own) return { ...full, restricted: false, canOpen: true };
   if (flagOn) return { ...full, restricted: true, canOpen: true };
   return { id: full.id, name: full.name, expert: full.expert, phone: null, status: null, salespersonId: null, restricted: true, canOpen: false };
