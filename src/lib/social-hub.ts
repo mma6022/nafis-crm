@@ -14,6 +14,7 @@
  *                                    not deliver auto-sends.
  *   flag.social_hub_auto_send_v1     when a customer is linked to a plan, queue and (if send_v1 is also ON) deliver that
  *                                    plan's auto_send messages. Default OFF (absent). send_v1 alone never sends automatically.
+ *                                    Turning this flag on does not backfill: only plan picks in the bot after it is ON are sent.
  *   flag.social_hub_bot_connect_v1   «آزمایش اتصال» / save of the unified «نفیس وام» token into bale_bots.user_id=0.
  *                                    OFF → test answers connect_disabled; no token is accepted, stored or used.
  *   flag.social_hub_redirect_v1      one-time bulk redirect + «ارسال یک‌باره». Default OFF. Super-admin only. No send
@@ -66,6 +67,27 @@ export const shOn = () => setting(SH_FLAG) === "1";
 export const shPhoneOn = () => setting(SH_PHONE_FLAG) === "1";
 export const shSendOn = () => setting(SH_SEND_FLAG) === "1";
 export const shAutoSendOn = () => setting(SH_AUTO_SEND_FLAG) === "1";
+/** Timestamp the auto-send flag last became ON. Used so turning it on never delivers rows queued from past plan picks. */
+export function shAutoSendOnAt(): string | null {
+  try {
+    const row = queryRow<{ value: string; updated_at: string | null }>("SELECT value, updated_at FROM call_queue_settings WHERE key=?", [SH_AUTO_SEND_FLAG]);
+    if (!row || row.value !== "1") return null;
+    return row.updated_at ?? null;
+  } catch { return null; }
+}
+function shAtMs(v: string | null | undefined): number {
+  const s = String(v ?? "").trim();
+  if (!s) return 0;
+  const t = Date.parse(/T/.test(s) ? s : s.replace(" ", "T") + "Z");
+  return Number.isFinite(t) ? t : 0;
+}
+/** Auto rows are delivered only if the auto flag is ON and the row was created at or after it was turned on. No backfill. */
+export function shAutoSendEligible(createdAt: string): boolean {
+  if (!shAutoSendOn()) return false;
+  const onAt = shAutoSendOnAt();
+  if (!onAt) return false;
+  return shAtMs(createdAt) >= shAtMs(onAt);
+}
 export const shConnectOn = () => setting(SH_CONNECT_FLAG) === "1";
 export const shRedirectOn = () => setting(SH_REDIRECT_FLAG) === "1";
 export const shLegacyFinishOn = () => setting(SH_LEGACY_FINISH_FLAG) === "1";

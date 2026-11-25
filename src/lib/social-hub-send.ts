@@ -31,7 +31,7 @@ import {
 import { baleBotAad, baleBotHasKey, sealBotToken } from "./bale-bot-crypto";
 import { planChoiceLabel } from "./plan-label";
 import {
-  SH_BOT_NAME, ShError, ensureSocialHubSchema, setShSendModule, shConnectOn, shIsManager, shOn, shRender, shRedirectOn, shSendOn, shAutoSendOn,
+  SH_BOT_NAME, ShError, ensureSocialHubSchema, setShSendModule, shConnectOn, shIsManager, shOn, shRender, shRedirectOn, shSendOn, shAutoSendEligible,
   shLog, shPlans, SH_TEXT_MAX,
 } from "./social-hub";
 
@@ -220,7 +220,7 @@ export function shDeliverSend(sendId: number): void {
   if (!shSendOn()) return;
   const s = queryRow<any>("SELECT * FROM sh_sends WHERE id=?", [sendId]);
   if (!s || s.status !== "queued" || !s.chat_row) return;
-  if (s.source === "auto" && !shAutoSendOn()) return;
+  if (s.source === "auto" && !shAutoSendEligible(String(s.created_at ?? ""))) return;
   const docs: number[] = JSON.parse(s.doc_ids || "[]");
   const max = shBaleFileMaxBytes();
   const files: { name: string; mime: string; size: number; rel: string; sendAs: string }[] = [];
