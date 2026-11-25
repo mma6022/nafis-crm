@@ -75,7 +75,7 @@ function RedirectEditor({ text, onClose, onSaved }: { text: string; onClose: () 
       {err ? <p className="sh-err" role="alert">{err}</p> : null}</div></Wizard>;
 }
 function AddBotWizard({ networks, baleStatus, onClose, onSaved }: { networks: { key: string; label: string }[]; baleStatus: Bot['status']; onClose: () => void; onSaved: () => void }) {
-  const [step, setStep] = useState(0); const [net, setNet] = useState(networks[0]?.key ?? ''); const [handle, setHandle] = useState('');
+  const [step, setStep] = useState(0); const [net, setNet] = useState(''); const [handle, setHandle] = useState('');
   const [access, setAccess] = useState<'like_bale' | 'managers'>('like_bale'); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
   const save = async () => { setBusy(true); setErr(''); try { await shApi('/bots', 'POST', { network: net, handle: handle.trim() || null, access }); onSaved(); } catch (e) { setErr(messageError(e)); } finally { setBusy(false); } };
   const steps = ['شبکه', 'نشانی', 'دسترسی', 'اتصال']; const label = networks.find((n) => n.key === net)?.label ?? '';
