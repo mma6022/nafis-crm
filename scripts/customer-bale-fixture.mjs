@@ -8,7 +8,7 @@ import {
   CB_KB_SCOPE_ALL, CB_KB_SCOPE_SHARED, CB_KB_SCOPE_EXPERTS, CB_TEST_TITLE, CB_TEST_OK, CB_TEST_FAIL,
   ensureCustomerBaleSchema, _resetCustomerBaleSchemaFlag, cbFlagOn, cbSetFlag, cbAnyFlagOn,
   cbAdminFlagOn, cbSetAdminFlag, cbIdentityStepsOn, cbSetPhaseFlags, faDigits, stepLine,
-  cbHandleInbound, cbListCasesForCustomer, cbTop3Plans, cbOpenSamePlan, planLabelForCustomer,
+  cbHandleInbound, cbListCasesForCustomer, cbTop3Plans, cbOpenSamePlan, planChoiceLabel, planLabelForCustomer,
   cbStartOrResumeFiling, cbActiveFiling, cbOnFeePaid, cbIssueContract, cbAdvanceContract,
   cbAnswerAi, cbGuardAiText, cbStoreSecret, cbSecretMeta, cbReadSecret, cbMaskSecretIn,
   cbDeleteSecret, cbTestSecret, setCbSecretTestFn, cbPreviewKb, cbKbText, cbKbUpsert, cbKbList, cbNormalizeKbScope,
@@ -249,7 +249,11 @@ check("top-3 active plans by last 30 days (rolling from now), filtered by condit
   assert.ok(topA.length <= 3);
   assert.ok(topA.length >= 1, "expected at least one matching plan");
   for (const p of topA) {
-    assert.match(p.label, /^لندتک \//);
+    const row = queryRow("SELECT name, bank_name FROM loan_plans WHERE id=?", [p.id]);
+    assert.equal(p.label, planChoiceLabel(row.name, row.bank_name));
+    assert.ok(!p.label.startsWith("لندتک"), "plan-choice label must not use the Landtech provider prefix");
+    const name = String(row.name ?? "").trim();
+    if (name && name !== "لندتک") assert.ok(p.label.includes(name), "plan-choice label must include the plan name");
     const active = queryRow("SELECT active FROM loan_plans WHERE id=?", [p.id]);
     assert.equal(Number(active.active), 1);
   }
