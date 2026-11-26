@@ -52,7 +52,7 @@ export function PageAccessChip({ location, enabled }: { location: string; enable
   const st = useQuery({ queryKey: statusKey(page?.key ?? "-"), enabled: Boolean(on && page && page.grantable !== "never"), queryFn: () => paStatus(page!.key), staleTime: 30_000, retry: false });
   if (!on || !page) return null;
   const t = chipText(st.data, page); if (!t) return null;
-  return <button type="button" className="pgac-root pgac-status-chip" aria-haspopup="dialog" onClick={() => window.dispatchEvent(new CustomEvent(OPEN_EVENT))} data-testid="pa-chip">{t}</button>;
+  return <span className="pgac-root pgac-chiprow"><button type="button" className="pgac-status-chip" aria-haspopup="dialog" onClick={() => window.dispatchEvent(new CustomEvent(OPEN_EVENT))} data-testid="pa-chip">{t}</button></span>;
 }
 
 /** Top-bar button (desktop: secondary button with a shield; ≤700px: 44×44 shield icon next to the bell) + the sheet. */
@@ -175,7 +175,7 @@ export function PageAccessSheet({ page, onClose, initial }: { page: PaPageMeta; 
     </div>
   ) : null;
 
-  let body: ReactNode = null; let foot: ReactNode = null;
+  let body: ReactNode = null; let foot: ReactNode = null; let sum: ReactNode = null;
   if (page.grantable === "never") {
     body = <div className="pgac-never"><div className="ico"><Lock className="pgac-i" aria-hidden="true" /></div><p>دسترسی این صفحه فقط برای ادمین است و قابل‌اعطا نیست. ادمین و مدیر فروش همیشه این صفحه را می‌بینند و نمی‌توان آن را به نقش یا فرد دیگری داد.</p></div>;
     foot = <button type="button" className="pgac-btn gh" onClick={onClose}>فهمیدم</button>;
@@ -275,14 +275,16 @@ export function PageAccessSheet({ page, onClose, initial }: { page: PaPageMeta; 
           })}
         </div></div>;
     }
-    const can = mode === "role" ? Boolean(role) : users.length > 0;
+    const allLocked = mode === "user" && users.length > 0 && users.every((id) => subj.data?.users.find((x) => x.id === id)?.locked);
+    const can = mode === "role" ? Boolean(role) : users.length > 0 && !allLocked;
     foot = <><button type="button" className="pgac-btn gh" onClick={() => setView("step1")}>قبلی</button><button type="button" className="pgac-btn pri" disabled={!can} onClick={() => (mode === "block" ? (setSaveErr(null), setView("step3")) : enterStep3())} data-testid="pa-next">ادامه</button></>;
   } else if (view === "step3") {
     if (mode === "block") {
       body = <div>
         {saveErr ? <div className="pgac-errbar" role="alert"><TriangleAlert className="pgac-i" aria-hidden="true" /><span>{saveErr}</span></div> : null}
         <div className="pgac-errbar"><Ban className="pgac-i" aria-hidden="true" /><span>با بستن صفحه، حتی اگر نقشش آن را باز کند، برای او بسته می‌ماند. این کار نقش بقیه را عوض نمی‌کند.</span></div>
-        <div className="pgac-summary" data-pa-summary>{summary()}</div></div>;
+        </div>;
+      sum = <div className="pgac-summary" data-pa-summary>{summary()}</div>;
       foot = <><button type="button" className="pgac-btn gh" disabled={saving} onClick={() => setView("step2")}>قبلی</button><button type="button" className="pgac-btn danger" disabled={saving} onClick={() => void apply()}>{saving ? <><span className="pgac-spinner" aria-hidden="true" />در حال اعمال…</> : "بستن صفحه"}</button></>;
     } else {
       body = <div>
@@ -294,7 +296,8 @@ export function PageAccessSheet({ page, onClose, initial }: { page: PaPageMeta; 
         {scopeOn ? <><h3 className="pgac-scope-h">کدام مشتری‌ها؟</h3><div className="pgac-levels" role="radiogroup" aria-label="کدام مشتری‌ها؟">
           {(["own", "team", "all"] as const).map((k) => <LevelBtn key={k} on={scope === k} onClick={() => setScope(k)} title={SCOPE_FA[k]![0]} text={SCOPE_FA[k]![1]} />)}
         </div></> : null}
-        <div className="pgac-summary" data-pa-summary>{summary()}</div></div>;
+        </div>;
+      sum = <div className="pgac-summary" data-pa-summary>{summary()}</div>;
       foot = <><button type="button" className="pgac-btn gh" disabled={saving} onClick={() => setView("step2")}>قبلی</button><button type="button" className="pgac-btn pri" disabled={saving} onClick={() => void apply()} data-testid="pa-apply">{saving ? <><span className="pgac-spinner" aria-hidden="true" />در حال اعمال…</> : "تأیید و اعمال"}</button></>;
     }
   } else if (view === "success") {
@@ -316,7 +319,7 @@ export function PageAccessSheet({ page, onClose, initial }: { page: PaPageMeta; 
               <b>{histHead(it)}</b>
               <span>{page.label} · {histWhat(it)} · {jFull(it.at)}{it.reverted ? " · برگردانده شد" : ""}</span>
               {rb && i === firstIdx ? (histConfirm
-                ? <div className="pgac-confirm"><p>آخرین تغییر برگردانده شود؟ {revertText(it)}</p><div className="pgac-rowbtns"><button type="button" className="pgac-btn gh" onClick={() => setHistConfirm(false)}>انصراف</button><button type="button" className="pgac-btn danger" disabled={saving} onClick={() => void revert(rb)} data-testid="pa-revert-yes">برگردان</button></div></div>
+                ? <ConfirmLine text={`آخرین تغییر برگردانده شود؟ ${revertText(it)}`} busy={saving} onNo={() => setHistConfirm(false)} onYes={() => void revert(rb)} yes="برگردان" testid="pa-revert-yes" />
                 : <div className="hist-act"><button type="button" className="pgac-btn gh" onClick={() => setHistConfirm(true)} data-testid="pa-revert">برگرداندن این تغییر</button></div>) : null}
             </div>
           </div>
@@ -331,6 +334,7 @@ export function PageAccessSheet({ page, onClose, initial }: { page: PaPageMeta; 
         <div className="pgac-hd"><h2 id="pgac-title">{title}</h2><button type="button" ref={closeRef} className="pgac-close" aria-label="بستن" onClick={onClose}><X className="pgac-i" aria-hidden="true" /></button></div>
         {Steps}
         <div className="pgac-bd">{body}</div>
+        {sum ? <div className="pgac-sumbar">{sum}</div> : null}
         {undo && view === "status" ? <div className="pgac-undo" role="status"><span>{undo.text}</span><button type="button" onClick={() => void revert(undo.batch)}>برگردان</button></div> : null}
         {foot ? <div className="pgac-ft">{foot}</div> : null}
       </div>
@@ -338,8 +342,15 @@ export function PageAccessSheet({ page, onClose, initial }: { page: PaPageMeta; 
   );
 }
 
-function ConfirmLine({ text, onNo, onYes, yes, busy }: { text: string; onNo: () => void; onYes: () => void; yes: string; busy: boolean }) {
-  return <div className="pgac-confirm"><p>{text}</p><div className="pgac-rowbtns"><button type="button" className="pgac-btn gh" onClick={onNo}>انصراف</button><button type="button" className="pgac-btn danger" disabled={busy} onClick={onYes}>{yes}</button></div></div>;
+/** Scroll an inline confirm box into view when it opens, so its buttons are never below the fold. */
+function useReveal() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => { const el = ref.current; if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "nearest" }); }, []);
+  return ref;
+}
+function ConfirmLine({ text, onNo, onYes, yes, busy, testid }: { text: string; onNo: () => void; onYes: () => void; yes: string; busy: boolean; testid?: string }) {
+  const ref = useReveal();
+  return <div className="pgac-confirm" ref={ref}><p>{text}</p><div className="pgac-rowbtns"><button type="button" className="pgac-btn gh" onClick={onNo}>انصراف</button><button type="button" className="pgac-btn danger" disabled={busy} onClick={onYes} data-testid={testid}>{yes}</button></div></div>;
 }
 function LevelBtn({ on, onClick, title, text, testid }: { on: boolean; onClick: () => void; title: string; text: string; testid?: string }) {
   return <button type="button" className="pgac-level" role="radio" aria-checked={on} aria-pressed={on} onClick={onClick} data-testid={testid}><span className="pgac-radio" aria-hidden="true" /><span className="tx"><b>{title}</b><span>{text}</span></span></button>;

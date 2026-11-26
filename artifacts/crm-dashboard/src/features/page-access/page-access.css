@@ -16,11 +16,15 @@
 .pgac-access-btn{min-height:44px;padding:0 14px;border:1.5px solid var(--pa-line-strong)!important;background:#fff!important;color:var(--pa-ink)!important;border-radius:14px;font-size:14px;font-weight:700;display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
 .pgac-access-btn:hover{background:var(--pa-brand-50)!important;border-color:var(--pa-brand-200)!important;color:var(--pa-brand-700)!important}
 .pgac-access-btn .pgac-i{width:20px;height:20px}
-.pgac-ib{width:44px;height:44px;border-radius:14px;display:none;place-items:center;color:var(--pa-ink-soft)}
+.pgac-ib{width:44px;height:44px;border-radius:14px;display:none;place-items:center;color:var(--pa-ink-soft);background:var(--pa-surface-2)!important}
 .pgac-ib:hover{background:var(--pa-surface-2)}
-.pgac-status-chip{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 12px;border-radius:99px;background:var(--pa-brand-50)!important;color:var(--pa-brand-700)!important;font-size:13px;font-weight:700;border:0;white-space:nowrap}
+.pgac-chiprow{flex:0 0 100%;display:flex;margin-top:-4px}
+.pgac-status-chip{display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:0 10px;border-radius:99px;background:var(--pa-brand-50)!important;color:var(--pa-brand-700)!important;font-size:13px;font-weight:700;border:0;white-space:nowrap}
 .pgac-status-chip:hover{background:var(--pa-brand-100)!important}
-body.pgac-sheet-on .pgac-status-chip{display:none!important}
+body.pgac-sheet-on .pgac-chiprow{display:none!important}
+.ss-ttl:has(.pgac-chiprow){flex-wrap:wrap;align-content:center;row-gap:0}
+.ss-ttl:has(.pgac-chiprow) > p{flex:1 1 0;min-width:0}
+.ss-ttl:has(.pgac-chiprow) > h1{flex:none}
 
 /* sheet */
 .pgac-scrim{position:fixed;inset:0;background:rgba(11,20,80,.4);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:8px 16px;overflow:auto}
@@ -114,6 +118,8 @@ body.pgac-sheet-on .pgac-status-chip{display:none!important}
 .pgac-level b{display:block;color:var(--pa-ink);font-size:16px;font-weight:700}
 .pgac-level .tx span{display:block;font-size:13px;color:var(--pa-ink-muted);line-height:1.6;margin-top:2px}
 .pgac-scope-h{font-size:14px;font-weight:700;color:var(--pa-ink-muted);margin:8px 4px 8px}
+.pgac-sumbar{padding:8px 20px 0;flex:none;background:#fff}
+.pgac-sumbar .pgac-summary{padding:10px 14px;font-size:14px;line-height:1.7}
 .pgac-summary{background:var(--pa-surface);border-radius:16px;padding:14px 16px;font-size:15px;color:var(--pa-ink);line-height:1.8}
 .pgac-errbar{display:flex;align-items:flex-start;gap:8px;padding:12px 14px;border-radius:14px;background:var(--pa-bad-50);color:var(--pa-bad);font-size:14px;line-height:1.6;margin-bottom:12px;font-weight:700}
 .pgac-errbar .pgac-i{width:20px;height:20px;margin-top:2px}
@@ -144,7 +150,7 @@ body.pgac-sheet-on .pgac-status-chip{display:none!important}
 @media (max-width:700px){
   .pgac-access-btn{display:none!important}
   .pgac-ib{display:grid}
-  .pgac-status-chip{display:none!important}
+  .pgac-chiprow{display:none!important}
   .pgac-scrim{padding:0;align-items:flex-end}
   .pgac-sheet{max-width:none;border-radius:24px 24px 0 0;max-height:90vh;max-height:90dvh;margin:0}
   .pgac-ft{padding-bottom:calc(12px + env(safe-area-inset-bottom,0px))}
