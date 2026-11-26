@@ -9,21 +9,21 @@
  *   2. never-rules: user 29; never-grantable pages; unknown keys → no extra access. Block-only pages honour only «بستن» rows.
  *   3. user deny («بستن») → page closed for that user (wins over the role and over any role grant).
  *   4. user allow → level (view | manage).
- *   5. role allow → level — skipped for trainees (they get a page only by an explicit user grant).
+ *   5. role allow → level (t961: trainees are treated like other experts; role grants are ignored while the user is locked).
  *   6. default → today's role permissions.
  * Fail-closed: any read error → no extra access, and blockable endpoints answer 503 page_access_unavailable to non-admins.
  * expert_lockdown, trainee locks, registrar guard, smc scope and lead_annotator run exactly as before (the lockdown guard
- * sits before this one). v1: while a user is in expert_lockdown their grants are ignored entirely (PA_LOCKDOWN_OVERRIDE = false).
+ * sits before this one). t961: a per-user allow grant opens that page's own endpoints inside the lockdown (paLockdownOpens); everything else stays locked.
  */
 import { crmDb, execute, queryRow, queryRows, runTransaction } from "./crm-db";
 import { isTraineeUser } from "./multi-team";
 import { elLocked } from "./expert-lockdown";
-import { PA_BY_KEY, PA_PAGES, paGrantable, paMatch, paPermissionsFor, paPhase1, type PaPage } from "./page-access-registry";
+import { PA_BY_KEY, paLockApi, PA_PAGES, paGrantable, paMatch, paPermissionsFor, paPhase1, type PaPage } from "./page-access-registry";
 import type { NextFunction, Request, Response } from "express";
 
 export const PA_FLAG = "flag.page_access_v1";
-/** Mohammad may later let a per-user grant open one page inside «محدودیت کارشناس»; v1 keeps the lockdown whole. */
-export const PA_LOCKDOWN_OVERRIDE = false;
+/** t961 (Mohammad 2026-11-26 08:02): a per-user grant opens its page inside «محدودیت کارشناس» (the lockdown stays ON for everything else; role grants are still ignored while locked). */
+export const PA_LOCKDOWN_OVERRIDE = true;
 export const PA_NEVER_USER_IDS: readonly number[] = [29];
 /** Trainee users named by Mohammad (t942u) in addition to the system trainee rule (multi-team / base lists). */
 export const PA_TRAINEE_USER_IDS: readonly number[] = [27, 31];
@@ -76,8 +76,7 @@ export function paEffective(u: PaUser | null | undefined): PaEffective | null {
        WHERE revoked_at IS NULL AND ((subject_kind='user' AND subject_id=?) OR (subject_kind='role' AND subject_id=?))`,
       [String(Number(u.id)), String(u.role)],
     );
-    const trainee = paIsTrainee({ id: u.id, role: u.role, salespersonId: u.salespersonId });
-    // v1 (conservative, t942u): a grant never overrides «محدودیت کارشناس» — while the user is locked, grants are ignored; «بستن» still applies.
+    // t961: while the user is locked only an explicit per-user grant counts (it overrides the lockdown for that page); «بستن» always applies.
     let locked = false; try { locked = elLocked({ id: Number(u.id), role: u.role, salespersonId: u.salespersonId ?? null }); } catch { locked = true; }
     const grants: Record<string, PaLevel> = {}; const blocked: string[] = [];
     const byPage = new Map<string, Row[]>();
@@ -91,10 +90,9 @@ export function paEffective(u: PaUser | null | undefined): PaEffective | null {
       const cap = (l: PaLevel): PaLevel => (paGrantable(p) === "view" ? "view" : l);
       const ud = list.find((r) => r.subject_kind === "user" && r.effect === "deny");
       if (ud) { blocked.push(key); continue; }
-      if (locked && !PA_LOCKDOWN_OVERRIDE) continue;
       const ua = list.find((r) => r.subject_kind === "user" && r.effect === "allow");
-      if (ua) { grants[key] = cap(ua.level); continue; }
-      if (trainee) continue;
+      if (ua && (!locked || PA_LOCKDOWN_OVERRIDE)) { grants[key] = cap(ua.level); continue; }
+      if (locked) continue; // role grants never override the lockdown (only an explicit per-user grant does)
       const ra = list.find((r) => r.subject_kind === "role" && r.effect === "allow");
       if (ra) grants[key] = cap(ra.level);
     }
@@ -111,6 +109,37 @@ export function paOverlayPermissions(u: PaUser, base: string[]): { permissions: 
   const set = new Set(base);
   for (const [key, level] of Object.entries(pa.grants)) { const p = PA_BY_KEY.get(key); if (p) for (const perm of paPermissionsFor(p, level)) set.add(perm); }
   return { permissions: set.size === base.length ? base : [...set], pa };
+}
+
+/** t961: the user-level allow grants of a locked expert (blocked pages excluded) — for the lockdown bypass and the «صفحه‌های باز» list. */
+export function paLockGrants(u: PaUser | null | undefined): { key: string; level: PaLevel }[] {
+  if (!u || paIsAdminLike(u) || !paFlagOn() || !PA_LOCKDOWN_OVERRIDE) return [];
+  const pa = (u as { pageAccess?: PaEffective | null }).pageAccess ?? paEffective(u);
+  if (!pa || pa.error) return [];
+  return Object.entries(pa.grants).map(([key, level]) => ({ key, level }));
+}
+/** Express middleware placed just before expertLockdownGuard: a request that belongs to a page granted to this user (user-level grant) skips the lockdown. */
+export function pageAccessLockdownBypass(req: Request, res: Response, next: NextFunction): void {
+  try {
+    const u = res.locals.authUser as (PaUser & { id: number; role: string; salespersonId?: number | null }) | undefined;
+    if (u && !paIsAdminLike(u) && elLocked({ id: Number(u.id), role: u.role, salespersonId: u.salespersonId ?? null })) {
+      const method = req.method === "HEAD" ? "GET" : req.method, path = req.path.replace(/\/+$/, "") || "/";
+      for (const g of paLockGrants(u)) {
+        const p = PA_BY_KEY.get(g.key); if (!p) continue;
+        if (paMatch(paLockApi(p, g.level), method, path)) { res.locals.paLockdownBypass = g.key; break; }
+      }
+    }
+  } catch { /* fail closed: the lockdown guard runs as before */ }
+  next();
+}
+/** Dashboard routes a locked user may open because of a user-level grant (added to /expert-lockdown/me allowedPages). */
+export function paLockdownPages(u: PaUser | null | undefined): string[] {
+  const out: string[] = [];
+  for (const g of paLockGrants(u)) {
+    const p = PA_BY_KEY.get(g.key); if (!p || !paLockApi(p, g.level).length) continue;
+    for (const r of p.routes) if (r !== "/" && !r.includes(":")) out.push(r);
+  }
+  return out;
 }
 
 /**

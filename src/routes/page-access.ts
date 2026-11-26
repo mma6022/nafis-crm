@@ -9,7 +9,7 @@ import { permissionsForRole } from "../lib/access-control";
 import { elLocked } from "../lib/expert-lockdown";
 import { PA_BY_KEY, PA_PAGES, paGrantable, paPhase1, type PaPage } from "../lib/page-access-registry";
 import {
-  ensurePaSchema, paActiveRows, paEffective, paFlagOn, paIsAdminLike, paIsTrainee, paLog, paRevert, paRevertable, paVersion, paWrite,
+  ensurePaSchema, paActiveRows, paEffective, paFlagOn, paIsAdminLike, paLog, paRevert, paRevertable, paVersion, paWrite,
   PA_NEVER_USER_IDS, type PaChange, type PaLevel,
 } from "../lib/page-access";
 import { expertOfUser, getDrafts, loadDoc, metaOf, smcFlagOn, summarize, type AccessDoc, type Level } from "../lib/sales-manager-console";
@@ -96,7 +96,6 @@ function status(p: PaPage) {
   // Chip (Mohammad): everyone who can open it, admins + sales manager included; role-only members are not listed twice; blocked users don't count.
   const roleUserIds = new Set<number>();
   for (const r of roles) for (const u of users) if (u.role === r.slug && !PA_NEVER_USER_IDS.includes(Number(u.id))) {
-    if (!r.default && paIsTrainee({ id: Number(u.id), role: u.role, salespersonId: u.salesperson_id })) continue;
     roleUserIds.add(Number(u.id));
   }
   const people = new Set<number>([...always.map((x) => x.id), ...direct.filter((x) => x.kind === "granted").map((x) => x.id), ...roleUserIds]);
@@ -142,7 +141,7 @@ router.get("/page-access/pages/:key/subjects", requireAuth, (req, res): void => 
   const users = queryRows<URow>("SELECT id,full_name,username,role,salesperson_id,active FROM users WHERE active=1 ORDER BY full_name, id")
     .filter((u) => !ADMIN_ROLES.includes(u.role) && !PA_NEVER_USER_IDS.includes(Number(u.id)))
     .map((u) => {
-      const id = Number(u.id); const trainee = paIsTrainee({ id, role: u.role, salespersonId: u.salesperson_id });
+      const id = Number(u.id); const trainee = false; // t961: trainees are treated like other experts for page grants
       const direct = rows.find((x) => x.subject_kind === "user" && x.subject_id === String(id));
       const viaRole = rows.find((x) => x.subject_kind === "role" && x.subject_id === u.role && x.effect === "allow");
       const def = roleDefault(p, u.role);
@@ -150,7 +149,7 @@ router.get("/page-access/pages/:key/subjects", requireAuth, (req, res): void => 
       const sc = scopeInfo(p, id);
       return { id, name: nameOf(u), role: u.role, roleName: names.get(u.role) ?? u.role, trainee, locked,
         has: direct?.effect === "allow" ? direct.level : null, blocked: direct?.effect === "deny" ? direct.id : null,
-        fromRole: !direct && (def ? true : viaRole && !trainee ? true : false), grantId: direct?.effect === "allow" ? direct.id : null,
+        fromRole: !direct && (def ? true : viaRole && !locked ? true : false), grantId: direct?.effect === "allow" ? direct.id : null,
         scope: sc?.level ?? null, scopeAvailable: Boolean(sc) };
     });
   res.json({ version: paVersion(p.key), roles, users });

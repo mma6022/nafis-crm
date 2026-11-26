@@ -4339,30 +4339,10 @@ router.post(
       res.status(409).json({ error: "An active customer already has this national code" });
       return;
     }
-    const staleBefore = new Date(
-      Date.now() - 24 * 60 * 60 * 1000,
-    ).toISOString();
-    const customerNationalCode = normalizeCustomerNationalCode(customer.nationalCode ?? "");
-    const requestedNationalCode = normalizeCustomerNationalCode(nationalCode);
-    const requestedMobileMatchesProfile =
-      normalizeCustomerIdentity(customer.phone) === normalizeCustomerIdentity(mobile);
-    const fresh = customerNationalCode === requestedNationalCode && requestedMobileMatchesProfile
-      ? queryRow<any>(
-        `SELECT checks.* FROM customer_credit_checks checks
-         JOIN customers c ON c.id=checks.customer_id
-         WHERE checks.customer_id=? AND checks.status='report_generated' AND checks.completed_at>=?
-           AND (c.identity_changed_at IS NULL OR (
-             checks.created_at>c.identity_changed_at AND checks.completed_at>c.identity_changed_at
-           ))
-         ORDER BY checks.completed_at DESC,checks.id DESC LIMIT 1`,
-        [params.data.id, staleBefore],
-      )
-      : undefined;
-    if (fresh) {
-      audit("reused", Number(fresh.id));
-      res.json({ ...creditCheckFromRow(fresh), reused: true, freshUntil: new Date(Date.parse(fresh.completed_at) + 86400000).toISOString() });
-      return;
-    }
+    // a stuck pending inquiry older than 24h is expired below (unchanged); it is never reused as a result.
+    const staleBefore = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    // t961 (Mohammad 2026-11-26, FSD-22): no silent 24h reuse. Every «استعلام جدید» from the quick credit check is a fresh ICS24 inquiry
+    // (the per-expert / per-customer daily limits below still apply). The generic /customers/:id/credit-checks route is unchanged.
     const limited = initiateLimit(user, params.data.id);
     if (limited) {
       audit("rate_limited");

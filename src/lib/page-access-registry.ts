@@ -24,6 +24,8 @@ export type PaPage = {
   elevateView?: readonly PaApi[]; elevateManage?: readonly PaApi[];
   /** page-local endpoints a «بستن» closes (403 page_access_blocked). Shared endpoints are never listed. */
   block?: readonly PaApi[];
+  /** t961: API families a per-user grant opens for a user in «محدودیت کارشناس» (a grant overrides the lockdown for this page only). Elevated endpoints are added automatically. */
+  lock?: readonly PaApi[];
   never?: boolean; viewOnly?: boolean; note?: string;
   /** phase 2 (t942u r4): the button only offers «بستن برای یک نفر»; access itself is decided by the page's own rules (paNote says where). */
   blockOnly?: boolean;
@@ -150,4 +152,26 @@ export function paKeyForPath(pathname: string): string | null {
     if (re.test(path) && (!best || r.length > best.len)) best = { key: p.key, len: r.length };
   }
   return best?.key ?? null;
+}
+
+/* ---------------- t961 (Mohammad 2026-11-26 08:02): a per-user grant overrides expert_lockdown ---------------- */
+const F = (...names: string[]): PaApi => ["*", new RegExp(`^/(${names.join("|")})(/|$)`)];
+/** API families each permission page needs while its user is locked. Pages not listed here are either already open to locked experts
+ *  (today, loan applications, goods purchases, payment orders, messengers, internal chat) or have no family that is safe to name
+ *  (contracts, notification settings): for those a grant changes nothing inside the lockdown. */
+const PA_LOCK_FAMILIES: Readonly<Record<string, readonly PaApi[]>> = {
+  customers: [F("customers", "team-sales", "customer-tags", "customer-phones", "allocation-programs", "calls", "call-transcripts", "multi-case")],
+  chat: [F("customers", "customer-chat")], "my-queue": [F("customers")], "my-transfers": [F("customers")], "my-performance": [F("customers", "goods-finance", "my-work")],
+  reminders: [F("reminders")], consultations: [F("consultations")], callbacks: [F("callback-requests")],
+  "sales-commissions": [F("goods-finance")], "my-wallet": [F("goods-finance")],
+  "wallet-management": [F("wallet-management", "company-wallet", "wallet")], "bank-accounts": [F("bank-accounts")],
+  accounting: [F("accounting", "gl")],
+  calls: [F("calls", "call-transcripts", "voip")], phone: [F("calls", "voip", "voip-call")], "mobile-calls": [F("mobile-calls", "mobile-call-devices", "mobile-call-experts")],
+  dashboard: [F("dashboard")],
+};
+/** Endpoints a user-level grant of this page opens inside the lockdown, as [method, regexp] pairs (view level = GET only). */
+export function paLockApi(p: PaPage, level: "view" | "manage"): readonly PaApi[] {
+  const fam = [...(p.lock ?? []), ...(PA_LOCK_FAMILIES[p.key] ?? [])];
+  const ro = level === "view" ? fam.filter(([m]) => m === "*" || m === "GET").map(([, r]) => ["GET", r] as PaApi) : fam;
+  return [...ro, ...(p.elevateView ?? []), ...(level === "manage" ? p.elevateManage ?? [] : [])];
 }

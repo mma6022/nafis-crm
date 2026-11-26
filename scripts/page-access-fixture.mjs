@@ -39,14 +39,14 @@ try {
   const { makeRegistrarWriteGuard } = await import("../src/lib/registrar-view.ts");
   const { expertLockdownGuard } = await import("../src/lib/expert-lockdown.ts");
   const { filesCarouselGuard } = await import("../src/lib/files-carousel.ts");
-  const { pageAccessGuard, paEffective } = await import("../src/lib/page-access.ts");
+  const { pageAccessGuard, pageAccessLockdownBypass, paEffective } = await import("../src/lib/page-access.ts");
   const reg = await import("../src/lib/page-access-registry.ts");
   const router = (await import("../src/routes/index.ts")).default;
   const authRouter = (await import("../src/routes/auth.ts")).default;
   const app = express();
   app.use(express.json({ limit: "2mb" })); app.use(cookieParser());
   app.use("/api/auth", authRouter);
-  app.use("/api", requireAuth, leadAnnotatorMask, makeRegistrarWriteGuard(() => db.crmDb), expertLockdownGuard, filesCarouselGuard, pageAccessGuard, router);
+  app.use("/api", requireAuth, leadAnnotatorMask, makeRegistrarWriteGuard(() => db.crmDb), pageAccessLockdownBypass, expertLockdownGuard, filesCarouselGuard, pageAccessGuard, router);
   const sock = path.join(dir, "api.sock");
   server = app.listen(sock); await once(server, "listening");
   const call = (method, p, tok, body) => new Promise((resolve, reject) => {
@@ -122,11 +122,11 @@ try {
     assert.equal((await call("GET", "/page-access/pages/ledger", ADMIN)).status, 200, "phase 2: every page has the API");
     assert.equal((await call("GET", "/page-access/pages/no-such-page", ADMIN)).status, 404);
   });
-  await ok("subjects: admins, sales manager and user 29 are never pickable; trainees/lockdown flagged", async () => {
+  await ok("subjects: admins, sales manager and user 29 are never pickable; trainees are ordinary experts (t961), lockdown flagged", async () => {
     const s = (await call("GET", "/page-access/pages/sales-reports/subjects", ADMIN)).body;
     const ids = s.users.map((u) => u.id);
     for (const id of [1, 5, 27, 29]) assert.ok(!ids.includes(id), `user ${id} listed`);
-    assert.ok(s.users.find((u) => u.id === 31)?.trainee, "31 is a trainee");
+    assert.equal(s.users.find((u) => u.id === 31)?.trainee, false, "t961: trainees are treated like other experts");
     for (const bad of [[1], [5], [29], [27]]) assert.equal((await call("POST", "/page-access/pages/sales-reports/grants", ADMIN, { subjectKind: "user", userIds: bad, level: "view", baseVersion: s.version })).status, 422, String(bad));
     assert.equal((await call("POST", "/page-access/pages/sales-reports/grants", ADMIN, { subjectKind: "role", roleSlug: "sales_manager", level: "view", baseVersion: s.version })).status, 422);
   });
@@ -197,7 +197,7 @@ try {
     assert.equal((await call("POST", "/page-access/pages/sales-reports/revert", ADMIN, { batch: h.revertBatch })).status, 200);
     assert.equal((await call("GET", "/manager/sales-report?range=month", HASANI)).status, 200);
   });
-  await ok("role grant on a permission page adds the page permissions; trainees are skipped; user grant reaches a trainee", async () => {
+  await ok("role grant on a permission page adds the page permissions; trainees get it like any expert (t961)", async () => {
     assert.ok(!baseline.REG.user.permissions.includes("accounting.view") && !baseline.GHASEMI.user.permissions.includes("accounting.view"));
     let r = await call("POST", "/page-access/pages/accounting/grants", ADMIN, { subjectKind: "role", roleSlug: "registrar", level: "view", baseVersion: await ver("accounting") });
     assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -206,8 +206,8 @@ try {
     r = await call("POST", "/page-access/pages/accounting/grants", ADMIN, { subjectKind: "role", roleSlug: "salesperson", level: "view", baseVersion: await ver("accounting") });
     assert.equal(r.status, 200);
     assert.ok((await sess(GHASEMI)).user.permissions.includes("accounting.view"), "normal expert gets it");
-    assert.deepEqual((await sess(U31)).user.permissions, baseline.U31.user.permissions, "trainee untouched by role grant");
-    assert.equal((await call("GET", "/page-access/me", U31)).body.granted.accounting, undefined);
+    assert.ok((await sess(U31)).user.permissions.includes("accounting.view"), "t961: a trainee gets a role grant like other experts");
+    assert.equal((await call("GET", "/page-access/me", U31)).body.granted.accounting, "view");
     r = await call("POST", "/page-access/pages/accounting/grants", ADMIN, { subjectKind: "user", userIds: [31], level: "manage", baseVersion: await ver("accounting") });
     assert.equal(r.status, 200);
     const s31 = (await sess(U31)).user.permissions; assert.ok(s31.includes("accounting.view") && s31.includes("accounting.manage"));
@@ -215,7 +215,7 @@ try {
     r = await call("POST", "/page-access/pages/voice-notes-usage/grants", ADMIN, { subjectKind: "role", roleSlug: "salesperson", level: "view", baseVersion: await ver("voice-notes-usage") });
     assert.equal(r.status, 200);
     assert.equal((await call("GET", "/voice-notes/usage", GHASEMI)).status, 200, "role grant opens the admin page for an expert");
-    assert.equal((await call("GET", "/voice-notes/usage", U31)).status, 403, "trainee skipped by role grant");
+    assert.equal((await call("GET", "/voice-notes/usage", U31)).status, 200, "t961: trainee reached by the role grant");
     const st = (await call("GET", "/page-access/pages/accounting", ADMIN)).body;
     assert.ok(st.roles.some((x) => x.slug === "registrar" && x.grant?.level === "view"));
     assert.ok(st.users.some((x) => x.id === 31 && x.kind === "granted" && x.level === "manage"));
@@ -235,19 +235,36 @@ try {
     r = await call("POST", `/page-access/pages/mobile-calls/rows/${row.rowId}/remove`, ADMIN, { baseVersion: st.version });
     assert.equal(r.status, 200); assert.equal((await call("GET", "/mobile-calls", GHASEMI)).status, st0.status);
   });
-  await ok("expert_lockdown still wins: grants to a locked expert are ignored; flag OFF→ON unchanged for them", async () => {
+  await ok("t961 lockdown: a per-user grant opens ONLY its page inside expert_lockdown; role grants and everything else stay locked; flag stays ON", async () => {
     flag("flag.expert_lockdown", "1");
     try {
-      const before = (await call("GET", "/voice-notes/usage", KAZEMI)).status;
-      const r = await call("POST", "/page-access/pages/voice-notes-usage/grants", ADMIN, { subjectKind: "user", userIds: [8], level: "view", baseVersion: await ver("voice-notes-usage") });
+      const st = async (m, p, t, b) => (await call(m, p, t, b)).status;
+      assert.equal(await st("GET", "/voice-notes/usage", KAZEMI), 403);
+      assert.equal((await call("GET", "/expert-lockdown/me", KAZEMI)).body.locked, true);
+      // a role grant is ignored while locked
+      let r = await call("POST", "/page-access/pages/voice-notes-usage/grants", ADMIN, { subjectKind: "role", roleSlug: "salesperson", level: "view", baseVersion: await ver("voice-notes-usage") });
+      assert.equal(r.status, 200); assert.equal(await st("GET", "/voice-notes/usage", KAZEMI), 403, "role grant does not override the lockdown");
+      r = await call("POST", "/page-access/pages/voice-notes-usage/grants", ADMIN, { subjectKind: "user", userIds: [8], level: "view", baseVersion: await ver("voice-notes-usage") });
       assert.equal(r.status, 200);
-      assert.equal((await call("GET", "/voice-notes/usage", KAZEMI)).status, before);
-      assert.notEqual(before, 200);
+      assert.equal(await st("GET", "/voice-notes/usage", KAZEMI), 200, "the user grant opens the page");
+      const me = (await call("GET", "/expert-lockdown/me", KAZEMI)).body; assert.equal(me.locked, true); assert.ok(me.allowedPages.includes("/voice-notes-usage"), "the page joins allowedPages");
+      assert.equal(await st("GET", "/manager/sales-report?range=month", KAZEMI), 403, "other pages stay locked");
+      assert.equal(await st("GET", "/mobile-calls", KAZEMI), 403);
+      assert.equal(await st("GET", "/voice-notes/usage", GHASEMI), 403, "other locked experts unchanged");
+      // customers page: view = GET only, manage adds writes
+      assert.equal(await st("GET", "/customers?limit=1", KAZEMI), 403);
+      r = await call("POST", "/page-access/pages/customers/grants", ADMIN, { subjectKind: "user", userIds: [8], level: "view", baseVersion: await ver("customers") });
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      assert.notEqual(await st("GET", "/customers?limit=1", KAZEMI), 403, "customers GET opens by the grant");
+      assert.equal(await st("PATCH", "/customers/999999999", KAZEMI, {}), 403, "view level: no writes inside the lockdown");
+      assert.equal(await st("GET", "/mobile-calls", KAZEMI), 403, "still locked elsewhere");
+      assert.equal((await call("GET", "/expert-lockdown/me", KAZEMI)).body.locked, true, "lockdown flag untouched");
+      // «بستن» still wins
+      r = await call("POST", "/page-access/pages/voice-notes-usage/blocks", ADMIN, { userId: 8, baseVersion: await ver("voice-notes-usage") });
+      assert.equal(r.status, 200); assert.equal(await st("GET", "/voice-notes/usage", KAZEMI), 403, "a block beats the grant");
       const sub = (await call("GET", "/page-access/pages/voice-notes-usage/subjects", ADMIN)).body;
-      assert.equal(sub.users.find((u) => u.id === 8).locked, true, "the picker shows the lockdown warning");
-      const s8 = await sess(KAZEMI); assert.deepEqual(s8.user.permissions, baseline.KAZEMI.user.permissions);
+      assert.equal(sub.users.find((u) => u.id === 8).locked, true);
     } finally { flag("flag.expert_lockdown", "0"); }
-    assert.equal((await call("GET", "/voice-notes/usage", KAZEMI)).status, 200, "lockdown OFF → the grant applies");
   });
   await ok("social monitor: requireAuth inside its router keeps the elevated user", async () => {
     const r = await call("POST", "/page-access/pages/social-monitor-reports/grants", ADMIN, { subjectKind: "user", userIds: [2], level: "view", baseVersion: await ver("social-monitor-reports") });

@@ -1,7 +1,7 @@
 import { leadAnnotatorMask } from "./lib/lead-annotator-mask";
 import { makeRegistrarWriteGuard } from "./lib/registrar-view";
 import { crmDb } from "./lib/crm-db";
-import { pageAccessGuard } from "./lib/page-access";
+import { pageAccessGuard, pageAccessLockdownBypass } from "./lib/page-access";
 import express, { type Express, type RequestHandler } from "express";
 import { isPublicWalletRequest } from "./lib/wallet-public-access";
 import cors from "cors";
@@ -149,6 +149,6 @@ const requireApiAuth: RequestHandler = (req, res, next): void => {
 // expert_lockdown (assistants54): users 2 / 3 / 8 only while flag.expert_lockdown = 1 — everyone else passes straight through.
 // files_carousel (FILES-61): users 2 / 3 / 8 only while flag.files_carousel = 1 — writes on a not-yet-current open file → 423.
 // page_access (t942u): flag.page_access_v1 only — «بستن» on page-local endpoints + admin-only pages opened by a grant. OFF → next().
-app.use("/api", requireApiAuth, leadAnnotatorMask, makeRegistrarWriteGuard(() => crmDb), expertLockdownGuard, filesCarouselGuard, pageAccessGuard, router);
+app.use("/api", requireApiAuth, leadAnnotatorMask, makeRegistrarWriteGuard(() => crmDb), pageAccessLockdownBypass, expertLockdownGuard, filesCarouselGuard, pageAccessGuard, router);
 
 export default app;

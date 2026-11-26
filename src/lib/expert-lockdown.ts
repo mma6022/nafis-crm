@@ -239,6 +239,7 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   const u = res.locals.authUser as U | undefined;
   if (!elTarget(u)) { next(); return; }            // everybody else: no DB read, no change
   if (!elFlagOn()) { next(); return; }
+  if (res.locals.paLockdownBypass) { next(); return; } // t961: a per-user page grant (page-access) opens that page's own endpoints; set by pageAccessLockdownBypass
   const path = req.path.replace(/\/+$/, "") || "/";
   // NEWCUST-65: the first-call mirror scopes itself (call by this expert, customer theirs or just moved by them to Kazemi),
   // so a P2/P3 customer that left them in the same save can still get its «منتقل شد» entry.
