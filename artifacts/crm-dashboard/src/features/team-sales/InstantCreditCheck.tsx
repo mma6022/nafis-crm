@@ -200,7 +200,7 @@ export function InstantCreditCheck({ customerId, onRank, embedded, hideRecent, i
     <div className="gmeta">{scale(c.scoreLabel!)}
       {c.reused ? <p className="cv-old" data-testid="cv-reused-badge"><History size={14} aria-hidden="true" /><span>قدیمی، {fmtDateTime(c.completedAt)}</span></p> : null}
       <p><Clock size={14} aria-hidden="true" /><span>{isRecent ? 'آخرین استعلام: ' : 'استعلام: '}{fmtDateTime(c.completedAt)}</span></p>
-      <p className="sv"><Check size={14} aria-hidden="true" /><span>{isRecent ? 'در پرونده ذخیره است' : 'در پرونده ذخیره شد'}</span></p></div></div>;
+      <p className="sv"><Check size={14} aria-hidden="true" /><span>{c.reused ? 'از نتیجه‌ی قبلی استفاده شد' : isRecent ? 'در پرونده ذخیره است' : 'در پرونده ذخیره شد'}</span></p></div></div>;
 
   let body: ReactNode = null;
   if (st === 'init') body = <div className="cvs" role="status" aria-live="polite"><span className="spn" aria-hidden="true" /><span>در حال آماده‌سازی…</span></div>;
