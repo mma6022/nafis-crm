@@ -234,10 +234,10 @@ export function InstantCreditCheck({ customerId, onRank, embedded, hideRecent, i
       <div className="cvor">
         <input ref={otpRef} className={`ts-inp cvi otp${otpErr ? ' er' : ''}`} id="cvO" type="password" inputMode="numeric" autoComplete="one-time-code" dir="ltr" maxLength={8}
           spellCheck={false} autoCapitalize="off" data-lpignore="true" data-1p-ignore="true" value={otp} disabled={expired} onChange={(e) => setOtp(e.target.value)}
-          aria-describedby={`cvOI cvOh${otpErr || expired ? ' cvOe' : ''}`} aria-invalid={Boolean(otpErr) || undefined} data-testid="cv-otp-input" />
+          aria-describedby={`cvOI${otpErr || expired ? ' cvOe' : ' cvOh'}`} aria-invalid={Boolean(otpErr) || undefined} data-testid="cv-otp-input" />
         <button type="submit" className="ts-opt cvb" aria-disabled={expired || undefined} data-testid="cv-otp-submit"><ShieldCheck size={18} aria-hidden="true" />تأیید کد و استعلام</button>
       </div>
-      <p className="ts-muted small" id="cvOh">رقم فارسی یا انگلیسی؛ رقم‌ها پنهان نشان داده می‌شوند و کد بعد از ثبت هیچ‌جا نمی‌ماند.</p>
+      {otpErr || expired ? null : <p className="ts-muted small" id="cvOh">رقم فارسی یا انگلیسی؛ رقم‌ها پنهان نشان داده می‌شوند و کد بعد از ثبت هیچ‌جا نمی‌ماند.</p>}
       {expired ? <p className="cve" id="cvOe" role="alert" data-testid="cv-otp-expired"><AlertTriangle size={16} aria-hidden="true" /><span>کد منقضی شد. «ارسال دوباره» را بزنید تا کد تازه برای مشتری برود.</span></p>
         : otpErr ? <p className="cve" id="cvOe" role="alert"><AlertTriangle size={16} aria-hidden="true" /><span>{otpErr}</span></p> : null}
       <div className="otrs"><span className="tmr" data-testid="cv-otp-timer"><Clock size={14} aria-hidden="true" />{left > 0 ? <span>ارسال دوباره تا <b dir="ltr">{fa(`${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`)}</b></span>
