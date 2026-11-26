@@ -6,7 +6,7 @@
  *
  * Precedence (first match wins), evaluated per page key:
  *   1. admin / sales_manager (effective role 'admin'): always full access; rows about them are rejected and ignored.
- *   2. never-rules: user 29; never-grantable pages; phase-2 pages; unknown keys → no extra access.
+ *   2. never-rules: user 29; never-grantable pages; unknown keys → no extra access. Block-only pages honour only «بستن» rows.
  *   3. user deny («بستن») → page closed for that user (wins over the role and over any role grant).
  *   4. user allow → level (view | manage).
  *   5. role allow → level — skipped for trainees (they get a page only by an explicit user grant).
@@ -81,7 +81,11 @@ export function paEffective(u: PaUser | null | undefined): PaEffective | null {
     let locked = false; try { locked = elLocked({ id: Number(u.id), role: u.role, salespersonId: u.salespersonId ?? null }); } catch { locked = true; }
     const grants: Record<string, PaLevel> = {}; const blocked: string[] = [];
     const byPage = new Map<string, Row[]>();
-    for (const r of rows) { const p = PA_BY_KEY.get(r.page_key); if (!p || !paPhase1(p) || paGrantable(p) === "never") continue; byPage.set(r.page_key, [...(byPage.get(r.page_key) ?? []), r]); }
+    for (const r of rows) {
+      const p = PA_BY_KEY.get(r.page_key); if (!p || !paPhase1(p) || paGrantable(p) === "never") continue;
+      if (paGrantable(p) === "block" && r.effect !== "deny") continue; // block-only pages: only «بستن» rows count
+      byPage.set(r.page_key, [...(byPage.get(r.page_key) ?? []), r]);
+    }
     for (const [key, list] of byPage) {
       const p = PA_BY_KEY.get(key)!;
       const cap = (l: PaLevel): PaLevel => (paGrantable(p) === "view" ? "view" : l);
@@ -128,7 +132,7 @@ export function pageAccessGuard(req: Request, res: Response, next: NextFunction)
   if (pa.error) { next(); return; }
   for (const [key, level] of Object.entries(pa.grants)) {
     const p = PA_BY_KEY.get(key);
-    if (!p || p.kind !== "admin") continue;
+    if (!p || !p.elevateView?.length) continue;
     const ok = paMatch(p.elevateView, method, path) || (level === "manage" && paGrantable(p) === "both" && paMatch(p.elevateManage, method, path));
     if (!ok) continue;
     const elevated = { ...u, role: "admin", customerScope: "all", pageAccessElevated: key };

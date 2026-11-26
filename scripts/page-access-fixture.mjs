@@ -119,7 +119,8 @@ try {
       const s = (await call("GET", `/page-access/pages/${k}`, ADMIN)).body; assert.equal(s.grantable, "never", k);
       assert.equal((await call("POST", `/page-access/pages/${k}/grants`, ADMIN, { subjectKind: "role", roleSlug: "registrar", level: "view", baseVersion: 0 })).status, 409, k);
     }
-    assert.equal((await call("GET", "/page-access/pages/ledger", ADMIN)).status, 404, "phase-2 pages have no API");
+    assert.equal((await call("GET", "/page-access/pages/ledger", ADMIN)).status, 200, "phase 2: every page has the API");
+    assert.equal((await call("GET", "/page-access/pages/no-such-page", ADMIN)).status, 404);
   });
   await ok("subjects: admins, sales manager and user 29 are never pickable; trainees/lockdown flagged", async () => {
     const s = (await call("GET", "/page-access/pages/sales-reports/subjects", ADMIN)).body;
@@ -255,6 +256,61 @@ try {
     const g = await call("GET", `/social-monitor/reports?from=${d}&to=${d}`, HASANI);
     assert.notEqual(g.status, 403, JSON.stringify(g.body).slice(0, 120));
     assert.equal((await call("GET", `/social-monitor/reports?from=${d}&to=${d}`, GHASEMI)).status, 403);
+  });
+  // ---- phase 2 ----
+  await ok("phase 2 ledger: view grant opens exactly the GL report GETs (not commission totals, no accounting.view)", async () => {
+    const paths = ["/gl/reports/trial-balance", "/gl/reports/status", "/gl/reports/accounts"];
+    const before = {}; for (const x of paths) before[x] = (await call("GET", x, HASANI)).status;
+    const ctBefore = (await call("GET", "/gl/reports/commission-totals", HASANI)).status;
+    const permsBefore = (await sess(HASANI)).user.permissions;
+    for (const x of paths) assert.equal(before[x], 403, x);
+    const r = await call("POST", "/page-access/pages/ledger/grants", ADMIN, { subjectKind: "user", userIds: [2], level: "view", baseVersion: await ver("ledger") });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    for (const x of paths) assert.notEqual((await call("GET", x, HASANI)).status, 403, x);
+    assert.equal((await call("GET", "/gl/reports/commission-totals", HASANI)).status, ctBefore, "commission totals unchanged");
+    for (const x of paths) assert.equal((await call("GET", x, GHASEMI)).status, 403, "others unchanged " + x);
+    const s2 = await sess(HASANI); assert.deepEqual(s2.user.permissions, permsBefore, "ledger grant adds no permission (no accounting.view)");
+    assert.deepEqual((await call("GET", "/page-access/me", HASANI)).body.granted.ledger, "view");
+  });
+  await ok("phase 2 manager pages: cs-report view grant opens only its GETs; call-queue-events manage opens seen", async () => {
+    assert.equal((await call("GET", "/call-summary-fields/report", HASANI)).status, 403);
+    const permsBefore = (await sess(HASANI)).user.permissions;
+    let r = await call("POST", "/page-access/pages/cs-report/grants", ADMIN, { subjectKind: "user", userIds: [2], level: "view", baseVersion: await ver("cs-report") });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.notEqual((await call("GET", "/call-summary-fields/report", HASANI)).status, 403);
+    assert.notEqual((await call("GET", "/call-summary-fields/config", HASANI)).status, 403);
+    assert.equal((await call("GET", "/call-summary-fields/report", GHASEMI)).status, 403, "others unchanged");
+    r = await call("POST", "/page-access/pages/cs-report/grants", ADMIN, { subjectKind: "user", userIds: [2], level: "manage", baseVersion: await ver("cs-report") });
+    assert.notEqual(r.status, 200, "view-only cap");
+    const evBefore = (await call("GET", "/call-queue/events", HASANI)).status;
+    r = await call("POST", "/page-access/pages/call-queue-events/grants", ADMIN, { subjectKind: "user", userIds: [2], level: "manage", baseVersion: await ver("call-queue-events") });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.notEqual((await call("GET", "/call-queue/events", HASANI)).status, 403, `before ${evBefore}`);
+    assert.notEqual((await call("POST", "/call-queue/events/999999999/seen", HASANI, {})).status, 403);
+    assert.equal((await call("POST", "/call-queue/events/999999999/seen", GHASEMI, {})).status, 403, "others unchanged");
+    const s2 = await sess(HASANI); assert.deepEqual(s2.user.permissions, permsBefore, "elevation never edits permissions");
+  });
+  await ok("phase 2 block-only pages: grant → 409 block_only, block works, a stray allow row is ignored", async () => {
+    for (const k of ["sales-kpi", "sales-performance", "sales-teams", "my-work", "bale-connect", "smart-filing"]) {
+      const r = await call("POST", `/page-access/pages/${k}/grants`, ADMIN, { subjectKind: "user", userIds: [2], level: "view", baseVersion: await ver(k) });
+      assert.equal(r.status, 409, k); assert.equal(r.body.error, "block_only", k);
+    }
+    const r = await call("POST", "/page-access/pages/customer-segments/blocks", ADMIN, { userId: 3, baseVersion: await ver("customer-segments") });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok((await call("GET", "/page-access/me", GHASEMI)).body.blocked.includes("customer-segments"));
+    execute("INSERT INTO page_access_grants(page_key,subject_kind,subject_id,effect,level,created_by,created_at) VALUES('sales-kpi','user','2','allow','view',1,datetime('now'))");
+    assert.equal(paEffective({ id: 2, role: baseline.HASANI.user.role, salespersonId: baseline.HASANI.user.salespersonId }).grants["sales-kpi"], undefined);
+    execute("DELETE FROM page_access_grants WHERE page_key='sales-kpi' AND effect='allow'");
+    const me = (await call("GET", "/page-access/me", HASANI)).body;
+    assert.equal(me.pages.length, 58); assert.equal(me.pages.find((p) => p.key === "sales-kpi").grantable, "block");
+    assert.ok(me.pages.find((p) => p.key === "sales-kpi").note);
+  });
+  await ok("phase 2 never pages: sales-admin / bale-bot-admin → 409, with their own note", async () => {
+    for (const k of ["sales-admin", "bale-bot-admin"]) {
+      const r = await call("POST", `/page-access/pages/${k}/grants`, ADMIN, { subjectKind: "user", userIds: [2], level: "view", baseVersion: await ver(k) });
+      assert.equal(r.status, 409, k);
+      const me = (await call("GET", "/page-access/me", ADMIN)).body; assert.ok(me.pages.find((p) => p.key === k).note, k);
+    }
   });
   await ok("user 29 never: resolver ignores rows for 29", async () => {
     execute("INSERT INTO page_access_grants(page_key,subject_kind,subject_id,effect,level,created_by,created_at) VALUES('sales-reports','user','29','allow','manage',1,datetime('now'))");

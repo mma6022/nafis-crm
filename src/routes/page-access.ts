@@ -116,7 +116,7 @@ router.get("/page-access/me", requireAuth, (_req, res): void => {
   const pa = adminLike ? null : (u as { pageAccess?: ReturnType<typeof paEffective> }).pageAccess ?? paEffective(u);
   res.json({
     enabled: true, canManage: adminLike && !PA_NEVER_USER_IDS.includes(Number(u.id)), error: Boolean(pa?.error),
-    pages: PA_PAGES.filter(paPhase1).map((p) => ({ key: p.key, label: p.label, routes: p.routes, kind: p.kind, grantable: paGrantable(p) })),
+    pages: PA_PAGES.filter(paPhase1).map((p) => ({ key: p.key, label: p.label, routes: p.routes, kind: p.kind, grantable: paGrantable(p), elevate: Boolean(p.elevateView?.length), note: p.paNote ?? null })),
     granted: pa?.grants ?? {}, blocked: pa?.blocked ?? [], locked: Boolean(pa?.locked),
     // Role permissions before the overlay: the client opens a permission page only by its own grant, not by a sibling page's grant.
     basePermissions: adminLike ? null : permissionsForRole(u.role),
@@ -177,6 +177,7 @@ const failed = (res: Response, e: unknown) => { console.error("[page-access] wri
 router.post("/page-access/pages/:key/grants", requireAuth, (req, res): void => {
   const actor = admin(req, res); if (!actor) return; const p = pageOf(req, res); if (!p) return;
   const g = paGrantable(p); if (g === "never") { res.status(409).json({ error: "never_grantable" }); return; }
+  if (g === "block") { res.status(409).json({ error: "block_only", message: "دسترسی این صفحه از تنظیمات خودش داده می‌شود؛ از اینجا فقط می‌شود آن را برای یک نفر بست." }); return; }
   const body = (req.body ?? {}) as { subjectKind?: string; roleSlug?: string; userIds?: unknown; level?: string; scope?: string };
   const level = body.level === "manage" ? "manage" : body.level === "view" ? "view" : null;
   if (!level || (level === "manage" && g !== "both")) { bad(res, "invalid_level"); return; }

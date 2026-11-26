@@ -5,11 +5,13 @@
  * Static, versioned with the release; the dashboard receives it from GET /api/page-access/me (no copy in the UI).
  * scripts/page-access-drift-fixture.mjs fails when a dashboard route or menu href is not mapped here.
  *
- * phase 1 = enforced now (28 permission pages minus «دفتر کل» + 8 admin-only pages incl. 3 never-grantable).
- * phase 2 = no button yet: bespoke pages (own /me eligibility), pages folded into «مدیریت فروش» on live (merge v1.2),
- *           manager-config pages and «دفتر کل» (API also requires a finance role).
+ * phase 1 = enforced (t942u v1: 27 permission pages + 8 admin-only pages incl. 3 never-grantable).
+ * phase 2 (t942u r4, Mohammad 2026-11-26 17:12 «۲۲ صفحه‌ی باقی‌مانده همین حالا دکمه بگیرند»): every remaining page has the button.
+ *   - «دفتر کل» + 7 manager report/config pages: grant by elevation of their exact endpoints (same as «گزارش فروش»).
+ *   - bespoke pages: blockOnly (their own rules give access; the button shows who always has it and can close it for one person).
+ *   - «مدیریت فروش» and «ربات‌های بله»: never (admin / sales manager only).
  */
-export type PaGrantable = "both" | "view" | "never";
+export type PaGrantable = "both" | "view" | "never" | "block";
 export type PaKind = "permission" | "admin" | "bespoke";
 export type PaApi = readonly [method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "*", path: RegExp];
 export type PaPage = {
@@ -23,6 +25,10 @@ export type PaPage = {
   /** page-local endpoints a «بستن» closes (403 page_access_blocked). Shared endpoints are never listed. */
   block?: readonly PaApi[];
   never?: boolean; viewOnly?: boolean; note?: string;
+  /** phase 2 (t942u r4): the button only offers «بستن برای یک نفر»; access itself is decided by the page's own rules (paNote says where). */
+  blockOnly?: boolean;
+  /** Persian line shown in the sheet for block-only / never pages that are not plain admin-only pages. */
+  paNote?: string;
 };
 
 /** Approval-class permissions: never added by a page grant, whatever the registry says. */
@@ -37,8 +43,8 @@ const P = (key: string, label: string, routes: string[], view: string[], manage:
   ({ key, label, routes, kind: "permission", phase: 1, view, manage, ...extra });
 const A = (key: string, label: string, routes: string[], extra: Partial<PaPage> = {}): PaPage =>
   ({ key, label, routes, kind: "admin", phase: 1, view: [], manage: [], ...extra });
-const B = (key: string, label: string, routes: string[], note: string, kind: PaKind = "bespoke"): PaPage =>
-  ({ key, label, routes, kind, phase: 2, view: [], manage: [], note });
+const X = (key: string, label: string, routes: string[], note: string, paNote: string): PaPage =>
+  ({ key, label, routes, kind: "bespoke", phase: 1, view: [], manage: [], note, paNote, blockOnly: true });
 
 export const PA_PAGES: readonly PaPage[] = [
   // ---- permission pages (role_permissions) ----
@@ -69,7 +75,9 @@ export const PA_PAGES: readonly PaPage[] = [
   P("my-performance", "عملکرد و پورسانت من", ["/my-performance"], ["customers.view"]),
   P("users", "کاربران سامانه", ["/users"], [], [], { never: true }),
   P("notifications-settings", "تنظیمات", ["/settings/notifications"], ["notifications.view"]),
-  P("ledger", "دفتر کل", ["/accounting/ledger"], ["accounting.view"], [], { phase: 2, viewOnly: true, note: "API also requires a finance role (FINANCE_ROLES) — needs its own decision" }),
+  P("ledger", "دفتر کل", ["/accounting/ledger"], [], [], { viewOnly: true,
+    note: "API requires a finance role (FINANCE_ROLES) → the grant elevates exactly the read-only report endpoints; commission totals stay excluded",
+    elevateView: [["GET", /^\/gl\/reports\/(status|trial-balance|journal|accounts|ledger|queue|reconciliation)\/?$/]] }),
   // ---- admin-only pages ----
   A("sales-reports", "گزارش فروش", ["/sales-reports"], {
     elevateView: [["GET", G("/manager/sales-report")], ["GET", G("/manager/sales-report/settings")]],
@@ -84,29 +92,39 @@ export const PA_PAGES: readonly PaPage[] = [
   A("call-queue-settings", "تنظیمات صف تماس", ["/settings/call-queue"], { never: true }),
   A("assistants-settings", "دستیارهای هوشمند", ["/settings/assistants"], { never: true }),
   A("releases", "نسخه‌های سایت", ["/settings/releases"], { never: true }),
-  B("sales-assist-settings", "تنظیمات دستیار فروش", ["/sales-assist-settings"], "folded into «مدیریت فروش» (merge v1.2)", "admin"),
-  B("daily-plans", "لیست‌های روزانه", ["/daily-plans", "/daily-plans/report", "/daily-plans/settings", "/daily-plans/expert/:sp/:date", "/daily-plans/capacity/:sp"], "manager config (dpManager) + folded", "admin"),
-  B("call-queue-events", "گزارش مدیر · صف تماس", ["/call-queue-events"], "manager config (cqManager) shared with the expert queue", "admin"),
-  B("call-queue-discipline", "نظم پیگیری تیم", ["/call-queue-discipline"], "folded into «مدیریت فروش» (merge v1.2)", "admin"),
-  B("call-center", "گزارش مرکز تماس", ["/call-center"], "manager/viewer config (ctCfg)", "admin"),
-  B("cs-report", "گزارش مدیر · فیلدهای اجباری", ["/cs-report"], "manager config (csCfg)", "admin"),
-  B("default-owner", "قانون ثبت مشتری", ["/settings/default-owner"], "folded into «مدیریت فروش» (merge v1.2)", "admin"),
-  // ---- bespoke pages (phase 2) ----
-  B("instagram-inbox", "سرنخ‌های دایرکت اینستاگرام", ["/instagram-inbox"], "role checks inside instagram.ts"),
-  B("customer-segments", "گزارش مشتریان", ["/customer-segments"], "isSegmentsViewer + flag"),
-  B("sales-performance", "گزارش عملکرد فروش", ["/sales-performance", "/sales-performance/expert/:id"], "accessOf() + flag (do not touch sales_performance_v1)"),
-  B("sales-kpi", "شاخص‌های فروش", ["/sales-kpi"], "isKpiViewer + flag"),
-  B("my-work", "عملکرد من", ["/my-work"], "my-performance v1.1 flags"),
-  B("social-hub", "مدیریت فروش شبکه‌های اجتماعی", ["/social-hub", "/social-hub/bots/:id/access"], "shIsManager + flag"),
-  B("links", "صفحه‌ی لینک‌ها", ["/settings/links"], "link-page canManage + flag"),
-  B("sales-teams", "تیم‌های فروش", ["/sales-teams"], "multi_team_v1 (do not touch)"),
-  B("sales-admin", "مدیریت فروش", ["/sales-admin", "/sales-team-admin"], "sales manager console"),
-  B("bale-workspace", "فضای کار بله", ["/bale-workspace/automation", "/bale-workspace/training"], "bale workspace flag + owner"),
-  B("bale-bot", "گفتگوهای بله", ["/bale-bot", "/bale-bot/:id"], "bbView all/own + per-user flag"),
-  B("bale-bot-admin", "ربات‌های بله", ["/bale-bot/admin"], "bbMe.canManage"),
-  B("bale-connect", "اتصال بله", ["/settings/bale", "/bale/autoreply"], "baleEligible (not 29, not trainee)"),
-  B("lead-annotator", "یادداشت سرنخ (اینستاگرام)", ["/lead-annotator"], "access_capabilities lead_annotator"),
-  B("smart-filing", "ثبت هوشمند", ["/smart-filing", "/smart-filing/jobs/:id"], "sfScope (role + trainee)"),
+  // ---- phase 2: manager report / config pages (admin-only route; grant = elevation of exact endpoints) ----
+  A("sales-assist-settings", "تنظیمات دستیار فروش", ["/sales-assist-settings"], { viewOnly: true, note: "folded into «مدیریت فروش» for admins (merge v1.2); a granted person sees the standalone page",
+    elevateView: [["GET", G("/sales-assist/weights")], ["POST", G("/sales-assist/weights/preview")]] }),
+  A("daily-plans", "لیست‌های روزانه", ["/daily-plans", "/daily-plans/report", "/daily-plans/settings", "/daily-plans/expert/:sp/:date", "/daily-plans/capacity/:sp"], { viewOnly: true,
+    elevateView: [["GET", G("/daily-plans/board")], ["GET", G("/daily-plans/report")], ["GET", /^\/daily-plans\/\d+\/\d{4}-\d{2}-\d{2}\/?$/], ["GET", /^\/capacity\/\d+\/?$/], ["GET", G("/admin/settings/daily-plan")]] }),
+  A("call-queue-events", "گزارش مدیر · صف تماس", ["/call-queue-events"], {
+    elevateView: [["GET", G("/call-queue/events")]], elevateManage: [["POST", /^\/call-queue\/events\/\d+\/seen\/?$/]] }),
+  A("call-queue-discipline", "نظم پیگیری تیم", ["/call-queue-discipline"], {
+    elevateView: [["GET", G("/call-queue/discipline/team")], ["GET", G("/call-queue/discipline/settings")], ["GET", G("/reports/discipline-signals")]],
+    elevateManage: [["PUT", G("/call-queue/discipline/settings")]] }),
+  A("call-center", "گزارش مرکز تماس", ["/call-center"], { viewOnly: true,
+    elevateView: [["GET", /^\/call-transcripts\/report(\/[a-z-]+)?\/?$/], ["GET", /^\/call-transcripts\/calls\/\d+\/?$/]] }),
+  A("cs-report", "گزارش مدیر · فیلدهای اجباری", ["/cs-report"], { viewOnly: true,
+    elevateView: [["GET", G("/call-summary-fields/report")], ["GET", G("/call-summary-fields/report/detail")], ["GET", G("/call-summary-fields/config")]] }),
+  A("default-owner", "قانون ثبت مشتری", ["/settings/default-owner"], { viewOnly: true,
+    elevateView: [["GET", G("/admin/default-owner-rule")], ["GET", G("/admin/registered-by")], ["GET", G("/lead-intake/admin/settings")]] }),
+  // ---- phase 2: bespoke pages (button = status + «بستن برای یک نفر»; their own rules give access) ----
+  X("instagram-inbox", "سرنخ‌های دایرکت اینستاگرام", ["/instagram-inbox"], "role checks inside instagram.ts", "چه کسی این صفحه را ببیند، با نقش کاربر و تنظیمات اینستاگرام تعیین می‌شود."),
+  X("customer-segments", "گزارش مشتریان", ["/customer-segments"], "isSegmentsViewer + flag", "بینندگان این گزارش در تنظیمات «گزارش مشتریان» تعیین می‌شوند."),
+  X("sales-performance", "گزارش عملکرد فروش", ["/sales-performance", "/sales-performance/expert/:id"], "accessOf() + flag (do not touch sales_performance_v1)", "دسترسی این گزارش با قواعد «گزارش عملکرد فروش» و تیم‌ها تعیین می‌شود."),
+  X("sales-kpi", "شاخص‌های فروش", ["/sales-kpi"], "isKpiViewer + flag", "بینندگان این صفحه در تنظیمات «شاخص‌های فروش» تعیین می‌شوند."),
+  X("my-work", "عملکرد من", ["/my-work"], "my-performance v1.1 flags", "این صفحه برای هر کارشناس، عملکرد خود اوست؛ دادنِ آن به دیگری معنا ندارد."),
+  X("social-hub", "مدیریت فروش شبکه‌های اجتماعی", ["/social-hub", "/social-hub/bots/:id/access"], "shIsManager + flag", "مدیران این صفحه در تنظیمات «شبکه‌های اجتماعی» تعیین می‌شوند."),
+  X("links", "صفحه‌ی لینک‌ها", ["/settings/links"], "link-page canManage + flag", "چه کسی لینک‌ها را مدیریت کند، در تنظیمات همین صفحه تعیین می‌شود."),
+  X("sales-teams", "تیم‌های فروش", ["/sales-teams"], "multi_team_v1 (do not touch)", "دسترسی این صفحه با تیم‌های فروش تعیین می‌شود."),
+  X("bale-workspace", "فضای کار بله", ["/bale-workspace/automation", "/bale-workspace/training"], "bale workspace flag + owner", "این صفحه برای صاحب فضای کار بله است و از تنظیمات بله داده می‌شود."),
+  X("bale-bot", "گفتگوهای بله", ["/bale-bot", "/bale-bot/:id"], "bbView all/own + per-user flag", "دیدن گفتگوهای بله در تنظیمات «ربات‌های بله» داده می‌شود."),
+  X("bale-connect", "اتصال بله", ["/settings/bale", "/bale/autoreply"], "baleEligible (not 29, not trainee)", "اتصال بله برای همه‌ی کارشناس‌ها باز است، جز کارآموزها."),
+  X("lead-annotator", "یادداشت سرنخ (اینستاگرام)", ["/lead-annotator"], "access_capabilities lead_annotator", "این ابزار با قابلیت «یادداشت سرنخ» در تنظیمات کاربر داده می‌شود."),
+  X("smart-filing", "ثبت هوشمند", ["/smart-filing", "/smart-filing/jobs/:id"], "sfScope (role + trainee)", "ثبت هوشمند با نقش کاربر باز می‌شود؛ کارآموزها قفل خودشان را دارند."),
+  // ---- never (admin / sales manager only) ----
+  A("sales-admin", "مدیریت فروش", ["/sales-admin", "/sales-team-admin"], { never: true, note: "sales manager console", paNote: "«مدیریت فروش» فقط برای ادمین و مدیر فروش است و قابل‌اعطا نیست." }),
+  A("bale-bot-admin", "ربات‌های بله", ["/bale-bot/admin"], { never: true, note: "bbMe.canManage; folded into «مدیریت فروش»", paNote: "مدیریت ربات‌های بله فقط برای ادمین و مدیر فروش است و قابل‌اعطا نیست." }),
 ];
 
 /** Dashboard routes that are not staff pages (public / auth / wallet top-up) — exempt from the drift test. */
@@ -114,7 +132,7 @@ export const PA_ROUTE_EXEMPT: readonly string[] = ["/login", "/wallet/top-up/res
 
 export const PA_BY_KEY: ReadonlyMap<string, PaPage> = new Map(PA_PAGES.map((p) => [p.key, p]));
 export const paGrantable = (p: PaPage | undefined): PaGrantable =>
-  !p || p.never ? "never" : p.viewOnly || !p.manage.filter((x) => !PA_NEVER_PERMISSIONS.has(x)).length && !(p.elevateManage?.length) ? "view" : "both";
+  !p || p.never ? "never" : p.blockOnly ? "block" : p.viewOnly || !p.manage.filter((x) => !PA_NEVER_PERMISSIONS.has(x)).length && !(p.elevateManage?.length) ? "view" : "both";
 export const paPhase1 = (p: PaPage | undefined): boolean => Boolean(p && p.phase === 1);
 /** Permissions a grant of `level` on page `p` adds (approval-class permissions filtered out). */
 export function paPermissionsFor(p: PaPage, level: "view" | "manage"): string[] {
