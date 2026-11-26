@@ -193,7 +193,7 @@ export function PageAccessSheet({ page, onClose, initial }: { page: PaPageMeta; 
               {s.roles.map((r) => (
                 <div className="pgac-row" key={r.slug} data-testid={`pa-role-${r.slug}`}>
                   <div className="pgac-who"><b>{r.name} <span className={`pgac-src ${r.grant ? "direct" : "role"}`}>{r.grant ? "اعطا شده" : "پیش‌فرض نقش"}</span></b>
-                    <p>{fa(r.members)} نفر · برای تغییر، یک نفر را مستثنا کن</p></div>
+                    <p>{fa(r.members)} نفر · {r.members === 0 ? "کسی در این نقش نیست" : "برای تغییر، یک نفر را مستثنا کن"}</p></div>
                   {r.grant ? (confirmRow === r.grant.id ? null : <div className="pgac-row-acts"><span className="pgac-lvl">{LEVEL_FA[r.grant.level]}</span><button type="button" className="pgac-btn danger" onClick={() => setConfirmRow(r.grant!.id)}>برداشتن دسترسی</button></div>)
                     : <div className="pgac-lvl">{LEVEL_FA[r.default ?? "view"]}</div>}
                   {r.grant && confirmRow === r.grant.id ? <ConfirmLine text={`برداشتن دسترسی ${r.name} از این صفحه؟`} busy={saving} onNo={() => setConfirmRow(null)} onYes={() => void removeRow(r.grant!.id, r.name, false)} yes="برداشتن" /> : null}
@@ -319,7 +319,7 @@ export function PageAccessSheet({ page, onClose, initial }: { page: PaPageMeta; 
               <b>{histHead(it)}</b>
               <span>{page.label} · {histWhat(it)} · {jFull(it.at)}{it.reverted ? " · برگردانده شد" : ""}</span>
               {rb && i === firstIdx ? (histConfirm
-                ? <ConfirmLine text={`آخرین تغییر برگردانده شود؟ ${revertText(it)}`} busy={saving} onNo={() => setHistConfirm(false)} onYes={() => void revert(rb)} yes="برگردان" testid="pa-revert-yes" />
+                ? <ConfirmLine text={it.action === "revert" ? revertOfRevertText(page, it) : `آخرین تغییر برگردانده شود؟ ${revertText(it)}`} busy={saving} onNo={() => setHistConfirm(false)} onYes={() => void revert(rb)} yes="برگردان" testid="pa-revert-yes" />
                 : <div className="hist-act"><button type="button" className="pgac-btn gh" onClick={() => setHistConfirm(true)} data-testid="pa-revert">برگرداندن این تغییر</button></div>) : null}
             </div>
           </div>
@@ -381,4 +381,18 @@ function revertText(it: PaHistoryItem): string {
     case "unblock": return `صفحه دوباره برای ${it.subjectName} بسته می‌شود.`;
     default: return "";
   }
+}
+/** Confirm copy when the latest history row is itself a revert (Armita r2). */
+function revertOfRevertText(page: PaPageMeta, it: PaHistoryItem): string {
+  const who = it.subjectKind === "user" && it.subjectId != null ? `${it.subjectName} #${fa(it.subjectId)}` : it.subjectName;
+  const prior = it.prior;
+  let summary: string;
+  if (prior?.effect === "deny") summary = `صفحه‌ی ${page.label} برای ${it.subjectName} دوباره بسته می‌ماند.`;
+  else if (prior?.effect === "allow") {
+    const v = prior.level === "manage" ? "دوباره این صفحه را می‌بیند و با آن کار می‌کند" : "دوباره این صفحه را فقط می‌بیند";
+    const sc = prior.scope ? `؛ ${SCOPE_FA[prior.scope]?.[2] ?? prior.scope}` : "";
+    summary = `${who} ${v}${sc}.`;
+  } else if (it.result?.effect === "deny") summary = `صفحه برای ${it.subjectName} دوباره باز می‌ماند.`;
+  else summary = `دسترسی ${it.subjectName} از این صفحه برداشته می‌ماند.`;
+  return `آخرین تغییر برگردانده شود؟ این برگرداندن لغو می‌شود و وضعیت قبلی برمی‌گردد: ${summary}`;
 }

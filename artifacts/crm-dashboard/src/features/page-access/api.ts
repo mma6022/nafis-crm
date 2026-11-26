@@ -24,10 +24,11 @@ export type PaSubjectUser = {
   has: PaLevel | null; blocked: number | null; fromRole: boolean; grantId: number | null; scope: "own" | "team" | "all" | null; scopeAvailable: boolean;
 };
 export type PaSubjects = { version: number; roles: PaSubjectRole[]; users: PaSubjectUser[] };
+export type PaHistSnap = { effect: "allow" | "deny" | null; level: PaLevel | null; scope: string | null };
 export type PaHistoryItem = {
   id: number; batch: string; at: string; actor: string; action: "grant" | "update" | "revoke" | "block" | "unblock" | "revert";
   subjectKind: "role" | "user"; subjectName: string; subjectId: number | null; level: PaLevel | null; levelFa: string | null; scope: string | null;
-  reverted: boolean; revertOf: string | null;
+  reverted: boolean; revertOf: string | null; prior?: PaHistSnap | null; result?: PaHistSnap | null;
 };
 export type PaHistory = { items: PaHistoryItem[]; revertBatch: string | null; version: number };
 export class PaError extends Error { constructor(public status: number, public code: string, message: string) { super(message); } }
