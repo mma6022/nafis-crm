@@ -63,6 +63,8 @@ body.pgac-sheet-on .pgac-chiprow{display:none!important}
 .pgac-who b{display:flex;align-items:center;flex-wrap:wrap;color:var(--pa-ink);font-size:15px;font-weight:700;line-height:1.4}
 .pgac-who p{font-size:13px;color:var(--pa-ink-muted);line-height:1.5;margin-top:2px}
 .pgac-cid{display:inline-flex;align-items:center;min-height:24px;padding:0 8px;border-radius:8px;background:var(--pa-surface-2);color:var(--pa-ink-muted);font-size:13px;font-weight:700;margin-inline-start:8px}
+/* t961 Armita: selected picker row is --pa-brand-50, which made --pa-surface-2 on .pgac-cid disappear; keep the grey chip like the other rows */
+.pgac-pick-item.on .pgac-cid{background:var(--pa-line)}
 .pgac-src{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;padding:0 8px;min-height:22px;border-radius:99px;background:var(--pa-surface-2);color:var(--pa-ink-muted);margin-inline-start:6px}
 .pgac-src.role{background:var(--pa-brand-50);color:var(--pa-brand-700)}
 .pgac-src.direct{background:var(--pa-ok-50);color:var(--pa-ok)}
