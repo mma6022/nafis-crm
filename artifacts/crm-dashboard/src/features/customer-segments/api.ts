@@ -11,7 +11,8 @@ export type FieldCat = {
   sensitive?: 'phone' | 'national'; description?: string;
 };
 export type Condition = { field: string; op: string; values?: string[]; min?: string; max?: string };
-export type SegmentQuery = { source: 'both' | 'file' | 'site'; includeUnlinkedLeads?: boolean; conditions: Condition[]; columns?: string[] };
+export type MatchMode = 'all' | 'any';
+export type SegmentQuery = { source: 'both' | 'file' | 'site'; includeUnlinkedLeads?: boolean; conditions: Condition[]; match?: MatchMode; columns?: string[] };
 export type PublicRow = {
   kind: 'customer' | 'unlinked_lead'; customerId: number | null; leadKey: string;
   values: Record<string, string>; sources: Record<string, string>; sourceLabels: Record<string, string>;
