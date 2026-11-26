@@ -636,15 +636,15 @@ function BotDeleteDialog({
       <div className={c('dlg')} role="alertdialog" aria-modal="true" aria-labelledby="smc-bot-del-title" data-testid="smc-bot-delete-dialog">
         <h3 id="smc-bot-del-title">ربات {expert.name} حذف شود؟</h3>
         <p className={c('hint')} style={{ margin: '8px 0' }}>
-          {user ? <>ربات <span dir="ltr">@{user}</span> از این کارشناس جدا می‌شود. </> : null}
-          توکن ذخیره‌شده از سیستم پاک می‌شود و ربات دیگر پیام نمی‌گیرد و پیام نمی‌فرستد. گفتگوها و مشتری‌های قبلی پاک نمی‌شوند. بعد از حذف می‌توانید ربات درست را وصل کنید.
+          {user ? <>ربات <bdi dir="ltr">@{user.replace(/^@/, '')}</bdi> از این کارشناس جدا می‌شود. </> : null}
+          توکن ذخیره‌شده از سیستم پاک می‌شود و ربات دیگر پیام نمی‌گیرد و پیام نمی‌فرستد. پیام‌های خودکار هم فرستاده نمی‌شوند. گفتگوها و مشتری‌های قبلی پاک نمی‌شوند. این کار برگرداندنی نیست؛ بعد از حذف می‌توانید ربات درست را وصل کنید.
         </p>
-        {err ? <div className={c('mbanner warn')} role="alert"><span>{err}</span></div> : null}
-        <div className={c('row1')} style={{ justifyContent: 'flex-end', marginTop: 12 }}>
-          <button type="button" className={c('btn', 'gh')} disabled={busy} onClick={onClose} data-testid="smc-bot-delete-cancel">انصراف</button>
+        {err ? <div className={c('mbanner warn')} role="alert" data-testid="smc-bot-delete-err"><span>{err}</span></div> : null}
+        <div className={c('row1', 'delfoot')} style={{ marginTop: 12 }}>
           <button type="button" className={c('btn', 'dng')} disabled={busy} onClick={() => void go()} data-testid="smc-bot-disconnect-confirm">
             بله، حذف شود
           </button>
+          <button type="button" className={c('btn', 'gh')} disabled={busy} onClick={onClose} data-testid="smc-bot-delete-cancel">انصراف</button>
         </div>
       </div>
     </div>

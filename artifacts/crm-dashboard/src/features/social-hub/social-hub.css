@@ -3,7 +3,7 @@
   font-family:Vazirmatn,sans-serif;color:var(--sh-ink);font-size:14px;line-height:24px;direction:rtl}
 .sh *{box-sizing:border-box}
 .sh button{font-family:inherit}
-.sh-page{width:100%;padding:20px 20px calc(var(--ss-dock-h, 84px) + var(--ss-dock-gap, 16px) + 48px);background:var(--sh-bg);min-height:100%}
+.sh-page{--sh-dock-clear:calc(var(--ss-dock-h, 90px) + var(--ss-dock-gap, var(--ss-gap, 16px)) + env(safe-area-inset-bottom, 0px));width:100%;padding:20px 20px var(--sh-dock-clear);background:var(--sh-bg);min-height:100%}
 .sh-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:20px}
 .sh-tab{height:44px;border:1px solid var(--sh-line);background:#fff;border-radius:12px;font-weight:800;color:var(--sh-navy-d);cursor:pointer}
 .sh-tab.on{border-color:var(--sh-navy);background:var(--sh-tint);color:var(--sh-navy)}
@@ -81,7 +81,7 @@
 .sh-res .rl{font-size:12px;color:var(--sh-mut)}
 .sh-ava{width:40px;height:40px;border-radius:50%;background:var(--sh-tint);color:var(--sh-navy);font-weight:800;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--sh-line);flex:none}
 .sh-empty{display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;padding:32px 16px}
-.sh-toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);background:var(--sh-navy-d);color:#fff;border-radius:12px;padding:10px 16px;font-weight:700;z-index:1310;display:flex;align-items:center;gap:8px}
+.sh-toast{position:fixed;bottom:calc(var(--ss-dock-h, 90px) + var(--ss-dock-gap, var(--ss-gap, 16px)) + 12px + env(safe-area-inset-bottom, 0px));left:50%;transform:translateX(-50%);background:var(--sh-navy-d);color:#fff;border-radius:12px;padding:10px 16px;font-weight:700;z-index:1310;display:flex;align-items:center;gap:8px}
 .sh-toast svg{width:18px;height:18px}
 /* tables */
 .sh-tbl{background:#fff;border:1px solid var(--sh-line);border-radius:var(--sh-r);overflow:hidden}
@@ -113,7 +113,7 @@
 /* incoming attach (sits inside the s132b card) */
 .sh-attach{margin-top:8px}
 @media (max-width:1023px){
-  .sh-page{padding:16px 16px calc(var(--ss-dock-h, 72px) + 24px + env(safe-area-inset-bottom, 0px))}
+  .sh-page{--sh-dock-clear:calc(var(--ss-dock-h, 72px) + 22px + env(safe-area-inset-bottom, 0px));padding:16px 16px var(--sh-dock-clear)}
   .sh-tabs{gap:8px}.sh-tab{height:52px;font-size:13px;line-height:18px}
   .sh-g2,.sh-g3{grid-template-columns:minmax(0,1fr)}
   .sh-ov{padding:0;align-items:flex-end}
@@ -128,7 +128,7 @@
   .sh-tr.leg,.sh-tr.acc,.sh-tr.msg,.sh-tr.msg.free{grid-template-columns:minmax(0,1fr);gap:6px;padding:12px 14px}
   .sh-tr.hd{display:none}
   .sh-seg{max-width:100%}
-  .sh-toast{bottom:84px;width:calc(100% - 32px);justify-content:center}
+  .sh-toast{bottom:calc(var(--ss-dock-h, 72px) + 12px + env(safe-area-inset-bottom, 0px));width:calc(100% - 32px);justify-content:center}
 }
 .dci-head > .sh-today{flex:1 0 100%;width:100%}
 /* compact 390 top bar (flag.social_hub_v1 only; the class is never set while OFF) */
@@ -183,7 +183,7 @@ body:has(.topbar.sh-compact) .diag-floating{display:none!important}
 .sh-auto{display:inline-flex;align-items:center;flex:none;height:20px;padding:0 8px;border-radius:10px;background:#EEF0F6;color:#5B6480;font-size:11px;font-weight:700;white-space:nowrap}
 .sh-bubble-head{display:block;line-height:1.7}
 .sh-bubble-head .sh-nm{display:inline-flex;vertical-align:middle;margin:0;margin-inline-end:0}
-.sh-page, .sh-tr.leg, [data-testid^="sh-legacy-once-"]{scroll-margin-bottom:calc(var(--ss-dock-h, 84px) + var(--ss-dock-gap, 16px) + 16px)}
+.sh-page, .sh-botc, .sh-addc, .sh-tbl, .sh-tr.leg, [data-testid^="sh-legacy-once-"]{scroll-margin-bottom:var(--sh-dock-clear, calc(var(--ss-dock-h, 84px) + var(--ss-dock-gap, 16px) + 16px))}
 .sh-bubble-head .sh-nm b{font-size:inherit;font-weight:700;color:inherit}
 .sh-failr{text-wrap:pretty;overflow-wrap:break-word}
 .sh-cb{text-wrap:pretty}

@@ -11,6 +11,11 @@ type Legacy = { id: number; name: string; liveStatus: string; customers: number;
 type Data = { bots: Bot[]; legacy: Legacy[]; networks: { key: string; label: string }[]; redirectText: string; connectEnabled: boolean; redirectEnabled?: boolean; legacyFinish: boolean; connect?: ShConnectView; isSuperAdmin?: boolean; redirectDone?: boolean; redirectDoneAt?: string | null; redirectDisabledReason?: string | null };
 const NET_LETTER: Record<string, string> = { bale: 'ب', eitaa: 'ا', telegram: 'ت', whatsapp: 'و', instagram: 'ای', rubika: 'ر' };
 const STATUS: Record<Bot['status'], [string, string]> = { connected: ['متصل', 'ok'], draft: ['وصل نشده', ''], pending_test: ['منتظر آزمایش اتصال', 'amber'], off: ['خاموش', ''] };
+const BotAt = ({ name }: { name: string | null | undefined }) => {
+  const u = String(name ?? '').replace(/^@/, '').trim();
+  return u ? <bdi dir="ltr">@{u}</bdi> : null;
+};
+
 
 function onceReady(d: Data) { return Boolean(d.isSuperAdmin && d.connect?.tokenSaved && d.connect?.tested && d.redirectEnabled && !d.redirectDisabledReason && !d.redirectDone); }
 export function BotsTab({ toast }: { toast: (t: string) => void }) {
@@ -28,14 +33,14 @@ export function BotsTab({ toast }: { toast: (t: string) => void }) {
       <button type="button" className="sh-btn pri sm" onClick={() => setAdd(true)} disabled={!free.length} data-testid="sh-bot-add"><Plus aria-hidden="true" />افزودن ربات</button></div>
     <div className="sh-grid sh-g2">
       {d.bots.map((b) => { const [st, cls] = STATUS[b.status]; return <article className="sh-card sh-botc" key={b.id} data-testid={`sh-bot-${b.network}`}>
-        <div className="hd"><span className="sh-ava" aria-hidden="true">{NET_LETTER[b.network] ?? 'ر'}</span><div className="sh-sp"><h3 className="sh-h3">{b.name.includes(b.networkLabel) ? b.name : `${b.name}، ${b.networkLabel}`}</h3><div className="sh-sub" dir="auto" style={{ textAlign: 'right' }}>{b.handle ? `@${b.handle.replace(/^@/, '')}` : 'هنوز نشانی ندارد'}</div></div><span className={`sh-chip ${cls}`}>{st}</span></div>
+        <div className="hd"><span className="sh-ava" aria-hidden="true">{NET_LETTER[b.network] ?? 'ر'}</span><div className="sh-sp"><h3 className="sh-h3">{b.name.includes(b.networkLabel) ? b.name : `${b.name}، ${b.networkLabel}`}</h3><div className="sh-sub" dir="auto" style={{ textAlign: 'right' }}>{b.handle ? <BotAt name={b.handle} /> : 'هنوز نشانی ندارد'}</div></div><span className={`sh-chip ${cls}`}>{st}</span></div>
         <dl><dt>مدیریت</dt><dd>{b.managers.length ? b.managers.join('، ') : 'مدیران'}</dd><dt>مشتریان</dt><dd>همهٔ کارشناس‌ها</dd><dt>آخرین پیام</dt><dd>{b.lastMessageAt ? faDate(b.lastMessageAt) : 'هنوز پیامی نیست'}</dd></dl>
         <div className="sh-row sh-wrap"><Link href={`/social-hub/bots/${b.id}/access`} className="sh-btn pri sh-sp" data-testid={`sh-bot-access-${b.id}`}>دسترسی‌ها</Link>
           {b.unified && b.network === 'bale' ? <>
             <button type="button" className="sh-btn sec" disabled={!d.connectEnabled} onClick={() => d.connectEnabled && setConn(true)} data-testid="sh-bot-connect">{d.connect?.tokenSaved ? 'ویرایش ربات' : 'اتصال ربات'}</button>
             {d.connect?.tokenSaved ? <button type="button" className="sh-btn sh-del" disabled={!d.connectEnabled} onClick={() => d.connectEnabled && setDel(b)} data-testid="sh-bot-delete"><Trash2 aria-hidden="true" />حذف ربات</button> : null}</>
             : <>
-              <button type="button" className="sh-btn sec" onClick={() => setEditB(b)} data-testid={`sh-bot-edit-${b.id}`}>ویرایش</button>
+              <button type="button" className="sh-btn sec" onClick={() => setEditB(b)} data-testid={`sh-bot-edit-${b.id}`}>ویرایش ربات</button>
               <button type="button" className="sh-btn sh-del" onClick={() => setDel(b)} data-testid={`sh-bot-delete-${b.id}`}><Trash2 aria-hidden="true" />حذف ربات</button></>}</div>
       </article>; })}
       {free.length ? <button type="button" className="sh-addc" onClick={() => setAdd(true)} data-testid="sh-bot-add-card"><Plus aria-hidden="true" /><b>افزودن ربات یک شبکهٔ دیگر</b><span className="sh-sub">{free.map((n) => n.label).join('، ')}</span></button> : null}
@@ -114,8 +119,8 @@ function ConnectWizard({ tokenSaved, username, onClose, onSaved }: { tokenSaved:
       <button type="button" className="sh-btn pri" disabled={busy || !token} onClick={() => void save()} data-testid="sh-connect-save">ذخیره</button>
       <button type="button" className="sh-btn ghost" onClick={onClose}>انصراف</button></>}>
     <div className="sh-stack">
-      {tokenSaved ? <div className="sh-chip ok" data-testid="sh-connect-saved">ذخیره شده{username ? `، @${username}` : ''}</div> : null}
-      <label className="sh-frow"><span className="sh-lbl">{tokenSaved ? 'کلید اتصال جدید' : 'کلید اتصال'}</span><div className="sh-fld"><input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder="از @botfather" data-testid="sh-connect-token" /></div></label>
+      {tokenSaved ? <div className="sh-chip ok" data-testid="sh-connect-saved">ذخیره شده{username ? <>، <BotAt name={username} /></> : null}</div> : null}
+      <label className="sh-frow"><span className="sh-lbl">{tokenSaved ? 'کلید اتصال جدید' : 'کلید اتصال'}</span><div className="sh-fld"><input type="password" autoComplete="off" dir="ltr" value={token} onChange={(e) => setToken(e.target.value)} placeholder="@botfather" data-testid="sh-connect-token" /></div></label>
       {tokenSaved ? <p className="sh-sub" data-testid="sh-connect-hint">کلید فعلی نمایش داده نمی‌شود. برای عوض کردن ربات، کلید ربات درست را اینجا بچسبانید و ذخیره کنید؛ کلید قبلی جایگزین می‌شود. برای برداشتن کلید، «حذف ربات» را بزنید.</p> : null}
       {tested ? <p className="sh-sub">آزمایش موفق شد{tested.username ? `، @${tested.username}` : ''}.</p> : null}
       {err ? <p className="sh-err" role="alert">{err}</p> : null}
@@ -131,11 +136,12 @@ function DeleteBotWizard({ bot, username, onClose, onDone }: { bot: Bot; usernam
     foot={<><button type="button" className="sh-btn sh-delfill" disabled={busy} onClick={() => void go()} data-testid="sh-bot-del-yes">بله، حذف شود</button>
       <button type="button" className="sh-btn ghost" onClick={onClose} data-testid="sh-bot-del-no">انصراف</button></>}>
     <div className="sh-stack">
-      <p style={{ margin: 0, fontWeight: 700 }}>{unified
-        ? `ربات${username ? ` @${username}` : ''} حذف می‌شود: کلید ذخیره‌شدهٔ آن از سیستم پاک می‌شود و دیگر پیام نمی‌گیرد و پیام نمی‌فرستد.`
-        : 'این ربات هنوز به جایی وصل نیست و فقط یک پیش‌نویس است. حذف می‌شود.'}</p>
-      <p className="sh-sub" style={{ margin: 0 }}>{unified ? 'گفتگوها و مشتری‌های قبلی پاک نمی‌شوند. بعد از حذف می‌توانید ربات درست را وصل کنید.' : 'بعد از حذف می‌توانید دوباره یک ربات برای این شبکه اضافه کنید.'}</p>
-      {err ? <p className="sh-err" role="alert">{err}</p> : null}
+      {unified
+        ? <><p style={{ margin: 0, fontWeight: 700 }}>ربات{username ? <> <BotAt name={username} /></> : null} حذف می‌شود: کلید ذخیره‌شدهٔ آن از سیستم پاک می‌شود و دیگر پیام نمی‌گیرد و پیام نمی‌فرستد. پیام‌های خودکار هم فرستاده نمی‌شوند.</p>
+          <p className="sh-sub" style={{ margin: 0 }}>گفتگوها و مشتری‌های قبلی پاک نمی‌شوند. این کار برگرداندنی نیست؛ بعد از حذف می‌توانید ربات درست را وصل کنید.</p></>
+        : <><p style={{ margin: 0, fontWeight: 700 }}>این ربات هنوز به جایی وصل نیست و فقط یک پیش‌نویس است. حذف می‌شود.</p>
+          <p className="sh-sub" style={{ margin: 0 }}>این کار برگرداندنی نیست؛ بعد از حذف می‌توانید دوباره یک ربات برای این شبکه اضافه کنید.</p></>}
+      {err ? <p className="sh-err" role="alert" data-testid="sh-bot-del-err">{err}</p> : null}
     </div></Wizard>;
 }
 function EditBotWizard({ bot, onClose, onSaved }: { bot: Bot; onClose: () => void; onSaved: () => void }) {

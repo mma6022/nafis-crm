@@ -552,3 +552,10 @@ html.smc-fab.smc-fab .diag-floating{left:var(--smc-fab-x, 18px) !important;right
 .smc-root .smc-btn.smc-dng{background:#B42318;color:#fff;border:1px solid #B42318}
 .smc-root .smc-btn.smc-dngo{background:#fff;color:#B42318;border:1px solid #E8A39B}
 .smc-root .smc-btn.smc-dng:disabled,.smc-root .smc-btn.smc-dngo:disabled{opacity:.5}
+
+/* t945 r4: same delete-confirm button order as social-hub (danger at start/right; 390: cancel above, danger below) */
+.smc-root .smc-delfoot{justify-content:flex-start;flex-wrap:wrap}
+@media (max-width:639px){
+  .smc-root .smc-delfoot{flex-direction:column-reverse;align-items:stretch}
+  .smc-root .smc-delfoot .smc-btn{width:100%}
+}
