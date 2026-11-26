@@ -2,6 +2,7 @@ import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypt
 import type { Request, RequestHandler, Response } from "express";
 import { execute, executeChanges, queryRow, crmDb } from "./crm-db";
 import { permissionsForRole } from "./access-control";
+import { paOverlayPermissions, type PaEffective } from "./page-access";
 import { isAdminRole } from "./customer-integrity";
 import { withNotificationActor } from "./notification-actor-context";
 import { hasLeadAnnotator } from "./lead-annotator";
@@ -63,6 +64,8 @@ export type AuthUser = {
    * sales-manager-only surfaces (Ahmad, call-center manager views, call popups) that plain admins no longer see. */
   salesManager?: boolean;
   baseRole?: string;
+  /** «دسترسی این صفحه» v1 (flag.page_access_v1): page grants / blocks of this user; undefined while the flag is OFF or for admins. */
+  pageAccess?: PaEffective | null;
 };
 
 type AuthUserRow = {
@@ -90,7 +93,7 @@ function userFromRow(row: AuthUserRow): AuthUser {
   }
   const salesManager = row.role === SALES_MANAGER_ROLE;
   const role = effectiveRole(row.role);
-  return {
+  const user: AuthUser = {
     id: Number(row.id),
     username: row.username,
     fullName: row.full_name ?? null,
@@ -110,6 +113,10 @@ function userFromRow(row: AuthUserRow): AuthUser {
     salesManager,
     baseRole: row.role,
   };
+  // «دسترسی این صفحه» v1: flag OFF / admin → null and the user above is returned unchanged (byte-identical session).
+  const { permissions, pa } = paOverlayPermissions(user, user.permissions);
+  if (!pa) return user;
+  return { ...user, permissions, pageAccess: pa };
 }
 
 export function getAuthUserById(id: number): AuthUser | undefined {
@@ -161,7 +168,9 @@ export const requireAuth: RequestHandler = (req, res, next): void => {
     res.status(401).json({ code: "unauthorized", error: "Unauthorized" });
     return;
   }
-  res.locals.authUser = user;
+  // «دسترسی این صفحه» v1: a router that re-runs requireAuth keeps the page-elevated user set by pageAccessGuard (same id only).
+  const elevated = res.locals.pageAccessElevated as AuthUser | undefined;
+  res.locals.authUser = elevated && Number(elevated.id) === Number(user.id) ? elevated : user;
   withNotificationActor(`user:${user.id}`, next);
 };
 

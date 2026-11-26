@@ -1636,7 +1636,10 @@ export function createAssistants(deps: Deps) {
   /* «گزارش فروش تیم» (/sales-reports): admin / sales manager only. Experts, trainees and registrars get 403 + «رفتن به عملکرد من».
    * The daily overdue snapshot is taken on the first request / hourly tick of each Tehran day; flag ۳ alerts run only while it is ON. */
   const srAdmin = (res: Response) => { const u = me(res);
-    if (!u || !u.active || u.role !== "admin") { fail(res, 403, "forbidden", "گزارش فروشِ تیم فقط برای مدیر است."); return null; } return u; };
+    // «دسترسی این صفحه» v1 (flag.page_access_v1): set by pageAccessGuard only for a granted user on this page's exact endpoints.
+    const paGranted = (res.locals as { pageAccessElevated?: { id?: number; pageAccessElevated?: string } }).pageAccessElevated;
+    const pa = Boolean(u && paGranted?.pageAccessElevated === "sales-reports" && Number(paGranted.id) === Number(u.id));
+    if (!u || !u.active || (u.role !== "admin" && !pa)) { fail(res, 403, "forbidden", "گزارش فروشِ تیم فقط برای مدیر است."); return null; } return u; };
   staff.get("/manager/sales-report", (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     if (!srAdmin(res)) return;

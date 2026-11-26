@@ -81,6 +81,7 @@ import linkPageRouter from "./link-page";
 import salesTeamsRouter from "./sales-teams";
 import salesPerformanceRouter from "./sales-performance";
 import salesKpiRouter from "./sales-kpi";
+import pageAccessRouter from "./page-access";
 import myPerformanceV11Router from "./my-performance-v11";
 import myPerformanceV12Router from "./my-performance-v12";
 import baleBotRouter from "./bale-bot";
@@ -188,6 +189,7 @@ router.use(salesManagerConsoleRouter); // «مدیریت تیم فروش» v1.1 
 router.use(smcValidityRouter);
 router.use(salesTeamsRouter); // multi-team v1 (flag.multi_team_v1, OFF → falls through)
 router.use(salesPerformanceRouter); // sales-performance v1 (flag.sales_performance_v1, OFF → 404)
+router.use(pageAccessRouter); // «دسترسی این صفحه» v1 (flag.page_access_v1, OFF → /me enabled:false, other routes 404)
 router.use(salesKpiRouter); // t886 sales KPI (flag.sales_kpi_v1, OFF → /me enabled:false, دیگر مسیرها ۴۰۴)
 router.use(myPerformanceV11Router); // عملکرد من v1.1 (flag.my_performance_v1, OFF → 404)
 router.use(myPerformanceV12Router); // عملکرد من v1.2 (flag.my_performance_v12, OFF → 404)
