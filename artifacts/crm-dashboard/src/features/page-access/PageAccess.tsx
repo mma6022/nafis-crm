@@ -283,18 +283,15 @@ export function PageAccessSheet({ page, onClose, initial, sections, onPick, onBa
                   onClick={() => setUsers(single ? [u.id] : on ? users.filter((x) => x !== u.id) : [...users, u.id])}>
                   <span className="pgac-check" aria-hidden="true">{on ? <Check size={14} /> : null}</span>
                   <span className="pgac-ava" aria-hidden="true">{u.name.slice(0, 1)}</span>
-                  <span className="tx"><b>{u.name} <Cid id={u.id} /></b><span className="sub">{u.roleName}{u.trainee ? " · کارآموز" : ""}</span></span>
+                  <span className="tx"><b>{u.name} <Cid id={u.id} /></b><span className="sub">{u.roleName}</span></span>
                   {u.blocked ? <span className="pgac-mark">بسته شده</span> : u.has ? <span className="pgac-mark">از قبل دارد</span> : u.fromRole ? <span className="pgac-mark">از نقش</span> : null}
                 </button>
-                {u.locked && on && !single ? <div className="pgac-warn lock"><Lock className="pgac-i" aria-hidden="true" /><span>این فرد الان در «محدودیت کارشناس» است. تا وقتی این محدودیت روشن است، این دسترسی برای او باز نمی‌شود و همه‌ی محدودیت‌ها سر جایشان می‌مانند.</span></div> : null}
-                {u.trainee && !single ? <div className="pgac-warn"><TriangleAlert className="pgac-i" aria-hidden="true" /><span>کارآموز را فقط با انتخاب خودش می‌شود به این صفحه راه داد؛ با انتخاب نقش کارشناس فروش برای او باز نمی‌شود.</span></div> : null}
               </div>
             );
           })}
         </div></div>;
     }
-    const allLocked = mode === "user" && users.length > 0 && users.every((id) => subj.data?.users.find((x) => x.id === id)?.locked);
-    const can = mode === "role" ? Boolean(role) : users.length > 0 && !allLocked;
+    const can = mode === "role" ? Boolean(role) : users.length > 0; // t961: a grant overrides «محدودیت کارشناس» and trainees are ordinary experts
     foot = <><button type="button" className="pgac-btn gh" onClick={() => setView(page.grantable === "block" ? "status" : "step1")}>قبلی</button><button type="button" className="pgac-btn pri" disabled={!can} onClick={() => (mode === "block" ? (setSaveErr(null), setView("step3")) : enterStep3())} data-testid="pa-next">ادامه</button></>;
   } else if (view === "step3") {
     if (mode === "block") {

@@ -137,7 +137,6 @@ export function InstantCreditCheck({ customerId, onRank, embedded, hideRecent, i
     try {
       const c = await startCreditCheck(customerId, code);
       if (c.status === 'awaiting_otp') { setConsentAt(new Date().toISOString()); enterOtp(c); return; }
-      if (c.reused) setNote(`این نتیجه‌ی قبلی مشتری است${c.completedAt ? ` (${fmtDateTime(c.completedAt)})` : ''}؛ چون کمتر از ۲۴ ساعت از آن گذشته، استعلام تازه و کد پیامکی فرستاده نشد.`);
       finish(c);
     } catch (e) {
       const ex = e as TeamSalesApiError;
@@ -195,12 +194,11 @@ export function InstantCreditCheck({ customerId, onRank, embedded, hideRecent, i
     aria-disabled={!canStart} aria-describedby="cvH" onClick={() => { if (canStart) void start(); else setNidTouched(true); }}>{icon}{label}</button>;
   const scale = (rank: string) => <div className="gsc" aria-label={`رتبه ${rank} در مقیاس A تا E`}>{GRADE_LETTERS.map((l) =>
     <span key={l} className={`gl g${l}${rank[0] === l ? ' on' : ''}`} aria-hidden="true">{l}</span>)}</div>;
-  const resultCard = (c: CreditCheckLite, isRecent: boolean) => <div className="cvres" role="status" data-testid={isRecent ? 'cv-recent' : 'cv-result'} data-rank={c.scoreLabel} data-reused={c.reused || undefined}>
+  const resultCard = (c: CreditCheckLite, isRecent: boolean) => <div className="cvres" role="status" data-testid={isRecent ? 'cv-recent' : 'cv-result'} data-rank={c.scoreLabel}>
     <div className={`gbig g${c.scoreLabel![0]}`}><small>رتبه‌ی اعتباری</small><b>{c.scoreLabel}</b></div>
     <div className="gmeta">{scale(c.scoreLabel!)}
-      {c.reused ? <p className="cv-old" data-testid="cv-reused-badge"><History size={14} aria-hidden="true" /><span>قدیمی، {fmtDateTime(c.completedAt)}</span></p> : null}
       <p><Clock size={14} aria-hidden="true" /><span>{isRecent ? 'آخرین استعلام: ' : 'استعلام: '}{fmtDateTime(c.completedAt)}</span></p>
-      <p className="sv"><Check size={14} aria-hidden="true" /><span>{c.reused ? 'از نتیجه‌ی قبلی استفاده شد' : isRecent ? 'در پرونده ذخیره است' : 'در پرونده ذخیره شد'}</span></p></div></div>;
+      <p className="sv"><Check size={14} aria-hidden="true" /><span>{isRecent ? 'در پرونده ذخیره است' : 'در پرونده ذخیره شد'}</span></p></div></div>;
 
   let body: ReactNode = null;
   if (st === 'init') body = <div className="cvs" role="status" aria-live="polite"><span className="spn" aria-hidden="true" /><span>در حال آماده‌سازی…</span></div>;
