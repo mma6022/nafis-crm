@@ -2,6 +2,7 @@
 // Run: node --experimental-strip-types scripts/t943-bale-credit-wizard-fixture.mjs
 import { readFileSync, readdirSync } from "node:fs";
 import { phaseStep, SCORE_STEPS } from "../src/features/credit-panel/score-wizard-phase.ts";
+import { formatMobileGrouped } from "../src/lib/phone.ts";
 const r = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), "utf8");
 let n = 0; const ok = (c, m) => { if (!c) { console.error(`FAIL ${m}`); process.exit(1); } n++; console.log(`ok - ${m}`); };
 
@@ -25,4 +26,9 @@ ok(/data-testid="sw-old"/.test(sw) && sw.includes("قدیمی است و با ک�
 ok(/aria-valuemax=\{4\}/.test(sw), "progress bar with four steps");
 const ic = r("features/team-sales/InstantCreditCheck.tsx");
 ok(ic.includes("این نتیجه‌ی قبلی مشتری است") && ic.includes("کد پیامکی فرستاده نشد") && /onPhase\?: \(phase: St\) => void/.test(ic), "24-hour reuse note names the date and says no SMS was sent");
+ok(!/کد یک‌بارمصرف ICS24/.test(ic) && ic.includes("کد یک‌بارمصرف اعتبارسنجی بانکی فرستاده شد به"), "step 3 names the SMS in Persian, no Latin ICS24");
+ok(ic.includes("formatMobileGrouped(phone)") && ic.includes('data-testid="cv-otp-phone"'), "step 3 phone uses the 4-3-4 header grouping");
+ok(formatMobileGrouped("09125550017") === "۰۹۱۲ ۵۵۵ ۰۰۱۷" && formatMobileGrouped("9125550017") === "۰۹۱۲ ۵۵۵ ۰۰۱۷", "4-3-4 groups match the Bale header sample");
+ok(ic.includes('data-testid="cv-reused-badge"') && ic.includes("قدیمی، {fmtDateTime(c.completedAt)}"), "reused result block also shows «قدیمی» and the date");
+ok(ctx.includes("callResultFa") && ctx.includes("answered: 'جواب داد'"), "Bale call history translates «answered» to Persian");
 console.log(`t943 UI fixture ${n}/${n}`);

@@ -373,3 +373,15 @@ textarea.ts-inp { resize: vertical; line-height: 1.8; }
 .ts-v6-lock p.h { margin-bottom: 8px; }
 .ts-v6-lock .ts-muted { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
 .ts-v6 .ts-wz-head .vc-chip.fc1 .i { width: 14px; height: 14px; }
+
+.cv .gmeta .cv-old{color:var(--cp-g700, #3F6B4A);font-weight:700}
+/* t943 r2: keep «انصراف» and the resend-limit sentence on their own rows, fully visible at 390. */
+@media (max-width:419.98px){
+  .cv .cnsok,.cv .otto,.cv .oti{margin:2px 0}
+  .cv .cvo{gap:6px}
+  .cv .otrs{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 8px;margin-top:4px;align-items:center}
+  .cv .otrs .tmr{grid-column:1}
+  .cv .otrs [data-testid="cv-otp-resend"]{grid-column:2}
+  .cv .otrs [data-testid="cv-otp-cancel"]{grid-column:1;justify-self:start}
+  .cv .otrs .ts-muted{grid-column:1 / -1}
+}
