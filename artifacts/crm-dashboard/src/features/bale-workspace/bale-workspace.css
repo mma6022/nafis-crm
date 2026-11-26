@@ -305,7 +305,7 @@
   .bbt.bw-on .bx>.lst.pane .lh{flex:none}
   .bbt.bw-on .bx>.lst.pane .cvl,
   .bbt.bw-on .bx>.lst.pane .lempty{flex:1 1 auto;min-height:0;overflow-y:auto}
-  .bbt.bw-on .bx>.bws-ctx.pane{position:relative;top:auto;overflow-y:auto}
+  .bbt.bw-on .bx>.bws-ctx.pane{position:relative;top:auto;overflow-y:auto;padding-bottom:calc(var(--bws-dock-clear) + var(--bws-arrow-clear, 22px))}
   .bbt.bw-on .bws-tray{max-height:min(290px,calc(100dvh - 280px))}
 }
 .bws-tabhd{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;padding-bottom:8px;border-bottom:1px solid var(--nf-line,#E4E7F0);font-size:13px;color:var(--nf-ink-muted,#5F6B85)}
