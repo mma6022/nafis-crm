@@ -22,6 +22,7 @@ import { pa390DockTabs } from '@/features/plan-advisor/dock-tabs';
 import { useBwsDockHint } from '@/features/bale-workspace/dock-hint';
 import { useFloatingGuard } from './useFloatingGuard';
 import { usePageUsage } from '@/lib/page-usage';
+import { toast } from '@/hooks/use-toast';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { NotificationBell, NotificationProvider, NavNotificationBadge } from '@/site-notifications/NotificationBell';
 import { PageAccessButton, PageAccessChip } from '@/features/page-access/PageAccess';
@@ -302,7 +303,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const spMe = useSalesPerformanceMe(Boolean(user)).data; // sales-performance v1
   const paMe = usePageAccessMe(Boolean(user)).data; // «دسترسی این صفحه» v1 (flag OFF → {enabled:false})
   // phase 2: a «بستن» on any page (bespoke routes have no PermissionRoute) sends the person home; flag OFF / admins → paDecide is null.
-  useEffect(() => { if (paDecide(paMe, location, [], true) === false) setLocation('/'); }, [paMe, location, setLocation]);
+  useEffect(() => { if (paDecide(paMe, location, [], true) === false) { setLocation('/'); toast({ description: 'به این صفحه دسترسی ندارید' }); } }, [paMe, location, setLocation]);
   const skMe = useSalesKpiMe(Boolean(user)).data; // t886 sales KPI
   const mpFlags = useMyWorkFlags(user ? Number(user.id) : null, Boolean(user) && !panelMode);
   const mpOn = Boolean(mpFlags.data?.on);

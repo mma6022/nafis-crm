@@ -21,6 +21,9 @@ const jFull = (iso: string) => {
   } catch { return ""; }
 };
 const LEVEL_FA: Record<PaLevel, string> = { view: "فقط دیدن", manage: "دیدن و کار کردن" };
+/** «نظم پیگیری تیم» is a settings page: its manage level reads «دیدن و تغییر» (also in the «مدیریت فروش» section list). */
+const CHANGE_PAGES = new Set(["call-queue-discipline"]);
+const levelFa = (page: { key: string }, l: PaLevel) => (l === "manage" && CHANGE_PAGES.has(page.key) ? "دیدن و تغییر" : LEVEL_FA[l]);
 const SCOPE_FA: Record<string, [string, string, string]> = {
   own: ["فقط مشتری‌های خودش", "فقط مشتری‌هایی که مالک‌شان است.", "فقط مشتری‌های خودش"],
   team: ["تیمش", "مشتری‌های تیم فروش خودش.", "مشتری‌های تیمش"],
@@ -135,7 +138,8 @@ export function PageAccessSheet({ page, onClose, initial, sections, onPick, onBa
     : selUsers.length === 1 ? <>{selUsers[0]!.name} <Cid id={selUsers[0]!.id} /></> : <>{fa(selUsers.length)} نفر</>;
   const summary = (): ReactNode => {
     if (mode === "block") { const u = selUsers[0]; return u ? <>صفحه‌ی {page.label} برای {u.name} <Cid id={u.id} /> بسته شود؟ نقش {u.roleName} برای بقیه سر جایش می‌ماند.</> : null; }
-    const verb = level === "view" ? "را فقط می‌بیند" : "را می‌بیند و با آن کار می‌کند";
+    const chg = CHANGE_PAGES.has(page.key);
+    const verb = level === "view" ? "را فقط می‌بیند" : chg ? "را می‌بیند و آن را تغییر می‌دهد" : "را می‌بیند و با آن کار می‌کند";
     const plural = mode === "user" && selUsers.length > 1;
     const v = plural ? verb.replace("می‌بیند", "می‌بینند").replace("می‌کند", "می‌کنند") : verb;
     return <>{who()} صفحه‌ی {page.label} {v}{scopeOn ? `؛ ${SCOPE_FA[scope]![2]}.` : "."}{viewOnly && page.key === "contracts" ? " محتوا و قالب‌ها تغییر نمی‌کنند." : ""}</>;
@@ -144,7 +148,7 @@ export function PageAccessSheet({ page, onClose, initial, sections, onPick, onBa
     const w = mode === "role" ? selRole?.name ?? "" : selUsers.length === 1 ? `${selUsers[0]!.name} #${fa(selUsers[0]!.id)}` : `${fa(selUsers.length)} نفر`;
     if (mode === "block") return `صفحه‌ی ${page.label} برای ${w} بسته شد.`;
     const plural = mode === "user" && selUsers.length > 1;
-    const v = level === "view" ? (plural ? "را فقط می‌بینند" : "را فقط می‌بیند") : (plural ? "را می‌بینند و با آن کار می‌کنند" : "را می‌بیند و با آن کار می‌کند");
+    const v = level === "view" ? (plural ? "را فقط می‌بینند" : "را فقط می‌بیند") : (CHANGE_PAGES.has(page.key) ? (plural ? "را می‌بینند و آن را تغییر می‌دهند" : "را می‌بیند و آن را تغییر می‌دهد") : plural ? "را می‌بینند و با آن کار می‌کنند" : "را می‌بیند و با آن کار می‌کند");
     return `${w} صفحه‌ی ${page.label} ${v}${scopeOn ? `؛ ${SCOPE_FA[scope]![2]}.` : "."}`;
   };
 
@@ -183,9 +187,9 @@ export function PageAccessSheet({ page, onClose, initial, sections, onPick, onBa
 
   let body: ReactNode = null; let foot: ReactNode = null; let sum: ReactNode = null;
   if (page.grantable === "never") {
-    body = <div><div className="pgac-never"><div className="ico"><Lock className="pgac-i" aria-hidden="true" /></div><p>{page.note ?? <>دسترسی این صفحه فقط برای ادمین است و قابل‌اعطا نیست. ادمین و مدیر فروش همیشه این صفحه را می‌بینند و نمی‌توان آن را به نقش یا فرد دیگری داد.</>}</p></div>
+    body = <div><div className={`pgac-never${sections?.length ? " c" : ""}`}><div className="ico"><Lock className="pgac-i" aria-hidden="true" /></div><p>{page.note ?? <>دسترسی این صفحه فقط برای ادمین است و قابل‌اعطا نیست. ادمین و مدیر فروش همیشه این صفحه را می‌بینند و نمی‌توان آن را به نقش یا فرد دیگری داد.</>}</p></div>
       {sections?.length && onPick ? <div className="pgac-sml" data-testid="pa-sections"><div className="pgac-smh">دسترسی بخش‌های این صفحه</div>
-        {sections.map((x) => <button type="button" key={x.key} className="pgac-smb" onClick={() => onPick(x)} data-testid={`pa-section-${x.key}`}><span>{x.label}</span><span className="pgac-sms">{x.grantable === "never" ? "قابل‌اعطا نیست" : x.grantable === "block" ? "فقط بستن برای یک نفر" : x.grantable === "view" ? "فقط دیدن" : "دیدن و تغییر"}</span><ChevronLeft className="pgac-i" aria-hidden="true" /></button>)}
+        {sections.map((x) => <button type="button" key={x.key} className="pgac-smb" onClick={() => onPick(x)} data-testid={`pa-section-${x.key}`}><span>{x.label}</span><span className="pgac-sms">{x.grantable === "never" ? "قابل‌اعطا نیست" : x.grantable === "block" ? "فقط بستن برای یک نفر" : x.grantable === "view" ? "فقط دیدن" : levelFa(x, "manage")}</span><ChevronLeft className="pgac-i" aria-hidden="true" /></button>)}
       </div> : null}</div>;
     foot = onBack ? <><button type="button" className="pgac-btn gh" onClick={onBack}>قبلی</button><button type="button" className="pgac-btn pri" onClick={onClose}>فهمیدم</button></> : <button type="button" className="pgac-btn gh" onClick={onClose}>فهمیدم</button>;
   } else if (view === "status") {
@@ -205,8 +209,8 @@ export function PageAccessSheet({ page, onClose, initial, sections, onPick, onBa
                 <div className="pgac-row" key={r.slug} data-testid={`pa-role-${r.slug}`}>
                   <div className="pgac-who"><b>{r.name} <span className={`pgac-src ${r.grant ? "direct" : "role"}`}>{r.grant ? "اعطا شده" : "پیش‌فرض نقش"}</span></b>
                     <p>{fa(r.members)} نفر · {r.members === 0 ? "کسی در این نقش نیست" : "برای تغییر، یک نفر را مستثنا کن"}</p></div>
-                  {r.grant ? (confirmRow === r.grant.id ? null : <div className="pgac-row-acts"><span className="pgac-lvl">{LEVEL_FA[r.grant.level]}</span><button type="button" className="pgac-btn danger" onClick={() => setConfirmRow(r.grant!.id)}>برداشتن دسترسی</button></div>)
-                    : <div className="pgac-lvl">{LEVEL_FA[r.default ?? "view"]}</div>}
+                  {r.grant ? (confirmRow === r.grant.id ? null : <div className="pgac-row-acts"><span className="pgac-lvl">{levelFa(page, r.grant.level)}</span><button type="button" className="pgac-btn danger" onClick={() => setConfirmRow(r.grant!.id)}>برداشتن دسترسی</button></div>)
+                    : <div className="pgac-lvl">{levelFa(page, r.default ?? "view")}</div>}
                   {r.grant && confirmRow === r.grant.id ? <ConfirmLine text={`برداشتن دسترسی ${r.name} از این صفحه؟`} busy={saving} onNo={() => setConfirmRow(null)} onYes={() => void removeRow(r.grant!.id, r.name, false)} yes="برداشتن" /> : null}
                 </div>
               ))}
@@ -216,13 +220,13 @@ export function PageAccessSheet({ page, onClose, initial, sections, onPick, onBa
             {s.always.map((u) => (
               <div className="pgac-row locked" key={`a${u.id}`}>
                 <div className="pgac-who"><b>{u.name} <Cid id={u.id} /><span className="pgac-src">همیشه</span></b><p>{u.role === "sales_manager" ? "مدیر فروش" : "ادمین"} · این دسترسی برداشته نمی‌شود</p></div>
-                <div className="pgac-lvl">{viewOnly ? LEVEL_FA.view : LEVEL_FA.manage}</div>
+                <div className="pgac-lvl">{viewOnly ? LEVEL_FA.view : levelFa(page, "manage")}</div>
               </div>
             ))}
             {s.users.map((u) => u.kind === "granted" ? (
               <div className="pgac-row" key={`g${u.id}`} data-testid={`pa-user-${u.id}`}>
                 <div className="pgac-who"><b>{u.name} <Cid id={u.id} /><span className="pgac-src direct">اعطا شده</span></b>
-                  <p>اعطا شده توسط {u.by}، {jDay(u.at)} · {u.roleName} · {LEVEL_FA[u.level ?? "view"]}{u.scope ? ` · ${SCOPE_FA[u.scope]?.[2] ?? ""}` : ""}</p></div>
+                  <p>اعطا شده توسط {u.by}، {jDay(u.at)} · {u.roleName} · {levelFa(page, u.level ?? "view")}{u.scope ? ` · ${SCOPE_FA[u.scope]?.[2] ?? ""}` : ""}</p></div>
                 {confirmRow === u.rowId ? <ConfirmLine text={`برداشتن دسترسی ${u.name} از این صفحه؟`} busy={saving} onNo={() => setConfirmRow(null)} onYes={() => void removeRow(u.rowId!, u.name, false)} yes="برداشتن" />
                   : <div className="pgac-row-acts"><button type="button" className="pgac-btn danger" onClick={() => setConfirmRow(u.rowId!)}>برداشتن دسترسی</button></div>}
               </div>
@@ -305,7 +309,7 @@ export function PageAccessSheet({ page, onClose, initial, sections, onPick, onBa
         {saveErr ? <div className="pgac-errbar" role="alert"><TriangleAlert className="pgac-i" aria-hidden="true" /><span>{saveErr}</span></div> : null}
         <div className="pgac-levels" role="radiogroup" aria-label="چه سطحی">
           <LevelBtn on={level === "view"} onClick={() => setLevel("view")} title="فقط دیدن" text={viewOnly ? "محتوا و قالب‌ها تغییر نمی‌کنند. این صفحه فقط برای مشاهده است." : "صفحه باز می‌شود؛ چیزی را تغییر نمی‌دهد."} />
-          {viewOnly ? null : <LevelBtn on={level === "manage"} onClick={() => setLevel("manage")} title="دیدن و کار کردن" text="همان کارهایی که این صفحه برای کارشناس‌ها دارد." testid="pa-level-manage" />}
+          {viewOnly ? null : <LevelBtn on={level === "manage"} onClick={() => setLevel("manage")} title={levelFa(page, "manage")} text="همان کارهایی که این صفحه برای کارشناس‌ها دارد." testid="pa-level-manage" />}
         </div>
         {scopeOn ? <><h3 className="pgac-scope-h">کدام مشتری‌ها؟</h3><div className="pgac-levels" role="radiogroup" aria-label="کدام مشتری‌ها؟">
           {(["own", "team", "all"] as const).map((k) => <LevelBtn key={k} on={scope === k} onClick={() => setScope(k)} title={SCOPE_FA[k]![0]} text={SCOPE_FA[k]![1]} />)}
@@ -403,7 +407,7 @@ function revertOfRevertText(page: PaPageMeta, it: PaHistoryItem): string {
   let summary: string;
   if (prior?.effect === "deny") summary = `صفحه‌ی ${page.label} برای ${it.subjectName} دوباره بسته می‌ماند.`;
   else if (prior?.effect === "allow") {
-    const v = prior.level === "manage" ? "دوباره این صفحه را می‌بیند و با آن کار می‌کند" : "دوباره این صفحه را فقط می‌بیند";
+    const v = prior.level === "manage" ? (CHANGE_PAGES.has(page.key) ? "دوباره این صفحه را می‌بیند و آن را تغییر می‌دهد" : "دوباره این صفحه را می‌بیند و با آن کار می‌کند") : "دوباره این صفحه را فقط می‌بیند";
     const sc = prior.scope ? `؛ ${SCOPE_FA[prior.scope]?.[2] ?? prior.scope}` : "";
     summary = `${who} ${v}${sc}.`;
   } else if (it.result?.effect === "deny") summary = `صفحه برای ${it.subjectName} دوباره باز می‌ماند.`;

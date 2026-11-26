@@ -23,7 +23,7 @@
 .pgac-status-chip:hover{background:var(--pa-brand-100)!important}
 body.pgac-sheet-on .pgac-chiprow{display:none!important}
 .ss-ttl:has(.pgac-chiprow){flex-wrap:wrap;align-content:center;row-gap:0}
-.ss-ttl:has(.pgac-chiprow) > p{flex:1 1 0;min-width:0}
+.ss-ttl:has(.pgac-chiprow) > p{flex:0 1 auto;min-width:0;max-width:100%}
 .ss-ttl:has(.pgac-chiprow) > h1{flex:none}
 
 /* sheet */
@@ -169,3 +169,10 @@ body.pgac-sheet-on .pgac-chiprow{display:none!important}
 .pgac-smb .pgac-i{width:16px;height:16px;color:#667085;flex:none}
 .pgac-back{display:inline-flex;align-items:center;gap:4px;margin-bottom:10px;padding:6px 2px;min-height:36px;border:0!important;background:none!important;font:inherit;font-size:13px;font-weight:600;color:var(--pa-brand-700)!important;cursor:pointer}
 .pgac-back .pgac-i{width:16px;height:16px}
+
+/* phase 2 r2: the section list scrolls inside the sheet body with the button bar fixed below it */
+.pgac-never.c .ico{width:44px;height:44px;margin:0 auto 6px}
+.pgac-never.c p{padding:2px 4px 8px;font-size:14px;line-height:1.7}
+.pgac-sheet:has(.pgac-sml) .pgac-bd{padding-bottom:20px;overscroll-behavior:contain}
+.pgac-sheet:has(.pgac-sml) .pgac-ft{box-shadow:0 -10px 14px -10px rgba(16,24,40,.22)}
+@media (max-width:1023px){.ss-ttl:has(.pgac-chiprow) > h1{flex:0 1 auto;min-width:0}}
