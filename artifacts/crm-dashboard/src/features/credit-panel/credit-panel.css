@@ -166,5 +166,8 @@
   .qcw-who b{font-size:15px}
   .qcw-av{width:40px;height:40px;font-size:13px}
   .qcw-act{position:sticky;bottom:0;z-index:2;margin-top:0;padding:8px 0 4px;background:#fff}
+  /* space under the SMS form so a stuck «بستن» covers the gap, not «انصراف» / the limit line */
+  .qcw-card .cv{padding-bottom:56px}
+
   .qcw-card .cpc{padding:10px 8px}
 }
