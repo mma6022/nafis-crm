@@ -2,6 +2,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { BB_GLYPHS } from './glyphs';
 import { fd, fa } from './api';
+import { formatMobileGrouped } from '@/lib/phone';
 
 export function I({ n, c = '' }: { n: string; c?: string }) {
   return <svg className={`i ${c}`} viewBox="0 0 24 24" aria-hidden="true" dangerouslySetInnerHTML={{ __html: BB_GLYPHS[n] ?? '' }} />;
@@ -18,7 +19,7 @@ export function Cid({ id, toast }: { id: number; toast: (t: string) => void }) {
   return <button className="cid" type="button" aria-label={`شناسه‌ی مشتری ${fd(id)}، کپی`} onClick={(e) => { e.stopPropagation(); copyText(`#${id}`, toast); }}>#{fd(id)}</button>;
 }
 export function Ph({ phone, big, toast }: { phone: string; big?: boolean; toast: (t: string) => void }) {
-  const f = fd(phone);
+  const f = formatMobileGrouped(phone);
   return <span className={`ph${big ? ' big' : ''}`}><a className="phn" href={`tel:${phone}`} dir="ltr">{f}</a>
     <button className="phc" type="button" aria-label={`کپی شماره‌ی ${f}`} onClick={(e) => { e.stopPropagation(); copyText(phone, toast); }}><I n="copy" />{big ? <span>کپی</span> : null}</button></span>;
 }

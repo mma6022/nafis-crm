@@ -2,6 +2,7 @@
    flag.bale_workspace_v1 OFF → /me answers 404 → useBwsMe() = null → nothing here renders and nothing else polls. */
 import { useQuery } from '@tanstack/react-query';
 import { bbFetch } from '@/features/bale-bot/api';
+import { formatMobileGrouped } from '@/lib/phone';
 
 export type BwsMe = { on: true; userId: number; canManage: boolean; inbox: 'all' | 'own' | null; isExpert: boolean; noBaleText: string };
 export type BwsInvite = { id: number; at: string; bale: 'queued' | 'sent' | 'no_bale' | 'not_connected' | 'blocked' | 'failed'; sms: 'sent' | 'failed' | 'not_configured' | 'disabled'; by: string | null; error: string | null; line: string | null };
@@ -49,7 +50,7 @@ export function jDate(iso: string | null | undefined, withTime = true) {
   return withTime ? `${day}، ${d.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tehran' })}` : day;
 }
 /** «۰۹۱۲ ۸۰۶ ۴۱۵۰» — full number, grouped, always LTR. */
-export const phoneFa = (p: string | null | undefined) => { const s = String(p ?? '').replace(/\D/g, ''); return s.length === 11 ? fd(`${s.slice(0, 4)} ${s.slice(4, 7)} ${s.slice(7)}`) : fd(s); };
+export const phoneFa = (p: string | null | undefined) => formatMobileGrouped(String(p ?? ''));
 const ERR: Record<string, string> = {
   not_linked: 'این گفتگو هنوز به پرونده وصل نیست.', no_plans: 'طرحی با شرایط ثبت‌شده انتخاب نشده است.', no_send: 'ارسال از این ربات بسته است.',
   rate_limited: 'دعوت همین الان فرستاده شد؛ یک دقیقه بعد دوباره امتحان کنید.', no_phone: 'شماره‌ی موبایل مشتری ثبت نشده است.',
