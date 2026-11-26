@@ -14,7 +14,7 @@ const ctx = r("features/bale-workspace/Context.tsx");
 ok(/<CreditCard key=\{`bws-cp-\$\{c\.customer\.id\}`\} customerId=\{c\.customer\.id\} wizard \/>/.test(ctx), "Bale «اعتبار» pane opens the card in wizard mode");
 const card = r("features/credit-panel/CreditCard.tsx");
 ok(/const viaWizard = Boolean\(wizard && me\.data\?\.icc\)/.test(card) && /if \(viaWizard\) setWizOpen\(true\)/.test(card), "wizard only for experts with «اعتبارسنجی فوری»; others keep the old card");
-ok(card.includes('data-testid="cp-icc-off"') && card.includes("اعتبارسنجی اعتباریتو برای شما فعال نیست"), "ICC off → explicit sentence, never a silent skip");
+ok(card.includes('data-testid="cp-icc-off"') && card.includes("اعتبارسنجی سریع برای شما فعال نیست"), "ICC off → explicit sentence, never a silent skip");
 ok(card.includes('data-testid="cp-rank-at"') && /wizard && rank/.test(card), "saved rank carries its date in the wizard card");
 const walk = (d) => readdirSync(new URL(`../src/${d}`, import.meta.url), { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(`${d}/${e.name}`) : /\.tsx$/.test(e.name) ? [`${d}/${e.name}`] : []);
 const users = walk(".").filter((f) => /<CreditCard\b[^>]*\bwizard\b/.test(r(f)));
@@ -30,5 +30,6 @@ ok(!/کد یک‌بارمصرف ICS24/.test(ic) && ic.includes("کد یک‌با
 ok(ic.includes("formatMobileGrouped(phone)") && ic.includes('data-testid="cv-otp-phone"'), "step 3 phone uses the 4-3-4 header grouping");
 ok(formatMobileGrouped("09125550017") === "۰۹۱۲ ۵۵۵ ۰۰۱۷" && formatMobileGrouped("9125550017") === "۰۹۱۲ ۵۵۵ ۰۰۱۷", "4-3-4 groups match the Bale header sample");
 ok(ic.includes('data-testid="cv-reused-badge"') && ic.includes("قدیمی، {fmtDateTime(c.completedAt)}"), "reused result block also shows «قدیمی» and the date");
+ok(ic.includes("از نتیجه‌ی قبلی استفاده شد") && ic.includes("c.reused ? 'از نتیجه‌ی قبلی استفاده شد'"), "reused result says it used the previous result, not that it was just saved");
 ok(ctx.includes("callResultFa") && ctx.includes("answered: 'جواب داد'"), "Bale call history translates «answered» to Persian");
 console.log(`t943 UI fixture ${n}/${n}`);

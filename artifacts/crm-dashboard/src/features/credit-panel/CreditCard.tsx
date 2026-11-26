@@ -102,7 +102,7 @@ export function CreditCard({ customerId, detailOpen, wizard, hideRank, noNew }: 
         : v.customer.hasNationalCode ? <button type="button" className="btn pri cpc-new" disabled={Boolean(busy)} onClick={onNew} data-testid="cp-new">
         {busy === "all" ? "در حال استعلام…" : any ? "استعلام جدید" : "استعلام"}</button> : null}
     </div>
-    {wizard && !noNew && me.data && !me.data.icc ? <p className="cpc-empty" data-testid="cp-icc-off">رتبه‌ی اعتباری فقط با کد پیامکی مشتری گرفته می‌شود و اعتبارسنجی اعتباریتو برای شما فعال نیست؛ از مدیر بخواه روشنش کند. «استعلام جدید» فقط چک و وام را به‌روز می‌کند.</p> : null}
+    {wizard && !noNew && me.data && !me.data.icc ? <p className="cpc-empty" data-testid="cp-icc-off">رتبه‌ی اعتباری فقط با کد پیامکی مشتری گرفته می‌شود و اعتبارسنجی سریع برای شما فعال نیست؛ از مدیر بخواه روشنش کند. «استعلام» فقط چک و وام را به‌روز می‌کند.</p> : null}
     {ask ? <div className="cpc-ask" role="group" aria-label="استعلام تازه" data-testid="cp-ask">
       <span>استعلام قبلی هنوز معتبر است. استعلام تازه گرفته شود؟</span>
       <div className="cpc-ask-b"><button type="button" className="btn gh" onClick={() => setAsk(false)} data-testid="cp-ask-no">انصراف</button>

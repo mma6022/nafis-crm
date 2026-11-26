@@ -165,6 +165,6 @@
   .qcw-who{padding:8px 10px;gap:8px}
   .qcw-who b{font-size:15px}
   .qcw-av{width:40px;height:40px;font-size:13px}
-  .qcw-act{margin-top:0}
+  .qcw-act{position:sticky;bottom:0;z-index:2;margin-top:0;padding:8px 0 4px;background:#fff}
   .qcw-card .cpc{padding:10px 8px}
 }
