@@ -142,3 +142,12 @@
 .cpc-loans-hd{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px}
 .cpc-loans-hd h4{margin:0;font-size:14px;font-weight:800;color:var(--cp-ink)}
 .cpc-loans-chips{display:flex;flex-wrap:wrap;gap:6px}
+
+/* t943: «اعتبارسنجی سریع» step wizard in the Bale chat — old result row (dated), hint line, rank date under the rank tile. */
+.qcw-old{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border:1px dashed var(--cp-line2);border-radius:14px;background:#fff}
+.qcw-old b{font-size:13px;font-weight:700;color:var(--cp-muted)}
+.qcw-old span{font-size:14px;font-weight:700;color:var(--cp-ink);line-height:1.8}
+.qcw-old em{font-style:normal;font-weight:600;color:var(--cp-g700)}
+.qcw-hint{margin:0;font-size:13px;font-weight:600;color:var(--cp-muted);line-height:1.8}
+.cpc-rank-at{margin-top:4px;text-align:center;line-height:1.5}
+.cpc-err .btn{margin-inline-start:8px;min-height:36px}
