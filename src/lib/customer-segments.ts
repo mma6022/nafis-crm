@@ -106,6 +106,11 @@ const tableOk = (name: string): boolean => {
   catch { return false; }
 };
 
+const colOk = (table: string, col: string): boolean => {
+  try { return queryRows<{ name: string }>(`PRAGMA table_info(${table})`).some((r) => r.name === col); }
+  catch { return false; }
+};
+
 export function ensureExportAuditSchema(): void {
   execute(`CREATE TABLE IF NOT EXISTS ${EXPORT_AUDIT_TABLE} (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -275,9 +280,10 @@ export const FIELDS: FieldCatalog[] = [
   { key: "checkStatus", label: "وضعیت چک مشتری", group: "cheque", type: "enum", ops: ["in", "exists", "not_exists"], options: opt(LABELS.checkStatus) },
   { key: "canPromissory", label: "می‌تواند سفته بدهد", group: "cheque", type: "yn", ops: ["in", "exists", "not_exists"], options: opt(LABELS.yn) },
 
-  { key: "creditRank", label: "رتبه اعتباری (ادغام‌شده)", group: "credit", type: "enum", ops: ["in", "exists", "not_exists"], defaultColumn: true },
-  { key: "creditRankFile", label: "رتبه در پرونده / استعلام", group: "credit", type: "enum", ops: ["in", "exists", "not_exists"] },
-  { key: "creditRankSite", label: "رتبه در فرم سایت", group: "credit", type: "enum", ops: ["in", "exists", "not_exists"] },
+  { key: "creditRankAny", label: "رتبه اعتباری (هر فرم یا استعلام)", group: "credit", type: "multi_enum", ops: ["in", "range", "exists", "not_exists"], description: "اگر در هر جا (استعلام اعتبار، پرونده، تماس اول، فرم مشاوره، فرم سایت، ثبت‌کننده) این رتبه ثبت شده باشد" },
+  { key: "creditRank", label: "رتبه اعتباری (ادغام‌شده)", group: "credit", type: "enum", ops: ["in", "range", "exists", "not_exists"], defaultColumn: true, description: "فقط یک رتبه: اولین مقدار موجود به ترتیب پرونده، تماس اول، مشاوره، سایت" },
+  { key: "creditRankFile", label: "رتبه در پرونده / استعلام", group: "credit", type: "enum", ops: ["in", "range", "exists", "not_exists"] },
+  { key: "creditRankSite", label: "رتبه در فرم سایت", group: "credit", type: "enum", ops: ["in", "range", "exists", "not_exists"] },
   { key: "creditScore", label: "امتیاز اعتباری", group: "credit", type: "number", ops: ["range", "exists", "not_exists"] },
 
   { key: "amountToman", label: "مبلغ دقیق (تومان)", group: "need", type: "number", ops: ["range", "exists", "not_exists"] },
@@ -292,7 +298,7 @@ export const FIELDS: FieldCatalog[] = [
   { key: "docsReady", label: "وضعیت مدارک", group: "docs", type: "enum", ops: ["in", "exists", "not_exists"], options: opt(LABELS.docsReady) },
   { key: "guarantorAvailable", label: "ضامن دارد", group: "docs", type: "enum", ops: ["in", "exists", "not_exists"], options: [{ value: "yes", label: "بله" }, { value: "no", label: "خیر" }, { value: "unknown", label: "نامشخص" }] },
   { key: "guarantorJob", label: "شغل ضامن", group: "docs", type: "enum", ops: ["in", "exists", "not_exists"], options: opt({ ...LABELS.job, ...LABELS.jobRaw }) },
-  { key: "guarantorRank", label: "رتبه ضامن", group: "docs", type: "enum", ops: ["in", "exists", "not_exists"] },
+  { key: "guarantorRank", label: "رتبه ضامن", group: "docs", type: "enum", ops: ["in", "range", "exists", "not_exists"] },
   { key: "guarantorCheque", label: "چک ضامن", group: "docs", type: "enum", ops: ["in", "exists", "not_exists"], options: [{ value: "yes", label: "بله" }, { value: "no", label: "خیر" }, { value: "unknown", label: "نامشخص" }] },
 
   { key: "hasSiteApply", label: "فرم ثبت درخواست سایت دارد", group: "site", type: "yn", ops: ["in"], options: opt(LABELS.yn) },
@@ -326,6 +332,8 @@ export type SegmentQuery = {
   source: SourceMode;
   includeUnlinkedLeads?: boolean;
   conditions: Condition[];
+  /** t963: "all" (default) = every active condition (AND); "any" = at least one active condition (OR). */
+  match?: "all" | "any";
   columns?: string[];
 };
 
@@ -368,6 +376,10 @@ export type Profile = {
   creditRank: string;
   creditRankFile: string;
   creditRankSite: string;
+  /** t963: every rank stored anywhere (ICS24 check, customer, dossier, first call, consult, site, intake, repeat). */
+  creditRankAny: string[];
+  creditRankAnyFile: string[];
+  creditRankAnySite: string[];
   creditScore: string;
   amountToman: string;
   amountRange: string;
@@ -417,7 +429,7 @@ function emptyProfile(): Profile {
     leadSource: "", registrationSource: "", verificationStatus: "", createdAt: "", registeredAt: "",
     job: "", jobRaw: "", jobFile: "", jobSite: "", ssoRetiree: "", canReferRetiree: "", canReferRetireeFile: "",
     canReferRetireeSite: "", military: "", bounced: "", bouncedAny: "", bouncedFile: "", bouncedSite: "",
-    arrears: "", checkStatus: "", canPromissory: "", creditRank: "", creditRankFile: "", creditRankSite: "",
+    arrears: "", checkStatus: "", canPromissory: "", creditRank: "", creditRankFile: "", creditRankSite: "", creditRankAny: [], creditRankAnyFile: [], creditRankAnySite: [],
     creditScore: "", amountToman: "", amountRange: "", amountMillion: "", loanPurpose: "", needTiming: "",
     need: "", contactTime: "", documents: [], docsReady: "", guarantorAvailable: "", guarantorJob: "",
     guarantorRank: "", guarantorCheque: "", hasSiteApply: "no", hasPublicLead: "no", hasCallback: "no",
@@ -476,6 +488,36 @@ export function creditLabel(v: string | null | undefined): string {
   return raw;
 }
 
+export const RANK_FIELD_KEYS = ["creditRankAny", "creditRank", "creditRankFile", "creditRankSite", "guarantorRank"] as const;
+export const isRankField = (key: string): boolean => (RANK_FIELD_KEYS as readonly string[]).includes(key);
+const RANK_ORDER = ["A", "B", "C", "D", "E"].flatMap((l) => [1, 2, 3].map((n) => `${l}${n}`));
+
+/** A stored/entered rank → A1…E3, a bare legacy letter A…E, "unknown", or "" when it is not a rank. */
+export function normRank(v: unknown): string {
+  const raw = str(v);
+  if (!raw) return "";
+  if (/^unknown$/i.test(raw) || raw === "نمی‌داند") return "unknown";
+  const u = raw.toUpperCase();
+  return /^[A-E][1-3]?$/.test(u) ? u : "";
+}
+/** Position span in A1(0)…E3(14). A bare letter spans its three sub-grades. unknown / junk → null. */
+export function rankSpan(v: unknown): [number, number] | null {
+  const r = normRank(v);
+  if (!r || r === "unknown") return null;
+  if (r.length === 1) { const i = RANK_ORDER.indexOf(`${r}1`); return [i, i + 2]; }
+  const i = RANK_ORDER.indexOf(r);
+  return i < 0 ? null : [i, i];
+}
+/** Sorted, de-duplicated ranks; «unknown» only when nothing better exists. */
+function collectRanks(parts: unknown[]): string[] {
+  const set = new Set<string>();
+  for (const v of parts) { const r = normRank(v); if (r) set.add(r); }
+  const real = [...set].filter((r) => r !== "unknown");
+  if (!real.length) return set.has("unknown") ? ["unknown"] : [];
+  const pos = (r: string) => (r.length === 1 ? RANK_ORDER.indexOf(`${r}1`) + 1.5 : RANK_ORDER.indexOf(r));
+  return real.sort((a, b) => pos(a) - pos(b));
+}
+
 function creditOptions(): Array<{ value: string; label: string }> {
   const letters = ["A", "B", "C", "D", "E"];
   const out: Array<{ value: string; label: string }> = [];
@@ -495,7 +537,7 @@ export function fieldCatalog(): { groups: typeof FIELD_GROUPS; fields: FieldCata
     if (f.key === "ownerId") return { ...f, options: owners };
     if (f.key === "tags") return { ...f, options: tags.map((t) => ({ value: t.tag, label: t.label })) };
     if (f.key === "city") return { ...f, options: cities };
-    if (f.key === "creditRank" || f.key === "creditRankFile" || f.key === "creditRankSite" || f.key === "guarantorRank") {
+    if (isRankField(f.key)) {
       return { ...f, options: creditOptions() };
     }
     return f;
@@ -531,6 +573,7 @@ export type FieldValues = {
 function labelForStored(key: string, value: string): string {
   const p = emptyProfile();
   if (key === "tags") { p.tags = [value]; p.tagLabels = []; }
+  else if (key === "creditRankAny") p.creditRankAny = [value];
   else if (key === "documents") p.documents = [value];
   else if (key === "ownerId") {
     p.ownerId = value;
@@ -541,6 +584,21 @@ function labelForStored(key: string, value: string): string {
   }
   const shown = displayValue(key, p);
   return shown || value;
+}
+
+/** t963: the full A1…E3 grid (plus bare letters and «نامشخص») with counts that use the same matching as the filter. */
+function rankValueOptions(rows: Profile[], key: string): ValueOpt[] {
+  const codes: string[] = [];
+  for (const l of ["A", "B", "C", "D", "E"]) codes.push(l, `${l}1`, `${l}2`, `${l}3`);
+  codes.push("unknown");
+  const out: ValueOpt[] = [];
+  for (const value of codes) {
+    const cond: Condition = { field: key, op: "in", values: [value] };
+    const count = rows.reduce((n, p) => n + (matchesCondition(p, cond) ? 1 : 0), 0);
+    if (value === "unknown" && !count) continue;
+    out.push({ value, label: labelForStored(key, value), count });
+  }
+  return out;
 }
 
 /** Distinct values + counts for the value picker. Respects source and actor scope. Never lists phone/national/name. */
@@ -599,6 +657,7 @@ export function fieldValues(
         .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "fa"))
         .slice(0, 200),
     };
+    if (isRankField(field.key)) rec.values = rankValueOptions(rows, field.key);
     if (field.type === "number" && nums.length) {
       rec.min = Math.min(...nums);
       rec.max = Math.max(...nums);
@@ -621,10 +680,11 @@ export function loadProfiles(): Profile[] {
     status: string | null; priority: number | null; is_urgent: number | null; salesperson_id: number | null;
     salesperson_name: string | null; lead_source: string | null; registration_source: string | null;
     verification_status: string | null; created_at: string | null; registered_at: string | null;
-    credit_rank: string | null; credit_score: number | null;
+    credit_rank: string | null; credit_score: number | null; intake_credit_rank: string | null;
   }>(`SELECT c.id, c.name, c.phone, c.national_code, c.city, c.status, c.priority, c.is_urgent,
       c.salesperson_id, s.name AS salesperson_name, c.lead_source, c.registration_source,
-      c.verification_status, c.created_at, c.registered_at, c.credit_rank, c.credit_score
+      c.verification_status, c.created_at, c.registered_at, c.credit_rank, c.credit_score,
+      ${colOk("customers", "intake_credit_rank") ? "c.intake_credit_rank" : "NULL"} AS intake_credit_rank
     FROM customers c LEFT JOIN salespersons s ON s.id = c.salesperson_id
     WHERE c.merged_into_customer_id IS NULL`);
 
@@ -714,6 +774,21 @@ export function loadProfiles(): Profile[] {
     slot[r.item_key] = v;
     csBy.set(id, slot);
   }
+
+  // t963: every other place a customer rank is stored (read-only).
+  const checkRows = tableOk("customer_credit_checks") && colOk("customer_credit_checks", "score_label")
+    ? queryRows<{ customer_id: number; score_label: string | null }>(
+      `SELECT customer_id, score_label FROM customer_credit_checks
+       WHERE status='report_generated' AND score_label IS NOT NULL AND TRIM(score_label)<>''
+       ORDER BY created_at DESC, id DESC`)
+    : [];
+  const checkBy = latestByCustomer(checkRows);
+  const repeatRows = tableOk("customer_repeat_requests") && colOk("customer_repeat_requests", "intake_credit_rank")
+    ? queryRows<{ customer_id: number; intake_credit_rank: string | null }>(
+      `SELECT customer_id, intake_credit_rank FROM customer_repeat_requests
+       WHERE intake_credit_rank IS NOT NULL AND TRIM(intake_credit_rank)<>'' ORDER BY id DESC`)
+    : [];
+  const repeatBy = latestByCustomer(repeatRows);
 
   const out: Profile[] = [];
   for (const c of customers) {
@@ -859,6 +934,14 @@ export function loadProfiles(): Profile[] {
     ]);
     p.creditRank = cr.value;
     if (cr.source) p.sources.creditRank = cr.source;
+    // t963 «هر فرم یا استعلام»: a customer has every rank that any source holds.
+    const fileRanks: unknown[] = [
+      c.credit_rank, checkBy.get(Number(c.id))?.score_label, d?.credit_rank, q?.creditRank, cs.creditRank,
+      cf?.credit_rank, c.intake_credit_rank, repeatBy.get(Number(c.id))?.intake_credit_rank,
+    ];
+    p.creditRankAnyFile = collectRanks(fileRanks);
+    p.creditRankAnySite = collectRanks([site?.credit_rank]);
+    p.creditRankAny = collectRanks([...fileRanks, site?.credit_rank]);
 
     if (d?.amount_toman != null) { p.amountToman = String(d.amount_toman); p.sources.amountToman = "dossier"; }
     else if (cf?.requested_amount_toman != null) { p.amountToman = String(cf.requested_amount_toman); p.sources.amountToman = "consult"; }
@@ -939,6 +1022,7 @@ function profileForSource(p: Profile, source: SourceMode): Profile {
     q.canReferRetiree = p.canReferRetireeSite;
     q.bounced = p.bouncedSite;
     q.creditRank = p.creditRankSite || p.creditRank;
+    q.creditRankAny = p.creditRankAnySite;
     return q;
   }
   const q = { ...p, sources: { ...p.sources } };
@@ -947,6 +1031,7 @@ function profileForSource(p: Profile, source: SourceMode): Profile {
   q.canReferRetiree = p.canReferRetireeFile;
   q.bounced = p.bouncedFile;
   q.creditRank = p.creditRankFile;
+  q.creditRankAny = p.creditRankAnyFile;
   return q;
 }
 
@@ -993,6 +1078,11 @@ export function matchesCondition(p: Profile, c: Condition): boolean {
   if (c.op === "in") {
     const set = new Set((c.values ?? []).map(String));
     if (!set.size) return true;
+    if (isRankField(field.key)) {
+      // credit rank: a picked bare letter (A) also matches A1–A3
+      const vals = (Array.isArray(raw) ? raw : [raw]).map((v) => String(v ?? ""));
+      return vals.some((v) => set.has(v) || (/^[A-E][1-3]$/.test(v) && set.has(v[0])));
+    }
     if (Array.isArray(raw)) return raw.some((v) => set.has(String(v)));
     // credit rank: letter A matches A1–A3 too when the user picked a bare letter
     const val = String(raw ?? "");
@@ -1008,6 +1098,16 @@ export function matchesCondition(p: Profile, c: Condition): boolean {
       if (want.has(canonCity(val) || val)) return true;
     }
     return false;
+  }
+  if (c.op === "range" && isRankField(field.key)) {
+    // t963 rank range A1…E3 (best → worst); a bare stored letter counts when its A1–A3 span overlaps.
+    const lo = rankSpan(c.min)?.[0] ?? 0;
+    const hi = rankSpan(c.max)?.[1] ?? RANK_ORDER.length - 1;
+    if (rankSpan(c.min) == null && rankSpan(c.max) == null) return true;
+    return (Array.isArray(raw) ? raw : [raw]).some((v) => {
+      const s = rankSpan(v);
+      return s != null && s[1] >= lo && s[0] <= hi;
+    });
   }
   if (c.op === "range") {
     const n = num(raw);
@@ -1028,6 +1128,16 @@ export function matchesCondition(p: Profile, c: Condition): boolean {
     return true;
   }
   return true;
+}
+
+/** A condition with nothing picked yet does not filter (hint «چیزی انتخاب نشده؛ همه می‌آیند»), in both AND and OR. */
+export function conditionActive(c: Condition): boolean {
+  if (c.op === "exists" || c.op === "not_exists" || c.op === "eq") return true;
+  if (c.op === "in") return (c.values ?? []).some((v) => str(v) !== "");
+  if (c.op === "contains") return str(c.values?.[0]) !== "";
+  const has = (v: unknown) => v != null && String(v).trim() !== "";
+  if (c.op === "range" && isRankField(c.field)) return rankSpan(c.min) != null || rankSpan(c.max) != null;
+  return has(c.min) || has(c.max);
 }
 
 export function parseQuery(body: unknown): SegmentQuery {
@@ -1052,19 +1162,19 @@ export function parseQuery(body: unknown): SegmentQuery {
     });
   }
   const columns = Array.isArray(b.columns) ? (b.columns as unknown[]).map(String).filter((k) => FIELDS.some((f) => f.key === k)) : undefined;
-  return { source, includeUnlinkedLeads: b.includeUnlinkedLeads !== false, conditions, columns };
+  const match: "all" | "any" = b.match === "any" ? "any" : "all";
+  return { source, includeUnlinkedLeads: b.includeUnlinkedLeads !== false, conditions, match, columns };
 }
 
 export function filterProfiles(all: Profile[], q: SegmentQuery, scope: ActorScope = { kind: "all" }): Profile[] {
   const includeUnlinked = q.includeUnlinkedLeads !== false && scope.kind === "all";
   const out: Profile[] = [];
+  const active = q.conditions.filter(conditionActive);
   for (const raw of applyActorScope(all, scope)) {
     if (!sourceEligible(raw, q.source, includeUnlinked)) continue;
     const p = profileForSource(raw, q.source);
-    let ok = true;
-    for (const c of q.conditions) {
-      if (!matchesCondition(p, c)) { ok = false; break; }
-    }
+    if (!active.length) { out.push(p); continue; }
+    const ok = q.match === "any" ? active.some((c) => matchesCondition(p, c)) : active.every((c) => matchesCondition(p, c));
     if (ok) out.push(p);
   }
   out.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "") || (b.customerId ?? 0) - (a.customerId ?? 0));
@@ -1086,7 +1196,8 @@ export function displayValue(key: string, p: Profile, opts?: { phones?: boolean;
   if (key === "documents") return p.documents.map((d) => LABELS.docs[d] || d).join("، ");
   if (key === "ownerId") return p.ownerName || p.ownerId;
   if (key === "customerId") return p.customerId != null ? String(p.customerId) : "";
-  if (key === "creditRank" || key === "creditRankFile" || key === "creditRankSite" || key === "guarantorRank") {
+  if (isRankField(key)) {
+    if (Array.isArray(raw)) return raw.map((v) => creditLabel(str(v))).join("، ");
     return creditLabel(str(raw));
   }
   if (Array.isArray(raw)) return raw.map(String).join("، ");
@@ -1205,7 +1316,7 @@ export function exportXlsx(q: SegmentQuery, actor: AuthUser, includePhones: bool
       actor.id,
       actor.fullName || actor.username,
       actor.baseRole || actor.role,
-      JSON.stringify({ source: q.source, includeUnlinkedLeads: q.includeUnlinkedLeads !== false, conditions: q.conditions, scope: scope.kind }),
+      JSON.stringify({ source: q.source, includeUnlinkedLeads: q.includeUnlinkedLeads !== false, conditions: q.conditions, match: q.match === "any" ? "any" : "all", scope: scope.kind }),
       JSON.stringify(unique),
       all.length,
       includePhones ? 1 : 0,
