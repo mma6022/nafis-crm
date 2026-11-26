@@ -23,7 +23,7 @@ export function FileBlock({ c }: { c: Full }) {
  *  «آخرین استعلام: X روز پیش» and its own «استعلام جدید». Without it: the short summary the customer file already has. */
 export function CreditBlock({ c }: { c: Full; toast?: (t: string) => void }) {
   const k = c.credit;
-  if (k.panel) return <div className="bws-blk bws-cp" data-testid="bws-credit-panel"><CreditCard key={`bws-cp-${c.customer.id}`} customerId={c.customer.id} /></div>;
+  if (k.panel) return <div className="bws-blk bws-cp" data-testid="bws-credit-panel"><CreditCard key={`bws-cp-${c.customer.id}`} customerId={c.customer.id} wizard /></div>;
   return <section className="bws-blk" aria-label="اعتبارسنجی"><h3>اعتبارسنجی</h3>
     <div className="bws-chips">
       {k.grade ? <span className="bws-chip">رتبه {fd(k.grade)}</span> : <span className="bws-chip mut">رتبه ثبت نشده</span>}

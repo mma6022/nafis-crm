@@ -12,11 +12,9 @@ import { InstantCreditCheck } from "@/features/team-sales/InstantCreditCheck";
 import { CreditCard } from "./CreditCard";
 import { CpError, fa, runInquiry, useCpMe, useCpView } from "./api";
 import { useMissingFields } from "./MissingFields";
+import { Av } from "./Av";
 
 const STEPS = ["انتخاب مشتری", "تکمیل نواقص", "تأیید و اجرا"];
-// Avatar letters: one element per letter in an RTL flex row, so the first name's letter is always on the right («یاسین غرقی» → «ی غ» read from the right).
-const initials = (name: string) => name.replace(/^(آقای|خانم)\s+/, "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]);
-const Av = ({ name }: { name: string }) => <span className="qcw-av" aria-hidden="true" dir="rtl" data-testid="qcw-av">{initials(name).map((l, i) => <i key={i}>{l}</i>)}</span>;
 // Search box shows Persian digits while typing; the query sent to the list API keeps Latin digits (same request as before).
 const LAT = "0123456789", PER = "۰۱۲۳۴۵۶۷۸۹", ARB = "٠١٢٣٤٥٦٧٨٩";
 const toFaDigits = (s: string) => s.replace(/[0-9٠-٩]/g, (d) => PER[LAT.indexOf(d) >= 0 ? LAT.indexOf(d) : ARB.indexOf(d)]);

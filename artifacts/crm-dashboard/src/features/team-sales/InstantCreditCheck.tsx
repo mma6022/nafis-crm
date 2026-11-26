@@ -28,12 +28,12 @@ export function maskNationalCode(raw: string): string {
 const RECENT_DAYS = 30;
 const POLL_MS = 3000, POLL_MAX = 20;
 const RESEND_AFTER_S = 120, OTP_TRIES = 5; // server caps: 5 code tries and 3 resends per inquiry
-type St = 'init' | 'idle' | 'starting' | 'otp' | 'verifying' | 'processing' | 'result' | 'error' | 'blocked';
+export type St = 'init' | 'idle' | 'starting' | 'otp' | 'verifying' | 'processing' | 'result' | 'error' | 'blocked';
 
 /** credit-panel v1 (flag.credit_panel_v1) only: hideRecent — the credit card shows the saved rank itself; initialConsent + autoStart — the quick wizard's
  *  step 3 already took the customer's consent, so the inquiry starts as soon as the code on file is loaded. All three absent = today's behaviour. */
-export function InstantCreditCheck({ customerId, onRank, embedded, hideRecent, initialConsent, autoStart }: { customerId: number; onRank?: (rank: string) => void; embedded?: boolean;
-  hideRecent?: boolean; initialConsent?: boolean; autoStart?: boolean }) {
+export function InstantCreditCheck({ customerId, onRank, embedded, hideRecent, initialConsent, autoStart, onPhase }: { customerId: number; onRank?: (rank: string) => void; embedded?: boolean;
+  hideRecent?: boolean; initialConsent?: boolean; autoStart?: boolean; onPhase?: (phase: St) => void }) {
   const [st, setSt] = useState<St>('init');
   const [fileNid, setFileNid] = useState<string | null>(null);
   const [nid, setNid] = useState('');
@@ -55,6 +55,8 @@ export function InstantCreditCheck({ customerId, onRank, embedded, hideRecent, i
   const [left, setLeft] = useState(0);
   const [expired, setExpired] = useState(false);
   const alive = useRef(true);
+  const phaseCb = useRef(onPhase); phaseCb.current = onPhase;
+  useEffect(() => { phaseCb.current?.(st); }, [st]); // t943: lets the Bale step wizard follow consent → SMS code → result
   const otpRef = useRef<HTMLInputElement>(null);
   useEffect(() => () => { alive.current = false; }, []);
   useEffect(() => { // resend countdown (v1.0.4 scene 24/25)
@@ -134,7 +136,7 @@ export function InstantCreditCheck({ customerId, onRank, embedded, hideRecent, i
     try {
       const c = await startCreditCheck(customerId, code);
       if (c.status === 'awaiting_otp') { setConsentAt(new Date().toISOString()); enterOtp(c); return; }
-      if (c.reused) setNote('نتیجه‌ی ۲۴ ساعت اخیر همین مشتری؛ استعلام تازه فرستاده نشد.');
+      if (c.reused) setNote(`این نتیجه‌ی قبلی مشتری است${c.completedAt ? ` (${fmtDateTime(c.completedAt)})` : ''}؛ چون کمتر از ۲۴ ساعت از آن گذشته، استعلام تازه و کد پیامکی فرستاده نشد.`);
       finish(c);
     } catch (e) {
       const ex = e as TeamSalesApiError;

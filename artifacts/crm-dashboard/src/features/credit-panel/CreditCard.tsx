@@ -10,6 +10,7 @@ import { InstantCreditCheck } from "@/features/team-sales/InstantCreditCheck";
 import { agoFa, compactJalali, CpError, fa, jalaliDateTime, maskAccount, runInquiry, toman, useCpMe, useCpView,
   type Cheque, type CpPart, type CpView } from "./api";
 import { useMissingFields } from "./MissingFields";
+import { ScoreWizard } from "./ScoreWizard";
 
 const GRADES = ["A", "B", "C", "D", "E"];
 const COLOURS: Record<string, number> = { "سفید": 1, "زرد": 2, "نارنجی": 3, "قهوه‌ای": 4, "قهوه ای": 4, "قرمز": 5 };
@@ -48,7 +49,9 @@ function PartFail({ onRetry, busy, detail }: { onRetry: () => void; busy: boolea
     <button type="button" className="btn gh" disabled={busy} onClick={onRetry}>تلاش دوباره</button></div>;
 }
 
-export function CreditCard({ customerId, detailOpen }: { customerId: number; detailOpen?: boolean }) {
+/** t943: wizard = «اعتبارسنجی سریع» (Bale chat) opens the 4-step SMS-code wizard (ScoreWizard) instead of the debt-only «استعلام جدید», and dates the saved rank;
+ *  hideRank / noNew = the wizard's own result step (rank is already shown above, the wizard's button replaces «استعلام جدید»). All three absent = today's card. */
+export function CreditCard({ customerId, detailOpen, wizard, hideRank, noNew }: { customerId: number; detailOpen?: boolean; wizard?: boolean; hideRank?: boolean; noNew?: boolean }) {
   const qc = useQueryClient();
   const me = useCpMe();
   const q = useCpView(customerId);
@@ -56,6 +59,7 @@ export function CreditCard({ customerId, detailOpen }: { customerId: number; det
   const [busy, setBusy] = useState<false | "all" | CpPart>(false);
   const [err, setErr] = useState("");
   const [scoreOpen, setScoreOpen] = useState(false);
+  const [wizOpen, setWizOpen] = useState(false);
   const [openCheques, setOpenCheques] = useState<Record<number, boolean>>(() => (detailOpen ? { 0: true } : {}) as Record<number, boolean>);
   const [showAll, setShowAll] = useState(Boolean(detailOpen));
   const v = q.data;
@@ -72,7 +76,8 @@ export function CreditCard({ customerId, detailOpen }: { customerId: number; det
       else { setErr(ex.message); if (ex.body?.view) put({ ...ex.body.view, customer: v!.customer }); }
     } finally { setBusy(false); }
   };
-  const onNew = () => { if (v?.valid) setAsk(true); else void run({ confirmFresh: false }); };
+  const viaWizard = Boolean(wizard && me.data?.icc);
+  const onNew = () => { if (viaWizard) setWizOpen(true); else if (v?.valid) setAsk(true); else void run({ confirmFresh: false }); };
 
   if (q.isLoading || !v) {
     return <section className="cpc" aria-busy="true" aria-label="اعتبارسنجی" data-testid="cp-card"><div className="cpc-hd"><h3>اعتبارسنجی</h3></div>
@@ -93,24 +98,27 @@ export function CreditCard({ customerId, detailOpen }: { customerId: number; det
       {any ? (v.valid
         ? <span className="cpc-badge ok" data-testid="cp-valid">{v.validUntil ? `معتبر تا ${jalaliDateTime(v.validUntil)}` : "همیشه معتبر"}</span>
         : <span className="cpc-badge exp" data-testid="cp-expired">منقضی</span>) : null}
-      {v.customer.hasNationalCode ? <button type="button" className="btn pri cpc-new" disabled={Boolean(busy)} onClick={onNew} data-testid="cp-new">
+      {noNew ? null : viaWizard ? <button type="button" className="btn pri cpc-new" onClick={onNew} data-testid="cp-wizard-open">اعتبارسنجی سریع</button>
+        : v.customer.hasNationalCode ? <button type="button" className="btn pri cpc-new" disabled={Boolean(busy)} onClick={onNew} data-testid="cp-new">
         {busy === "all" ? "در حال استعلام…" : any ? "استعلام جدید" : "استعلام"}</button> : null}
     </div>
+    {wizard && !noNew && me.data && !me.data.icc ? <p className="cpc-empty" data-testid="cp-icc-off">رتبه‌ی اعتباری فقط با کد پیامکی مشتری گرفته می‌شود و اعتبارسنجی اعتباریتو برای شما فعال نیست؛ از مدیر بخواه روشنش کند. «استعلام جدید» فقط چک و وام را به‌روز می‌کند.</p> : null}
     {ask ? <div className="cpc-ask" role="group" aria-label="استعلام تازه" data-testid="cp-ask">
       <span>استعلام قبلی هنوز معتبر است. استعلام تازه گرفته شود؟</span>
       <div className="cpc-ask-b"><button type="button" className="btn gh" onClick={() => setAsk(false)} data-testid="cp-ask-no">انصراف</button>
         <button type="button" className="btn pri" onClick={() => void run({ confirmFresh: true })} data-testid="cp-ask-yes">استعلام تازه</button></div>
     </div> : null}
     {err ? <p className="cpc-err" role="alert" data-testid="cp-err">{err}</p> : null}
-    {!v.customer.hasNationalCode ? <div className="cpc-miss">
+    {!v.customer.hasNationalCode && !viaWizard ? <div className="cpc-miss">
       {miss.fields}
       <button type="button" className="btn pri" disabled={!miss.ready} onClick={() => void miss.save()} data-testid="cp-miss-save">{miss.busy ? "در حال ذخیره…" : "ذخیره"}</button>
     </div> : null}
 
     {!any ? <p className="cpc-empty" data-testid="cp-empty">هنوز استعلامی ثبت نشده است</p> : <>
       <div className="cpc-sum">
-        <div className="cpc-rank" aria-label={rank ? `رتبه ${rank}` : "بدون رتبه"} data-testid="cp-rank"><small>رتبه‌ی اعتباری</small><b dir="ltr">{rank ?? "—"}</b>
-          <span className="gsc" aria-hidden="true">{GRADES.map((g) => <i key={g} className={rank?.[0] === g ? "on" : ""} />)}</span></div>
+        {hideRank ? null : <div className="cpc-rank" aria-label={rank ? `رتبه ${rank}` : "بدون رتبه"} data-testid="cp-rank"><small>رتبه‌ی اعتباری</small><b dir="ltr">{rank ?? "—"}</b>
+          <span className="gsc" aria-hidden="true">{GRADES.map((g) => <i key={g} className={rank?.[0] === g ? "on" : ""} />)}</span>
+          {wizard && rank ? <small className="cpc-rank-at" data-testid="cp-rank-at">{v.customer.rank?.at ? agoFa(v.customer.rank.at) : "تاریخ ثبت نشده"}</small> : null}</div>}
         <div className="cpc-chips">
           {colour.data?.chequeColor ? <span className={`cpc-color ${colourClass(colour.data.chequeColor, colour.data.chequeColorCode)}`} data-testid="cp-colour">
             <span className="sw" aria-hidden="true" />رنگ چک: {colour.data.chequeColor}</span> : null}
@@ -141,6 +149,7 @@ export function CreditCard({ customerId, detailOpen }: { customerId: number; det
       {cheques.length > 2 ? <button type="button" className="btn gh cpc-all" onClick={() => setShowAll((x) => !x)}>{showAll ? "نمایش کمتر" : `همه‌ی ${fa(cheques.length)} چک`}</button> : null}
     </>}
 
+    {wizOpen ? <ScoreWizard customer={{ id: customerId, name: v.customer.name }} onClose={() => { setWizOpen(false); void q.refetch(); }} /> : null}
     {scoreOpen && me.data?.icc && v.customer.hasNationalCode ? <div className="cpc-score" data-testid="cp-score">
       <InstantCreditCheck customerId={customerId} embedded hideRecent onRank={() => { void q.refetch(); }} />
     </div> : null}
