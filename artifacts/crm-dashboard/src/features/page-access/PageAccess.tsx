@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Check, CircleCheck, History as HistoryIcon, Lock, Search, ShieldCheck, TriangleAlert, User, Users, X } from "lucide-react";
+import { Ban, Check, ChevronLeft, ChevronRight, CircleCheck, History as HistoryIcon, Lock, Search, ShieldCheck, TriangleAlert, User, Users, X } from "lucide-react";
 import {
   PA_ME_KEY, PaError, paBlock, paGrant, paHistory, paKeyForPath, paRemove, paRevert, paStatus, paSubjects, usePageAccessMe,
   type PaHistoryItem, type PaLevel, type PaPageMeta, type PaStatus, type PaSubjectUser,
@@ -32,6 +32,7 @@ const OPEN_EVENT = "pa:open";
 function chipText(s: PaStatus | undefined, page: PaPageMeta): string | null {
   if (page.grantable === "never") return "قابل‌اعطا نیست";
   if (!s) return null;
+  if (page.grantable === "block") { const b = s.users.filter((u) => u.kind === "blocked").length; return b ? `برای ${fa(b)} نفر بسته است` : "دسترسی با قواعد همین صفحه"; }
   const extra = s.users.some((u) => u.kind === "granted") || s.roles.length > 0;
   if (!extra && page.kind === "admin") return "فقط ادمین و مدیر فروش";
   return s.counts.roles ? `${fa(s.counts.people)} نفر و ${fa(s.counts.roles)} نقش دسترسی دارند` : `${fa(s.counts.people)} نفر دسترسی دارند`;
@@ -42,8 +43,10 @@ function usePaPage(location: string, enabled: boolean) {
   const on = Boolean(me?.enabled && me.canManage);
   const key = on ? paKeyForPath(me!.pages, location) : null;
   const page = key ? me!.pages!.find((p) => p.key === key) ?? null : null;
-  return { on, page };
+  return { on, page, pages: me?.pages ?? [] };
 }
+/** Pages merged into «مدیریت فروش» (admins are redirected there), in the console's section order: their button lives in the sales-admin sheet. */
+const SALES_ADMIN_SECTIONS = ["sales-teams", "daily-plans", "call-queue-settings", "sales-assist-settings", "default-owner", "call-queue-discipline", "bale-bot-admin"];
 const statusKey = (k: string) => ["page-access-status", k] as const;
 
 /** Status chip under the page title (desktop only; hidden while the sheet is open and at 390). */
@@ -57,17 +60,20 @@ export function PageAccessChip({ location, enabled }: { location: string; enable
 
 /** Top-bar button (desktop: secondary button with a shield; ≤700px: 44×44 shield icon next to the bell) + the sheet. */
 export function PageAccessButton({ location, enabled }: { location: string; enabled: boolean }) {
-  const { on, page } = usePaPage(location, enabled);
+  const { on, page, pages } = usePaPage(location, enabled);
   const [open, setOpen] = useState(false);
-  useEffect(() => { const f = () => setOpen(true); window.addEventListener(OPEN_EVENT, f); return () => window.removeEventListener(OPEN_EVENT, f); }, []);
-  useEffect(() => { setOpen(false); }, [location]);
+  const [sub, setSub] = useState<PaPageMeta | null>(null);
+  useEffect(() => { const f = () => { setSub(null); setOpen(true); }; window.addEventListener(OPEN_EVENT, f); return () => window.removeEventListener(OPEN_EVENT, f); }, []);
+  useEffect(() => { setOpen(false); setSub(null); }, [location]);
   useEffect(() => { document.body.classList.toggle("pgac-sheet-on", open); return () => document.body.classList.remove("pgac-sheet-on"); }, [open]);
   if (!on || !page) return null;
   return (
     <span className="pgac-root pgac-ctl">
-      <button type="button" className="pgac-access-btn" aria-haspopup="dialog" onClick={() => setOpen(true)} data-testid="pa-button"><ShieldCheck className="pgac-i" aria-hidden="true" />دسترسی این صفحه</button>
-      <button type="button" className="pgac-ib" aria-label="دسترسی این صفحه" aria-haspopup="dialog" onClick={() => setOpen(true)} data-testid="pa-icon"><ShieldCheck className="pgac-i" aria-hidden="true" /></button>
-      {open ? createPortal(<PageAccessSheet page={page} onClose={() => setOpen(false)} />, document.body) : null}
+      <button type="button" className="pgac-access-btn" aria-haspopup="dialog" onClick={() => { setSub(null); setOpen(true); }} data-testid="pa-button"><ShieldCheck className="pgac-i" aria-hidden="true" />دسترسی این صفحه</button>
+      <button type="button" className="pgac-ib" aria-label="دسترسی این صفحه" aria-haspopup="dialog" onClick={() => { setSub(null); setOpen(true); }} data-testid="pa-icon"><ShieldCheck className="pgac-i" aria-hidden="true" /></button>
+      {open ? createPortal(sub
+        ? <PageAccessSheet key={sub.key} page={sub} onClose={() => setOpen(false)} onBack={() => setSub(null)} />
+        : <PageAccessSheet key={page.key} page={page} onClose={() => setOpen(false)} sections={page.key === "sales-admin" ? SALES_ADMIN_SECTIONS.map((k) => pages.find((p) => p.key === k)).filter((p): p is PaPageMeta => Boolean(p)) : undefined} onPick={setSub} />, document.body) : null}
     </span>
   );
 }
@@ -75,7 +81,7 @@ export function PageAccessButton({ location, enabled }: { location: string; enab
 type View = "status" | "step1" | "step2" | "step3" | "success" | "history";
 type Mode = "role" | "user" | "block";
 
-export function PageAccessSheet({ page, onClose, initial }: { page: PaPageMeta; onClose: () => void; initial?: { view?: View } }) {
+export function PageAccessSheet({ page, onClose, initial, sections, onPick, onBack }: { page: PaPageMeta; onClose: () => void; initial?: { view?: View }; sections?: PaPageMeta[]; onPick?: (p: PaPageMeta) => void; onBack?: () => void }) {
   const qc = useQueryClient();
   const st = useQuery({ queryKey: statusKey(page.key), queryFn: () => paStatus(page.key), retry: false, enabled: page.grantable !== "never" });
   const [view, setView] = useState<View>(initial?.view ?? "status");
@@ -177,8 +183,11 @@ export function PageAccessSheet({ page, onClose, initial }: { page: PaPageMeta; 
 
   let body: ReactNode = null; let foot: ReactNode = null; let sum: ReactNode = null;
   if (page.grantable === "never") {
-    body = <div className="pgac-never"><div className="ico"><Lock className="pgac-i" aria-hidden="true" /></div><p>دسترسی این صفحه فقط برای ادمین است و قابل‌اعطا نیست. ادمین و مدیر فروش همیشه این صفحه را می‌بینند و نمی‌توان آن را به نقش یا فرد دیگری داد.</p></div>;
-    foot = <button type="button" className="pgac-btn gh" onClick={onClose}>فهمیدم</button>;
+    body = <div><div className="pgac-never"><div className="ico"><Lock className="pgac-i" aria-hidden="true" /></div><p>{page.note ?? <>دسترسی این صفحه فقط برای ادمین است و قابل‌اعطا نیست. ادمین و مدیر فروش همیشه این صفحه را می‌بینند و نمی‌توان آن را به نقش یا فرد دیگری داد.</>}</p></div>
+      {sections?.length && onPick ? <div className="pgac-sml" data-testid="pa-sections"><div className="pgac-smh">دسترسی بخش‌های این صفحه</div>
+        {sections.map((x) => <button type="button" key={x.key} className="pgac-smb" onClick={() => onPick(x)} data-testid={`pa-section-${x.key}`}><span>{x.label}</span><span className="pgac-sms">{x.grantable === "never" ? "قابل‌اعطا نیست" : x.grantable === "block" ? "فقط بستن برای یک نفر" : x.grantable === "view" ? "فقط دیدن" : "دیدن و تغییر"}</span><ChevronLeft className="pgac-i" aria-hidden="true" /></button>)}
+      </div> : null}</div>;
+    foot = onBack ? <><button type="button" className="pgac-btn gh" onClick={onBack}>قبلی</button><button type="button" className="pgac-btn pri" onClick={onClose}>فهمیدم</button></> : <button type="button" className="pgac-btn gh" onClick={onClose}>فهمیدم</button>;
   } else if (view === "status") {
     if (st.isLoading) body = <div aria-busy="true"><div className="pgac-sk" /><div className="pgac-sk" /><div className="pgac-sk" /></div>;
     else if (st.isError || !s) body = <div><div className="pgac-errbar" role="alert"><TriangleAlert className="pgac-i" aria-hidden="true" /><span>لیست را نتوانستیم بیاوریم.</span></div><button type="button" className="pgac-btn pri block" onClick={() => void st.refetch()}>دوباره امتحان کن</button></div>;
@@ -186,8 +195,10 @@ export function PageAccessSheet({ page, onClose, initial }: { page: PaPageMeta; 
       const anyExtra = s.users.length > 0 || s.roles.some((r) => r.grant);
       body = (
         <div>
+          {onBack ? <button type="button" className="pgac-back" onClick={onBack} data-testid="pa-back"><ChevronRight className="pgac-i" aria-hidden="true" />بخش‌های «مدیریت فروش»</button> : null}
           {conflict ? <div className="pgac-conflict" role="status"><TriangleAlert className="pgac-i" aria-hidden="true" /><span>این لیست تغییر کرده، دوباره بارگذاری شد.</span></div> : null}
           {saveErr ? <div className="pgac-errbar" role="alert"><TriangleAlert className="pgac-i" aria-hidden="true" /><span>{saveErr}</span></div> : null}
+          {page.grantable === "block" ? <div className="pgac-info" data-testid="pa-block-note"><ShieldCheck className="pgac-i" aria-hidden="true" /><span>{page.note} از اینجا می‌توانی این صفحه را برای یک نفر ببندی.</span></div> : null}
           {s.roles.length ? (
             <div className="pgac-sec"><h3>نقش‌ها</h3>
               {s.roles.map((r) => (
@@ -222,10 +233,13 @@ export function PageAccessSheet({ page, onClose, initial }: { page: PaPageMeta; 
               </div>
             ))}
           </div>
-          {!anyExtra ? <div className="pgac-empty"><div className="ico"><ShieldCheck className="pgac-i" aria-hidden="true" /></div><h3>هنوز دسترسی ویژه‌ای ندادی</h3><p>ادمین و مدیر فروش همیشه این صفحه را می‌بینند. بقیه از طریق نقش‌شان می‌بینند.</p></div> : null}
+          {!anyExtra && page.grantable === "block" ? <div className="pgac-empty"><div className="ico"><ShieldCheck className="pgac-i" aria-hidden="true" /></div><h3>این صفحه برای کسی بسته نشده</h3></div> : null}
+          {!anyExtra && page.grantable !== "block" ? <div className="pgac-empty"><div className="ico"><ShieldCheck className="pgac-i" aria-hidden="true" /></div><h3>هنوز دسترسی ویژه‌ای ندادی</h3><p>ادمین و مدیر فروش همیشه این صفحه را می‌بینند. بقیه از طریق نقش‌شان می‌بینند.</p></div> : null}
         </div>
       );
-      foot = <><button type="button" className="pgac-btn gh" onClick={() => { setConflict(false); setView("history"); }}>سابقه‌ی تغییرات</button><button type="button" className="pgac-btn pri" onClick={() => { setConflict(false); reset(); setView("step1"); }} data-testid="pa-grant">دسترسی دادن</button></>;
+      foot = <><button type="button" className="pgac-btn gh" onClick={() => { setConflict(false); setView("history"); }}>سابقه‌ی تغییرات</button>{page.grantable === "block"
+        ? <button type="button" className="pgac-btn pri" onClick={() => { setConflict(false); reset(); setMode("block"); setView("step2"); }} data-testid="pa-block-start">بستن برای یک نفر</button>
+        : <button type="button" className="pgac-btn pri" onClick={() => { setConflict(false); reset(); setView("step1"); }} data-testid="pa-grant">دسترسی دادن</button>}</>;
     }
   } else if (view === "step1") {
     body = (
@@ -277,7 +291,7 @@ export function PageAccessSheet({ page, onClose, initial }: { page: PaPageMeta; 
     }
     const allLocked = mode === "user" && users.length > 0 && users.every((id) => subj.data?.users.find((x) => x.id === id)?.locked);
     const can = mode === "role" ? Boolean(role) : users.length > 0 && !allLocked;
-    foot = <><button type="button" className="pgac-btn gh" onClick={() => setView("step1")}>قبلی</button><button type="button" className="pgac-btn pri" disabled={!can} onClick={() => (mode === "block" ? (setSaveErr(null), setView("step3")) : enterStep3())} data-testid="pa-next">ادامه</button></>;
+    foot = <><button type="button" className="pgac-btn gh" onClick={() => setView(page.grantable === "block" ? "status" : "step1")}>قبلی</button><button type="button" className="pgac-btn pri" disabled={!can} onClick={() => (mode === "block" ? (setSaveErr(null), setView("step3")) : enterStep3())} data-testid="pa-next">ادامه</button></>;
   } else if (view === "step3") {
     if (mode === "block") {
       body = <div>

@@ -106,6 +106,8 @@ body.pgac-sheet-on .pgac-chiprow{display:none!important}
 .pgac-mark{font-size:12px;font-weight:700;padding:0 8px;min-height:24px;border-radius:99px;background:var(--pa-surface-2);color:var(--pa-ink-muted);display:inline-flex;align-items:center;flex:none}
 .pgac-check{width:22px;height:22px;border-radius:6px;border:1.5px solid var(--pa-line-strong);flex:none;display:grid;place-items:center;background:#fff}
 .pgac-pick-item.on .pgac-check{background:var(--pa-brand-600);border-color:var(--pa-brand-600);color:#fff}
+.pgac-info{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border-radius:12px;background:var(--pa-brand-50);color:var(--pa-brand-700);font-size:13px;line-height:1.7;margin-bottom:12px}
+.pgac-info .pgac-i{width:18px;height:18px;margin-top:3px}
 .pgac-warn{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border-radius:12px;background:var(--pa-gold-50);color:var(--pa-gold-700);font-size:13px;line-height:1.6;font-weight:400}
 .pgac-warn .pgac-i{width:18px;height:18px;margin-top:3px}
 .pgac-warn.lock{background:#FEF0EE;color:var(--pa-bad)}
@@ -156,3 +158,14 @@ body.pgac-sheet-on .pgac-chiprow{display:none!important}
   .pgac-ft{padding-bottom:calc(12px + env(safe-area-inset-bottom,0px))}
   .pgac-tiles{grid-template-columns:1fr}
 }
+
+/* phase 2: sections of «مدیریت فروش» (merged pages) */
+.pgac-smbtions{margin-top:16px;display:flex;flex-direction:column;gap:8px}
+.pgac-smh{font-size:13px;font-weight:700;color:#475467;margin-bottom:2px}
+.pgac-smb{display:flex;align-items:center;gap:8px;width:100%;min-height:48px;padding:10px 14px;border:1px solid #E4E7EC!important;border-radius:12px;background:#fff!important;text-align:start;font:inherit;font-size:14px;color:#101828!important;cursor:pointer}
+.pgac-smb:hover{background:var(--pa-brand-50)!important;border-color:var(--pa-brand-200)!important}
+.pgac-smb>span:first-child{flex:1;font-weight:600}
+.pgac-sms{font-size:12px;color:#667085}
+.pgac-smb .pgac-i{width:16px;height:16px;color:#667085;flex:none}
+.pgac-back{display:inline-flex;align-items:center;gap:4px;margin-bottom:10px;padding:6px 2px;min-height:36px;border:0!important;background:none!important;font:inherit;font-size:13px;font-weight:600;color:var(--pa-brand-700)!important;cursor:pointer}
+.pgac-back .pgac-i{width:16px;height:16px}

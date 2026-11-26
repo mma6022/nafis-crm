@@ -3,8 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 
 const base = () => (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
 export type PaLevel = "view" | "manage";
-export type PaGrantable = "never" | "view" | "both";
-export type PaPageMeta = { key: string; label: string; routes: string[]; kind: "permission" | "admin" | "bespoke"; grantable: PaGrantable };
+export type PaGrantable = "never" | "view" | "both" | "block";
+export type PaPageMeta = { key: string; label: string; routes: string[]; kind: "permission" | "admin" | "bespoke"; grantable: PaGrantable; elevate?: boolean; note?: string | null };
 export type PaMe = {
   enabled: boolean; canManage?: boolean; error?: boolean; locked?: boolean;
   pages?: PaPageMeta[]; granted?: Record<string, PaLevel>; blocked?: string[]; basePermissions?: string[] | null;
@@ -83,7 +83,7 @@ export function paDecide(me: PaMe | undefined, pathname: string, needed: string[
   const key = paKeyForPath(me.pages, pathname); if (!key) return null;
   const page = me.pages.find((p) => p.key === key); if (!page) return null;
   if (me.blocked?.includes(key)) return false;
-  if (me.granted?.[key]) return page.kind === "admin" ? true : today;
+  if (me.granted?.[key]) return page.kind === "admin" || page.elevate ? true : today;
   if (page.kind === "permission" && needed.length && me.basePermissions) return today && needed.some((x) => me.basePermissions!.includes(x));
   return null;
 }
