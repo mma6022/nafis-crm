@@ -315,15 +315,39 @@ export async function shSaveConnectToken(u: AuthUser, raw: unknown): Promise<{ s
     b = botById(Number(id))!;
   }
   const sealed = sealBotToken(process.env, token, baleBotAad(b.id, BB_SHARED_BOT_USER_ID));
+  // t945u: a different Bale bot than the one stored (wrong bot first, right bot now) must not inherit the old bot's update offset.
+  const sameBot = Boolean(b.bot_user_id) && String(b.bot_user_id) === String(g.bot.id);
   executeChanges(
     `UPDATE bale_bots SET token_ct=?, token_key_id=?, bot_user_id=?, bot_username=?, bot_name=?, status='on', last_error=NULL, last_ok_at=?, updated_at=?,
-      connected_at=COALESCE(connected_at,?) WHERE id=?`,
-    [sealed.value, sealed.keyId, g.bot.id, g.bot.username, g.bot.name || SH_BOT_NAME, at, at, at, b.id]);
+      connected_at=COALESCE(connected_at,?),
+      next_offset=CASE WHEN ? THEN next_offset ELSE 0 END, backlog_skipped=CASE WHEN ? THEN backlog_skipped ELSE 0 END WHERE id=?`,
+    [sealed.value, sealed.keyId, g.bot.id, g.bot.username, g.bot.name || SH_BOT_NAME, at, at, at, sameBot ? 1 : 0, sameBot ? 1 : 0, b.id]);
   executeChanges("UPDATE sh_bots SET handle=?, status='connected', connected_at=COALESCE(connected_at,?), updated_at=? WHERE unified=1 AND network='bale'",
     [g.bot.username, at, at]);
   shLog(u.id, "bot_connect", b.id, { saved: true });
   kick();
   return { saved: true, username: g.bot.username, name: g.bot.name || SH_BOT_NAME };
+}
+
+/** t945u «قطع اتصال و حذف»: the unified «نفیس وام» bot. The sealed key is wiped (the bot can no longer poll or send), the row and its chats stay,
+ *  the audit log keeps who/when and the public @username (never the key). A new key can be saved right after (shSaveConnectToken).
+ *  No Bale call is made and the worker is not kicked; it simply sees no key on its next cycle. */
+export function shDisconnectUnified(u: AuthUser) {
+  if (!shConnectOn()) throw new ShError(409, "connect_disabled", "اتصال ربات در این نسخه خاموش است.");
+  if (!shIsManager(u)) throw new ShError(403, "forbidden", "این کار فقط برای مدیر فروش و مدیر سیستم است.");
+  const b = shUnifiedBot();
+  if (!b?.token_ct) throw new ShError(404, "not_connected", "ربات نفیس وام وصل نیست.");
+  try {
+    if (queryRow("SELECT 1 x FROM sh_redirect_campaigns WHERE status='running' LIMIT 1")) throw new ShError(409, "campaign_running", "ارسال پیام انتقال در حال اجراست؛ اول آن را متوقف کنید.");
+  } catch (e) { if (e instanceof ShError) throw e; /* table absent: nothing running */ }
+  const at = iso();
+  const prevUser = (b.bot_username || "").replace(/^@/, "") || null;
+  executeChanges(
+    `UPDATE bale_bots SET token_ct=NULL, token_key_id=NULL, bot_user_id=NULL, bot_username=NULL, bot_name=NULL, status='off', last_error=NULL, last_ok_at=NULL,
+      connected_at=NULL, next_offset=0, backlog_skipped=0, updated_at=? WHERE id=?`, [at, b.id]);
+  executeChanges("UPDATE sh_bots SET handle=NULL, status='draft', connected_at=NULL, updated_at=? WHERE unified=1 AND network='bale'", [at]);
+  shLog(u.id, "bot_disconnect", b.id, { username: prevUser, keyWiped: true });
+  return shConnectView();
 }
 
 export async function shTestSavedToken(): Promise<{ ok: true; bot: { name: string | null; username: string | null } }> {

@@ -117,7 +117,6 @@ export function ensureSocialHubSchema(): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT, network TEXT NOT NULL, name TEXT NOT NULL, handle TEXT, unified INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','connected','off')), connected_at TEXT,
       created_by INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-    CREATE UNIQUE INDEX IF NOT EXISTS ux_sh_bots_network ON sh_bots(network);
     CREATE TABLE IF NOT EXISTS sh_bot_access(
       bot_id INTEGER NOT NULL, user_id INTEGER NOT NULL, manage INTEGER NOT NULL DEFAULT 0, customers_message INTEGER NOT NULL DEFAULT 1,
       view_scope TEXT NOT NULL DEFAULT 'own' CHECK(view_scope IN ('own','all','none')), updated_by INTEGER, updated_at TEXT NOT NULL,
@@ -160,6 +159,7 @@ export function ensureSocialHubSchema(): void {
     CREATE TABLE IF NOT EXISTS sh_identity_source(customer_id INTEGER PRIMARY KEY, source TEXT NOT NULL CHECK(source IN ('bale','staff')), at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS sh_log(id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, user_id INTEGER, action TEXT NOT NULL, ref_id INTEGER, detail TEXT);
   `);
+  shBotsArchiveMigration();
   const now = iso();
   // the one unified bot row; status stays 'draft' until a real connection exists (none in this build)
   execute("INSERT OR IGNORE INTO sh_bots(network,name,handle,unified,status,created_at,updated_at) VALUES('bale',?,NULL,1,'draft',?,?)", [SH_BOT_NAME, now, now]);
@@ -171,6 +171,21 @@ export function ensureSocialHubSchema(): void {
   if (!queryRow("SELECT 1 x FROM sh_settings WHERE key='redirect_per_minute'")) execute("INSERT INTO sh_settings(key,value,updated_at) VALUES('redirect_per_minute',?,?)", ["20", now]);
   if (!queryRow("SELECT 1 x FROM sh_settings WHERE key='readonly_bot_user_ids'")) execute("INSERT INTO sh_settings(key,value,updated_at) VALUES('readonly_bot_user_ids',?,?)", ["3", now]);
   ready = true;
+}
+
+/** t945u: «حذف ربات» archives a draft bot row (archived_at) instead of deleting it. Additive: one nullable column, and the per-network
+ *  unique index becomes partial (active rows only) so a network can be added again after its bot was removed. Idempotent. */
+function shBotsArchiveMigration(): void {
+  const cols = new Set(queryRows<{ name: string }>("PRAGMA table_info(sh_bots)").map((c) => c.name));
+  if (!cols.has("archived_at")) crmDb.exec("ALTER TABLE sh_bots ADD COLUMN archived_at TEXT");
+  const ix = queryRow<{ sql: string | null }>("SELECT sql FROM sqlite_master WHERE type='index' AND name='ux_sh_bots_network'");
+  if (!ix || !/archived_at/i.test(String(ix.sql ?? ""))) {
+    crmDb.exec("BEGIN IMMEDIATE");
+    try {
+      crmDb.exec("DROP INDEX IF EXISTS ux_sh_bots_network; CREATE UNIQUE INDEX ux_sh_bots_network ON sh_bots(network) WHERE archived_at IS NULL;");
+      crmDb.exec("COMMIT");
+    } catch (e) { try { crmDb.exec("ROLLBACK"); } catch { /* none open */ } throw e; }
+  }
 }
 export const _resetShSchemaForTests = () => { ready = false; };
 /** Audit: ids and codes only, never a phone, national id or message text. */
@@ -346,7 +361,7 @@ function staffUsers() {
        AND (role IN ('admin','sales_manager') OR (role='salesperson' AND salesperson_id IS NOT NULL)) ORDER BY id`);
 }
 export function shBots() {
-  const bots = queryRows<any>("SELECT * FROM sh_bots ORDER BY unified DESC, id").map((b) => ({
+  const bots = queryRows<any>("SELECT * FROM sh_bots WHERE archived_at IS NULL ORDER BY unified DESC, id").map((b) => ({
     id: Number(b.id), network: b.network as ShNetwork, networkLabel: SH_NETWORKS.find((n) => n.key === b.network)?.label ?? b.network,
     name: b.name, handle: b.handle ?? null, unified: Number(b.unified) === 1, status: b.status as "draft" | "connected" | "off", connectedAt: b.connected_at ?? null,
     managers: queryRows<{ id: number; full_name: string | null; username: string }>("SELECT u.id,u.full_name,u.username FROM sh_bot_access a JOIN users u ON u.id=a.user_id WHERE a.bot_id=? AND a.manage=1 ORDER BY u.id", [b.id]).map(userName),
@@ -428,7 +443,7 @@ export function shSetRedirectText(u: AuthUser, raw: unknown): string {
 export function shAddBot(u: AuthUser, body: any) {
   const network = String(body?.network ?? "");
   if (!SH_NETWORKS.some((n) => n.key === network)) throw new ShError(400, "bad_network", "شبکه را انتخاب کنید.", { field: "network" });
-  if (queryRow("SELECT 1 x FROM sh_bots WHERE network=?", [network])) throw new ShError(409, "exists", "برای این شبکه ربات ثبت شده است.", { field: "network" });
+  if (queryRow("SELECT 1 x FROM sh_bots WHERE network=? AND archived_at IS NULL", [network])) throw new ShError(409, "exists", "برای این شبکه ربات ثبت شده است.", { field: "network" });
   if (body?.token) throw new ShError(409, "connect_disabled", "اتصال ربات در این نسخه خاموش است؛ کلید ذخیره نشد.", { field: "token" });
   const now = iso(); const label = SH_NETWORKS.find((n) => n.key === network)!.label;
   const id = execute("INSERT INTO sh_bots(network,name,handle,unified,status,created_by,created_at,updated_at) VALUES(?,?,?,0,'draft',?,?,?)",
@@ -440,10 +455,32 @@ export function shAddBot(u: AuthUser, body: any) {
   shLog(u.id, "bot_add", Number(id), { network });
   return shBots();
 }
+/** t945u «ویرایش»: a draft bot of another network (not the unified Bale bot, whose key is replaced through «اتصال ربات»). Handle only. */
+export function shUpdateBot(u: AuthUser, botId: number, body: any) {
+  const bot = queryRow<any>("SELECT * FROM sh_bots WHERE id=? AND archived_at IS NULL", [botId]);
+  if (!bot) throw new ShError(404, "not_found", "این ربات پیدا نشد.");
+  if (Number(bot.unified) === 1) throw new ShError(409, "unified_bot", "ربات نفیس وام را با «اتصال ربات» عوض کنید.");
+  const raw = clean(body?.handle, 80).replace(/^@/, "");
+  if (raw && !/^[A-Za-z0-9_]{3,64}$/.test(raw)) throw new ShError(400, "bad_handle", "نشانی ربات را فقط با حرف انگلیسی، عدد و _ بنویسید (حداقل ۳ نویسه).", { field: "handle" });
+  const handle = raw ? `@${raw}` : null;
+  executeChanges("UPDATE sh_bots SET handle=?, updated_at=? WHERE id=?", [handle, iso(), botId]);
+  shLog(u.id, "bot_edit", botId, { network: String(bot.network), handleBefore: bot.handle ?? null, handleAfter: handle });
+  return shBots();
+}
+/** t945u «حذف ربات» for a draft bot row: archived, never deleted; its access rows stay for the audit trail. Re-adding the network works afterwards. */
+export function shArchiveBot(u: AuthUser, botId: number) {
+  const bot = queryRow<any>("SELECT * FROM sh_bots WHERE id=? AND archived_at IS NULL", [botId]);
+  if (!bot) throw new ShError(404, "not_found", "این ربات پیدا نشد.");
+  if (Number(bot.unified) === 1) throw new ShError(409, "unified_bot", "ربات نفیس وام حذف نمی‌شود؛ «قطع اتصال و حذف» اتصال آن را برمی‌دارد.");
+  const now = iso();
+  executeChanges("UPDATE sh_bots SET archived_at=?, status='off', updated_at=? WHERE id=?", [now, now, botId]);
+  shLog(u.id, "bot_remove", botId, { network: String(bot.network), handle: bot.handle ?? null, status: String(bot.status) });
+  return shBots();
+}
 export function shTestConnect(): never { throw new ShError(409, "connect_disabled", "آزمایش اتصال در این نسخه خاموش است؛ هیچ کلیدی فرستاده یا ذخیره نشد."); }
 
 export function shAccess(botId: number) {
-  const bot = queryRow<any>("SELECT * FROM sh_bots WHERE id=?", [botId]); if (!bot) throw new ShError(404, "not_found", "این ربات پیدا نشد.");
+  const bot = queryRow<any>("SELECT * FROM sh_bots WHERE id=? AND archived_at IS NULL", [botId]); if (!bot) throw new ShError(404, "not_found", "این ربات پیدا نشد.");
   const users = staffUsers();
   const teams = queryRows<{ id: number; name: string }>("SELECT id,name FROM sales_teams WHERE enabled=1 ORDER BY id");
   const mem = queryRows<{ team_id: number; salesperson_id: number; sort_order: number }>("SELECT team_id,salesperson_id,sort_order FROM sales_team_members ORDER BY team_id, sort_order");
@@ -468,7 +505,7 @@ export function shAccess(botId: number) {
   return { bot: { id: Number(bot.id), name: String(bot.name).includes(nl) ? bot.name : `${bot.name}، ${nl}`, network: bot.network, networkLabel: nl, handle: bot.handle ?? null, status: bot.status }, groups };
 }
 export function shSaveAccess(u: AuthUser, botId: number, rows: unknown) {
-  if (!queryRow("SELECT 1 x FROM sh_bots WHERE id=?", [botId])) throw new ShError(404, "not_found", "این ربات پیدا نشد.");
+  if (!queryRow("SELECT 1 x FROM sh_bots WHERE id=? AND archived_at IS NULL", [botId])) throw new ShError(404, "not_found", "این ربات پیدا نشد.");
   if (!Array.isArray(rows) || rows.length > 500) throw new ShError(400, "bad_rows", "فهرست دسترسی معتبر نیست.");
   const valid = new Set(staffUsers().map((x) => Number(x.id))); const now = iso(); let n = 0;
   for (const r of rows as any[]) {

@@ -359,6 +359,39 @@ try {
     assert.equal((await call(MANAGER, "GET", "/sales-admin/bots")).status, 403, "unmerged console is admin-only");
   });
 
+  await ok("t945u: delete (disconnect) then add again: another bot for the same expert, and the freed bot for another expert", async () => {
+    flags("1", "1", "1", "1");
+    const tokWrong = "555444333:WrongBotTokenForFixtureOnly12345";
+    const tokRight = "555444334:RightBotTokenForFixtureOnly67890";
+    // wrong bot goes to Aslanian (row is 'off' after the disconnect test above), then is removed, then the right one is added
+    const addWrong = await call(ADMIN, "PUT", `/sales-admin/bots/${ASLANIAN}`, { botName: "اشتباهی", status: "on", token: tokWrong });
+    assert.equal(addWrong.status, 200, addWrong.text);
+    const rowW = queryRow("SELECT * FROM bale_bots WHERE user_id=?", [ASLANIAN]);
+    db.execute("UPDATE bale_bots SET next_offset=77, backlog_skipped=1 WHERE id=?", [rowW.id]);
+    const del = await call(MANAGER, "POST", `/sales-admin/bots/${ASLANIAN}/disconnect`, {});
+    assert.equal(del.status, 200, del.text);
+    const afterDel = queryRow("SELECT * FROM bale_bots WHERE user_id=?", [ASLANIAN]);
+    assert.equal(afterDel.token_ct, null); assert.equal(afterDel.token_key_id, null); assert.equal(afterDel.status, "off");
+    assert.equal(del.text.includes(tokWrong), false);
+    const aud = queryRow("SELECT summary_fa FROM smc_audit WHERE id=?", [del.body.auditId]);
+    assert.ok(aud.summary_fa.startsWith("قطع اتصال ربات"));
+    // the freed wrong bot may now be used for another expert (no bot_in_use: no live key holds it)
+    const moved = await call(ADMIN, "PUT", `/sales-admin/bots/${TAJIK}`, { token: tokWrong });
+    assert.equal(moved.status, 200, moved.text);
+    await call(ADMIN, "POST", `/sales-admin/bots/${TAJIK}/disconnect`, {});
+    // add the right bot for the same expert: works, update offset restarts for a different bot
+    const addRight = await call(ADMIN, "PUT", `/sales-admin/bots/${ASLANIAN}`, { botName: "ربات درست", status: "on", token: tokRight });
+    assert.equal(addRight.status, 200, addRight.text);
+    assert.equal(addRight.body.expert.bot.tokenSaved, true);
+    assert.equal(addRight.text.includes(tokRight), false);
+    const rowR = queryRow("SELECT * FROM bale_bots WHERE user_id=?", [ASLANIAN]);
+    assert.equal(rowR.next_offset, 0); assert.equal(rowR.id, rowW.id, "same row reused, chats stay attached");
+    assert.equal(openBotToken(process.env, rowR.token_ct, baleBotAad(rowR.id, ASLANIAN)).plaintext, tokRight);
+    const dump = JSON.stringify(queryRows("SELECT summary_fa, before_json, after_json FROM smc_audit")) + JSON.stringify(queryRows("SELECT action, outcome, detail FROM bale_bot_log"));
+    for (const t of [tokWrong, tokRight]) assert.equal(dump.includes(t), false);
+    await call(ADMIN, "POST", `/sales-admin/bots/${ASLANIAN}/disconnect`, {});
+  });
+
   await ok("red lines: zero network calls, zero Bale sends, guarded tables untouched", async () => {
     assert.deepEqual(netCalls, [], "zero real network fetches");
     assert.ok(baleCalls.every((c) => c.method === "getMe"), `unexpected Bale API call: ${JSON.stringify(baleCalls)}`);

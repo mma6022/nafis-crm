@@ -6,17 +6,18 @@
 import express, { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
 import {
   shBuildRedirectPreview, shConnectView, shIsSuperAdmin, shParseCount, shRedirectCampaignDone, shRedirectDisabledReason, shRedirectReadyForStart, shRedirectStatus,
-  shRetrySend, shSaveConnectToken, shStartRedirect, shStopRedirect, shTestConnectToken, shTestSavedToken,
+  shRetrySend, shDisconnectUnified, shSaveConnectToken, shStartRedirect, shStopRedirect, shTestConnectToken, shTestSavedToken,
 } from "../lib/social-hub-send";
+import { queryRow } from "../lib/crm-db";
 import { requireAuth, getAuthenticatedUser, type AuthUser } from "../lib/auth";
 import { elCustomerAccess, elFlagOn, elTarget } from "../lib/expert-lockdown";
 import { smcCanViewCustomer } from "../lib/smc-access-scope";
 import { addCustomerPhone } from "../lib/customer-phones";
 import { s132bLinkToCustomer } from "../lib/simotel132b";
 import {
-  ShError, ensureSocialHubSchema, shAccess, shAddBot, shAddDoc, shArchiveDoc, shArchiveMessage, shAttachPhone, shBots, shCanSeeCustomer,
+  ShError, ensureSocialHubSchema, shAccess, shAddBot, shAddDoc, shArchiveBot, shArchiveDoc, shArchiveMessage, shAttachPhone, shBots, shCanSeeCustomer,
   shCreateMessage, shDocFile, shDocs, shIsManager, shIsStaff, shMarkMigrated, shUndoMigrated, shMe, shMessages, shOn, shPhoneOn, shPhoneSearch, shPlans,
-  shSaveAccess, shSend, shSendRedirectOnce, shSetRedirectAuto, shSetRedirectText, shTodayBox, shUpdateDoc, shUpdateMessage,
+  shSaveAccess, shUpdateBot, shSend, shSendRedirectOnce, shSetRedirectAuto, shSetRedirectText, shTodayBox, shUpdateDoc, shUpdateMessage,
   SH_DOC_MAX_BYTES,
 } from "../lib/social-hub";
 
@@ -51,7 +52,7 @@ router.get("/social-hub/me", requireAuth, user, (_req, res) => { res.json(shMe(m
 
 /* -- page (manager) -- */
 router.get("/social-hub/plans", requireAuth, user, hubOn, staff, (_q, res) => run(res, () => ({ plans: shPlans() })));
-router.get("/social-hub/bots", requireAuth, user, hubOn, mgr, (_q, res) => run(res, () => {
+function botsBody(res: Response) {
   const d = shRedirectCampaignDone();
   const connect = shConnectView();
   const body = { ...shBots(), connect, isSuperAdmin: shIsSuperAdmin(me(res)), redirectDone: d.done, redirectDoneAt: d.finishedAt, redirectDisabledReason: shRedirectDisabledReason() };
@@ -59,8 +60,18 @@ router.get("/social-hub/bots", requireAuth, user, hubOn, mgr, (_q, res) => run(r
     ? { ...b, status: connect.status, handle: connect.username }
     : b));
   return body;
-}));
+}
+router.get("/social-hub/bots", requireAuth, user, hubOn, mgr, (_q, res) => run(res, () => botsBody(res)));
 router.post("/social-hub/bots", requireAuth, user, hubOn, mgr, express.json({ limit: "8kb" }), (req, res) => run(res, () => shAddBot(me(res), req.body), 201));
+router.patch("/social-hub/bots/:id", requireAuth, user, hubOn, mgr, express.json({ limit: "4kb" }), (req, res) => run(res, () => { shUpdateBot(me(res), id(req.params.id), req.body); return botsBody(res); }));
+/** t945u «حذف ربات»: the unified Bale bot → disconnect (key wiped); any other bot row → archived. */
+router.delete("/social-hub/bots/:id", requireAuth, user, hubOn, mgr, (req, res) => run(res, () => {
+  const botId = id(req.params.id);
+  const row = queryRow<{ unified: number }>("SELECT unified FROM sh_bots WHERE id=? AND archived_at IS NULL", [botId]);
+  if (!row) throw new ShError(404, "not_found", "این ربات پیدا نشد.");
+  if (Number(row.unified) === 1) shDisconnectUnified(me(res)); else shArchiveBot(me(res), botId);
+  return botsBody(res);
+}));
 router.post("/social-hub/bots/test", requireAuth, user, hubOn, mgr, express.json({ limit: "4kb" }), (req, res) => runAsync(res, () => shTestConnectToken(me(res), req.body?.token)));
 router.post("/social-hub/bots/connect", requireAuth, user, hubOn, mgr, express.json({ limit: "4kb" }), (req, res) => runAsync(res, () => shSaveConnectToken(me(res), req.body?.token), 201));
 router.post("/social-hub/bots/test-saved", requireAuth, user, hubOn, mgr, (_q, res) => runAsync(res, () => shTestSavedToken()));
