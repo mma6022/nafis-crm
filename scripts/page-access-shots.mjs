@@ -9,7 +9,7 @@ const { chromium } = require(pwPath);
 const srcDb = process.env.PA_SHOTS_DB || "/workspace/t861/masked.db";
 if (fs.realpathSync(srcDb) === "/var/lib/nafisvam/customers.db") throw new Error("refusing live DB");
 const uiDist = "/workspace/page-access/ui/artifacts/crm-dashboard/dist/public";
-const shotsDir = "/workspace/page-access/shots";
+const shotsDir = process.env.PA_SHOTS_OUT || "/workspace/page-access/shots-r2";
 fs.mkdirSync(shotsDir, { recursive: true });
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pa-shots-"));
 const dbPath = path.join(dir, "crm.db"); fs.copyFileSync(srcDb, dbPath); fs.chmodSync(dbPath, 0o600);
@@ -69,7 +69,19 @@ try {
   const openSheet = async (page, w) => { await page.locator(w <= 700 ? '[data-testid="pa-icon"]' : '[data-testid="pa-button"]').first().click(); await sheet(page).waitFor(); await page.locator(".pgac-sk").first().waitFor({ state: "detached", timeout: 15000 }).catch(() => {}); };
   const btn = (page, text) => sheet(page).locator(".pgac-ft, .pgac-bd").getByRole("button", { name: text, exact: true });
 
+  const setLock = (v) => execute("INSERT INTO call_queue_settings(key,value,updated_at) VALUES('flag.expert_lockdown',?,datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [v]);
   for (const [tag, w, h] of [["1280", 1280, 900], ["390", 390, 844]]) {
+    { // long step-3 summary with the customer scope (lockdown OFF only for this shot, nothing is applied)
+      setLock("0");
+      const { ctx, page } = await newPage(w, h, "/customers");
+      await page.locator(w <= 700 ? '[data-testid="pa-icon"]' : '[data-testid="pa-button"]').first().waitFor({ timeout: 30000 });
+      await openSheet(page, w); await page.locator('[data-testid="pa-grant"]').click();
+      await page.locator('[data-testid="pa-tile-user"]').click(); await page.locator('[data-testid^="pa-pick-"]').first().waitFor();
+      await page.locator('[data-testid="pa-pick-6"]').click(); await page.locator('[data-testid="pa-next"]').click(); await page.locator(".pgac-levels").first().waitFor();
+      await shot(page, `pa-${tag}-05c-step3-scope-summary.png`);
+      await page.locator('[data-testid="pa-level-manage"]').click(); await shot(page, `pa-${tag}-05d-step3-scope-manage-summary.png`);
+      await ctx.close(); setLock("1");
+    }
     const { ctx, page } = await newPage(w, h, "/customers");
     await page.locator(w <= 700 ? '[data-testid="pa-icon"]' : '[data-testid="pa-button"]').first().waitFor({ timeout: 30000 });
     if (w > 700) await page.locator('[data-testid="pa-chip"]').first().waitFor({ timeout: 15000 });
@@ -80,23 +92,25 @@ try {
     await page.locator('[data-testid="pa-pick-8"]').click(); // locked expert → lockdown warning visible
     await shot(page, `pa-${tag}-04-step2-user.png`);
     await page.locator('[data-testid="pa-pick-8"]').click();
-    await page.locator('[data-testid="pa-pick-6"]').click();
+    await page.locator('[data-testid="pa-pick-7"]').click();
     await page.locator('[data-testid="pa-next"]').click(); await page.locator(".pgac-levels").first().waitFor();
     await shot(page, `pa-${tag}-05-step3.png`);
+    await page.locator('[data-testid="pa-level-manage"]').click(); await shot(page, `pa-${tag}-05b-step3-manage-summary.png`);
+    await page.locator('.pgac-level').first().click();
     await page.locator('[data-testid="pa-apply"]').click(); await sheet(page).locator(".pgac-ok").waitFor();
     await shot(page, `pa-${tag}-06-success.png`);
-    await btn(page, "بستن").click(); await page.locator('[data-testid="pa-user-6"]').waitFor();
-    await page.locator('[data-testid="pa-user-6"]').getByRole("button", { name: "برداشتن دسترسی" }).click();
+    await btn(page, "بستن").click(); await page.locator('[data-testid="pa-user-7"]').waitFor();
+    await page.locator('[data-testid="pa-user-7"]').getByRole("button", { name: "برداشتن دسترسی" }).click();
     await shot(page, `pa-${tag}-07-revoke-confirm.png`);
-    await page.locator('[data-testid="pa-user-6"]').getByRole("button", { name: "برداشتن", exact: true }).click();
+    await page.locator('[data-testid="pa-user-7"]').getByRole("button", { name: "برداشتن", exact: true }).click();
     await sheet(page).locator(".pgac-undo").waitFor(); await shot(page, `pa-${tag}-08-undo.png`);
-    await sheet(page).locator(".pgac-undo button").click(); await page.locator('[data-testid="pa-user-6"]').waitFor();
+    await sheet(page).locator(".pgac-undo button").click(); await page.locator('[data-testid="pa-user-7"]').waitFor();
     // block flow
     await page.locator('[data-testid="pa-grant"]').click(); await btn(page, "بستن این صفحه برای یک نفر").click();
     await page.locator('[data-testid="pa-pick-3"]').click(); await page.locator('[data-testid="pa-next"]').click();
     await shot(page, `pa-${tag}-09-block-confirm.png`);
     await btn(page, "بستن صفحه").click(); await sheet(page).locator(".pgac-ok").waitFor(); await btn(page, "بستن").click();
-    await page.locator('[data-testid="pa-user-3"]').waitFor(); await shot(page, `pa-${tag}-10-status-after-block.png`);
+    await page.locator('[data-testid="pa-user-3"]').waitFor(); await page.locator('[data-testid="pa-user-3"]').scrollIntoViewIfNeeded(); await shot(page, `pa-${tag}-10-status-after-block.png`);
     await btn(page, "سابقه‌ی تغییرات").click(); await page.locator('[data-testid="pa-revert"]').waitFor();
     await shot(page, `pa-${tag}-11-history.png`);
     await page.locator('[data-testid="pa-revert"]').click(); await shot(page, `pa-${tag}-12-history-revert-confirm.png`);
@@ -104,6 +118,13 @@ try {
     await shot(page, `pa-${tag}-13-history-reverted.png`);
     // re-grant 6 for the next viewport run is not needed: undo already restored it. Leave state as is.
     await ctx.close();
+    { // empty history
+      const { ctx, page } = await newPage(w, h, "/reminders");
+      await page.locator(w <= 700 ? '[data-testid="pa-icon"]' : '[data-testid="pa-button"]').first().waitFor({ timeout: 30000 });
+      await openSheet(page, w); await btn(page, "سابقه‌ی تغییرات").click(); await sheet(page).getByText("هنوز تغییری ثبت نشده").waitFor();
+      await shot(page, `pa-${tag}-19-history-empty.png`);
+      await ctx.close();
+    }
     { // never page
       const { ctx, page } = await newPage(w, h, "/users");
       await page.locator(w <= 700 ? '[data-testid="pa-icon"]' : '[data-testid="pa-button"]').first().waitFor({ timeout: 30000 });
