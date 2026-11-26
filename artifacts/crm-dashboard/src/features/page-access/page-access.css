@@ -160,7 +160,7 @@ body.pgac-sheet-on .pgac-chiprow{display:none!important}
 }
 
 /* phase 2: sections of «مدیریت فروش» (merged pages) */
-.pgac-smbtions{margin-top:16px;display:flex;flex-direction:column;gap:8px}
+.pgac-sml{margin-top:16px;display:flex;flex-direction:column;gap:8px}
 .pgac-smh{font-size:13px;font-weight:700;color:#475467;margin-bottom:2px}
 .pgac-smb{display:flex;align-items:center;gap:8px;width:100%;min-height:48px;padding:10px 14px;border:1px solid #E4E7EC!important;border-radius:12px;background:#fff!important;text-align:start;font:inherit;font-size:14px;color:#101828!important;cursor:pointer}
 .pgac-smb:hover{background:var(--pa-brand-50)!important;border-color:var(--pa-brand-200)!important}
