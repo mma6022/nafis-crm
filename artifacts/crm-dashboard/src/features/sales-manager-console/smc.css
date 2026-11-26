@@ -547,3 +547,8 @@ html.smc-fab.smc-fab .diag-floating{left:var(--smc-fab-x, 18px) !important;right
   .smc-root .smc-botdlg .smc-wfull{display:none}
   .smc-root .smc-botdlg .smc-wshort{display:inline}
 }
+
+/* t945u: danger buttons for «حذف ربات» */
+.smc-root .smc-btn.smc-dng{background:#B42318;color:#fff;border:1px solid #B42318}
+.smc-root .smc-btn.smc-dngo{background:#fff;color:#B42318;border:1px solid #E8A39B}
+.smc-root .smc-btn.smc-dng:disabled,.smc-root .smc-btn.smc-dngo:disabled{opacity:.5}

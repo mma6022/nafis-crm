@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
-import { Lock, Pencil, Plus } from 'lucide-react';
+import { Lock, Pencil, Plus, Trash2 } from 'lucide-react';
 import { fa, faDate, messageError, shApi, type ShConnectView } from './api';
 import { AfterConnect, Radio, Switch, Wizard } from './ui';
 import { RedirectWizard } from './RedirectWizard';
@@ -18,6 +18,7 @@ export function BotsTab({ toast }: { toast: (t: string) => void }) {
   const [add, setAdd] = useState(false); const [redir, setRedir] = useState(false); const [err, setErr] = useState('');
   const [conn, setConn] = useState(false); const [campaign, setCampaign] = useState(false);
   const [mig, setMig] = useState<Legacy | null>(null);
+  const [del, setDel] = useState<Bot | null>(null); const [editB, setEditB] = useState<Bot | null>(null);
   const act = async (fn: () => Promise<unknown>, ok: string) => { setErr(''); try { await fn(); await q.refetch(); toast(ok); } catch (e) { setErr(messageError(e)); } };
   if (q.isLoading) return <p className="sh-sub">در حال دریافت…</p>;
   if (!q.data) return <p className="sh-err" role="alert">دریافت ربات‌ها انجام نشد.</p>;
@@ -29,9 +30,13 @@ export function BotsTab({ toast }: { toast: (t: string) => void }) {
       {d.bots.map((b) => { const [st, cls] = STATUS[b.status]; return <article className="sh-card sh-botc" key={b.id} data-testid={`sh-bot-${b.network}`}>
         <div className="hd"><span className="sh-ava" aria-hidden="true">{NET_LETTER[b.network] ?? 'ر'}</span><div className="sh-sp"><h3 className="sh-h3">{b.name.includes(b.networkLabel) ? b.name : `${b.name}، ${b.networkLabel}`}</h3><div className="sh-sub" dir="auto" style={{ textAlign: 'right' }}>{b.handle ? `@${b.handle.replace(/^@/, '')}` : 'هنوز نشانی ندارد'}</div></div><span className={`sh-chip ${cls}`}>{st}</span></div>
         <dl><dt>مدیریت</dt><dd>{b.managers.length ? b.managers.join('، ') : 'مدیران'}</dd><dt>مشتریان</dt><dd>همهٔ کارشناس‌ها</dd><dt>آخرین پیام</dt><dd>{b.lastMessageAt ? faDate(b.lastMessageAt) : 'هنوز پیامی نیست'}</dd></dl>
-        <div className="sh-row"><Link href={`/social-hub/bots/${b.id}/access`} className="sh-btn pri sh-sp" data-testid={`sh-bot-access-${b.id}`}>دسترسی‌ها</Link>
-          {b.unified && b.network === 'bale' ? <button type="button" className="sh-btn sec" disabled={!d.connectEnabled} onClick={() => d.connectEnabled && setConn(true)} data-testid="sh-bot-connect">{d.connect?.tokenSaved ? 'ذخیره شده' : 'اتصال ربات'}</button>
-            : <button type="button" className="sh-btn sec" disabled title="به‌زودی">به‌زودی</button>}</div>
+        <div className="sh-row sh-wrap"><Link href={`/social-hub/bots/${b.id}/access`} className="sh-btn pri sh-sp" data-testid={`sh-bot-access-${b.id}`}>دسترسی‌ها</Link>
+          {b.unified && b.network === 'bale' ? <>
+            <button type="button" className="sh-btn sec" disabled={!d.connectEnabled} onClick={() => d.connectEnabled && setConn(true)} data-testid="sh-bot-connect">{d.connect?.tokenSaved ? 'ویرایش ربات' : 'اتصال ربات'}</button>
+            {d.connect?.tokenSaved ? <button type="button" className="sh-btn sh-del" disabled={!d.connectEnabled} onClick={() => d.connectEnabled && setDel(b)} data-testid="sh-bot-delete"><Trash2 aria-hidden="true" />حذف ربات</button> : null}</>
+            : <>
+              <button type="button" className="sh-btn sec" onClick={() => setEditB(b)} data-testid={`sh-bot-edit-${b.id}`}>ویرایش</button>
+              <button type="button" className="sh-btn sh-del" onClick={() => setDel(b)} data-testid={`sh-bot-delete-${b.id}`}><Trash2 aria-hidden="true" />حذف ربات</button></>}</div>
       </article>; })}
       {free.length ? <button type="button" className="sh-addc" onClick={() => setAdd(true)} data-testid="sh-bot-add-card"><Plus aria-hidden="true" /><b>افزودن ربات یک شبکهٔ دیگر</b><span className="sh-sub">{free.map((n) => n.label).join('، ')}</span></button> : null}
     </div>
@@ -63,6 +68,8 @@ export function BotsTab({ toast }: { toast: (t: string) => void }) {
         <div className="sh-sumr"><span className="sh-lbl">بازگرداندن</span><span>تا پیش از خاموش شدن، با «بازگرداندن» در همین ردیف</span></div></div></Wizard> : null}
     {add ? <AddBotWizard networks={free} baleStatus={d.bots.find((b) => b.network === 'bale')?.status ?? 'draft'} onClose={() => setAdd(false)} onSaved={() => { setAdd(false); void q.refetch(); toast('ربات به‌صورت پیش‌نویس ثبت شد.'); }} /> : null}
     {conn ? <ConnectWizard tokenSaved={Boolean(d.connect?.tokenSaved)} username={d.connect?.username ?? null} onClose={() => setConn(false)} onSaved={() => { setConn(false); void q.refetch(); toast('ذخیره شده'); }} /> : null}
+    {del ? <DeleteBotWizard bot={del} username={d.connect?.username ?? null} onClose={() => setDel(null)} onDone={() => { setDel(null); void q.refetch(); toast('ربات حذف شد.'); }} /> : null}
+    {editB ? <EditBotWizard bot={editB} onClose={() => setEditB(null)} onSaved={() => { setEditB(null); void q.refetch(); toast('ذخیره شد.'); }} /> : null}
     {campaign ? <RedirectWizard onClose={() => setCampaign(false)} toast={toast} /> : null}
   </>;
 }
@@ -102,15 +109,42 @@ function ConnectWizard({ tokenSaved, username, onClose, onSaved }: { tokenSaved:
   const save = async () => { setBusy(true); setErr('');
     try { await shApi('/bots/connect', 'POST', { token }); onSaved(); }
     catch (e) { setErr(messageError(e)); } finally { setBusy(false); } };
-  return <Wizard title="اتصال ربات نفیس وام" short onClose={onClose} testId="sh-connect"
+  return <Wizard title={tokenSaved ? 'ویرایش ربات نفیس وام' : 'اتصال ربات نفیس وام'} short onClose={onClose} testId="sh-connect"
     foot={<><button type="button" className="sh-btn sec" disabled={busy || !token} onClick={() => void test()} data-testid="sh-connect-test">آزمایش اتصال</button>
       <button type="button" className="sh-btn pri" disabled={busy || !token} onClick={() => void save()} data-testid="sh-connect-save">ذخیره</button>
       <button type="button" className="sh-btn ghost" onClick={onClose}>انصراف</button></>}>
     <div className="sh-stack">
       {tokenSaved ? <div className="sh-chip ok" data-testid="sh-connect-saved">ذخیره شده{username ? `، @${username}` : ''}</div> : null}
-      <label className="sh-frow"><span className="sh-lbl">کلید اتصال</span><div className="sh-fld"><input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder="از @botfather" data-testid="sh-connect-token" /></div></label>
+      <label className="sh-frow"><span className="sh-lbl">{tokenSaved ? 'کلید اتصال جدید' : 'کلید اتصال'}</span><div className="sh-fld"><input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder="از @botfather" data-testid="sh-connect-token" /></div></label>
+      {tokenSaved ? <p className="sh-sub" data-testid="sh-connect-hint">کلید فعلی نمایش داده نمی‌شود. برای عوض کردن ربات، کلید ربات درست را اینجا بچسبانید و ذخیره کنید؛ کلید قبلی جایگزین می‌شود. برای برداشتن کلید، «حذف ربات» را بزنید.</p> : null}
       {tested ? <p className="sh-sub">آزمایش موفق شد{tested.username ? `، @${tested.username}` : ''}.</p> : null}
       {err ? <p className="sh-err" role="alert">{err}</p> : null}
     </div>
   </Wizard>;
+}
+
+function DeleteBotWizard({ bot, username, onClose, onDone }: { bot: Bot; username: string | null; onClose: () => void; onDone: () => void }) {
+  const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
+  const unified = bot.unified && bot.network === 'bale';
+  const go = async () => { setBusy(true); setErr(''); try { await shApi(`/bots/${bot.id}`, 'DELETE'); onDone(); } catch (e) { setErr(messageError(e)); } finally { setBusy(false); } };
+  return <Wizard title={`حذف ربات ${unified ? 'نفیس وام' : bot.name}`} short onClose={onClose} testId="sh-bot-del"
+    foot={<><button type="button" className="sh-btn sh-delfill" disabled={busy} onClick={() => void go()} data-testid="sh-bot-del-yes">بله، حذف شود</button>
+      <button type="button" className="sh-btn ghost" onClick={onClose} data-testid="sh-bot-del-no">انصراف</button></>}>
+    <div className="sh-stack">
+      <p style={{ margin: 0, fontWeight: 700 }}>{unified
+        ? `ربات${username ? ` @${username}` : ''} حذف می‌شود: کلید ذخیره‌شدهٔ آن از سیستم پاک می‌شود و دیگر پیام نمی‌گیرد و پیام نمی‌فرستد.`
+        : 'این ربات هنوز به جایی وصل نیست و فقط یک پیش‌نویس است. حذف می‌شود.'}</p>
+      <p className="sh-sub" style={{ margin: 0 }}>{unified ? 'گفتگوها و مشتری‌های قبلی پاک نمی‌شوند. بعد از حذف می‌توانید ربات درست را وصل کنید.' : 'بعد از حذف می‌توانید دوباره یک ربات برای این شبکه اضافه کنید.'}</p>
+      {err ? <p className="sh-err" role="alert">{err}</p> : null}
+    </div></Wizard>;
+}
+function EditBotWizard({ bot, onClose, onSaved }: { bot: Bot; onClose: () => void; onSaved: () => void }) {
+  const [handle, setHandle] = useState((bot.handle ?? '').replace(/^@/, '')); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
+  const save = async () => { setBusy(true); setErr(''); try { await shApi(`/bots/${bot.id}`, 'PATCH', { handle: handle.trim() || null }); onSaved(); } catch (e) { setErr(messageError(e)); } finally { setBusy(false); } };
+  return <Wizard title={`ویرایش ${bot.name}`} short onClose={onClose} testId="sh-bot-edit"
+    foot={<><button type="button" className="sh-btn pri" disabled={busy} onClick={() => void save()} data-testid="sh-bot-edit-save">ذخیره</button>
+      <button type="button" className="sh-btn ghost" onClick={onClose}>انصراف</button></>}>
+    <div className="sh-stack"><label className="sh-frow"><span className="sh-lbl">نشانی ربات در {bot.networkLabel} (اختیاری)</span>
+      <div className="sh-fld"><input dir="ltr" value={handle} maxLength={64} onChange={(e) => setHandle(e.target.value)} placeholder="@nafisvambot" data-testid="sh-bot-edit-handle" /></div></label>
+      {err ? <p className="sh-err" role="alert">{err}</p> : null}</div></Wizard>;
 }

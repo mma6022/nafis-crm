@@ -26,6 +26,7 @@ export function ExpertBotsList({
   onAiChange,
 }: ExpertListProps) {
   const [editing, setEditing] = useState<SmcExpertBot | null>(null);
+  const [deleting, setDeleting] = useState<SmcExpertBot | null>(null);
 
   return (
     <div className={c('bale')} data-testid="smc-bots-list">
@@ -110,10 +111,33 @@ export function ExpertBotsList({
                   {hasTok ? 'ویرایش ربات' : 'وصل کردن ربات'}
                 </button>
               ) : null}
+              {canWrite && hasTok && !e.readonlySend ? (
+                <button
+                  type="button"
+                  className={c('btn', 'dngo')}
+                  data-testid={`smc-bot-delete-${e.userId}`}
+                  onClick={() => setDeleting(e)}
+                >
+                  <I n="trash" />
+                  حذف ربات
+                </button>
+              ) : null}
             </div>
           </div>
         );
       })}
+
+      {deleting ? (
+        <BotDeleteDialog
+          expert={deleting}
+          onClose={() => setDeleting(null)}
+          onDone={async (msg, auditId) => {
+            setDeleting(null);
+            await onRefresh();
+            onToast(msg, auditId);
+          }}
+        />
+      ) : null}
 
       {editing ? (
         <BotEditWizard
@@ -233,19 +257,6 @@ function BotEditWizard({
     } catch (e) {
       setErr((e as ApiError).message);
     } finally {
-      setBusy(false);
-    }
-  };
-
-  const doDisconnect = async () => {
-    setErr(null);
-    setBusy(true);
-    try {
-      const r = await smcApi<{ auditId?: number }>(`/bots/${expert.userId}/disconnect`, { method: 'POST', body: {} });
-      setNewToken('');
-      await onSaved(`اتصال ربات ${expert.name} قطع شد.`, r.auditId ?? null);
-    } catch (e) {
-      setErr((e as ApiError).message);
       setBusy(false);
     }
   };
@@ -490,35 +501,28 @@ function BotEditWizard({
 
             {hasSavedToken && !expert.readonlySend ? (
               <div className={c('bot-danger')}>
-                {!askDisconnect ? (
-                  <button
-                    type="button"
-                    className={c('btn gh')}
-                    disabled={busy}
-                    onClick={() => setAskDisconnect(true)}
-                    data-testid="smc-bot-disconnect-ask"
-                  >
-                    قطع اتصال ربات
-                  </button>
-                ) : (
-                  <div className={c('bcard ask')}>
-                    <b>اتصال ربات {expert.name} قطع شود؟</b>
-                    <span className={c('hint')}>گفتگوهای قبلی حذف نمی‌شوند؛ توکن فعلی پاک می‌شود و ربات خاموش می‌ماند.</span>
-                    <div className={c('row1')}>
-                      <button type="button" className={c('btn gh')} disabled={busy} onClick={() => setAskDisconnect(false)}>انصراف</button>
-                      <button
-                        type="button"
-                        className={c('btn pri')}
-                        disabled={busy}
-                        onClick={() => void doDisconnect()}
-                        data-testid="smc-bot-disconnect-confirm"
-                      >
-                        بله، قطع شود
-                      </button>
-                    </div>
-                  </div>
-                )}
+                <button
+                  type="button"
+                  className={c('btn', 'dngo')}
+                  disabled={busy}
+                  onClick={() => setAskDisconnect(true)}
+                  data-testid="smc-bot-disconnect-ask"
+                >
+                  <I n="trash" />
+                  حذف ربات
+                </button>
               </div>
+            ) : null}
+            {askDisconnect ? (
+              <BotDeleteDialog
+                expert={expert}
+                onClose={() => setAskDisconnect(false)}
+                onDone={async (msg, auditId) => {
+                  setNewToken('');
+                  setAskDisconnect(false);
+                  await onSaved(msg, auditId);
+                }}
+              />
             ) : null}
           </div>
         ) : null}
@@ -596,6 +600,51 @@ function BotEditWizard({
               {busy ? 'در حال ذخیره…' : 'ذخیره تغییرات'}
             </button>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/** t945u: «حذف ربات» for one expert = disconnect: the saved token is wiped, chats stay, a new bot can be connected right after. */
+function BotDeleteDialog({
+  expert,
+  onClose,
+  onDone,
+}: {
+  expert: SmcExpertBot;
+  onClose: () => void;
+  onDone: (msg: string, auditId: number | null) => void | Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const user = expert.bot?.username;
+  const go = async () => {
+    setErr(null);
+    setBusy(true);
+    try {
+      const r = await smcApi<{ auditId?: number }>(`/bots/${expert.userId}/disconnect`, { method: 'POST', body: {} });
+      await onDone(`ربات ${expert.name} حذف شد؛ می‌توانید ربات تازه وصل کنید.`, r.auditId ?? null);
+    } catch (e) {
+      setErr((e as ApiError).message);
+      setBusy(false);
+    }
+  };
+  return (
+    <div className={c('scrim')} style={{ zIndex: 60 }} onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+      <div className={c('dlg')} role="alertdialog" aria-modal="true" aria-labelledby="smc-bot-del-title" data-testid="smc-bot-delete-dialog">
+        <h3 id="smc-bot-del-title">ربات {expert.name} حذف شود؟</h3>
+        <p className={c('hint')} style={{ margin: '8px 0' }}>
+          {user ? <>ربات <span dir="ltr">@{user}</span> از این کارشناس جدا می‌شود. </> : null}
+          توکن ذخیره‌شده از سیستم پاک می‌شود و ربات دیگر پیام نمی‌گیرد و پیام نمی‌فرستد. گفتگوها و مشتری‌های قبلی پاک نمی‌شوند. بعد از حذف می‌توانید ربات درست را وصل کنید.
+        </p>
+        {err ? <div className={c('mbanner warn')} role="alert"><span>{err}</span></div> : null}
+        <div className={c('row1')} style={{ justifyContent: 'flex-end', marginTop: 12 }}>
+          <button type="button" className={c('btn', 'gh')} disabled={busy} onClick={onClose} data-testid="smc-bot-delete-cancel">انصراف</button>
+          <button type="button" className={c('btn', 'dng')} disabled={busy} onClick={() => void go()} data-testid="smc-bot-disconnect-confirm">
+            بله، حذف شود
+          </button>
         </div>
       </div>
     </div>

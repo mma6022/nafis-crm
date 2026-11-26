@@ -146,6 +146,7 @@ body:has(.topbar.sh-compact) .diag-floating{display:none!important}
 .sh-tph-c.n3 .sh-tph-a{grid-template-columns:repeat(3,minmax(0,1fr))}
 .sh .sh-tph-a .sh-btn{width:100%;min-height:44px;padding:0 8px}
 .sh .sh-btn.sh-del{background:#fff;color:#B42318;border-color:#E8A39B}
+.sh .sh-btn.sh-delfill{background:#B42318;color:#fff;border-color:#B42318}
 .sh .sh-tph-add{width:100%}
 .sh-pt{unicode-bidi:isolate;white-space:nowrap}
 @media (min-width:1024px){
@@ -193,4 +194,9 @@ body:has(.topbar.sh-compact) .diag-floating{display:none!important}
   .sh-failrow{flex-direction:column;align-items:stretch}
   .sh-failrow .sh-nm{align-self:flex-end}
   .sh-failrow .sh-failr{text-align:right}
+}
+/* t945u: bot card actions — access link takes its own full row on narrow screens, edit + delete share the next row */
+@media (max-width:639px){
+  .sh-botc .sh-row.sh-wrap>a.sh-btn.pri{flex:1 1 100%}
+  .sh-botc .sh-row.sh-wrap>button.sh-btn{flex:1 1 0;padding:0 10px}
 }
