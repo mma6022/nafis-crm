@@ -625,7 +625,7 @@ function BotDeleteDialog({
     setBusy(true);
     try {
       const r = await smcApi<{ auditId?: number }>(`/bots/${expert.userId}/disconnect`, { method: 'POST', body: {} });
-      await onDone(`ربات ${expert.name} حذف شد؛ می‌توانید ربات تازه وصل کنید.`, r.auditId ?? null);
+      await onDone(`ربات ${expert.name} حذف شد؛ می‌توانید ربات تازه وصل کنید.`, null);
     } catch (e) {
       setErr((e as ApiError).message);
       setBusy(false);
