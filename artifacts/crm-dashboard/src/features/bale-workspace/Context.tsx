@@ -7,6 +7,11 @@ import { fd, faNum, jDate, toman, type BwsAssets, type BwsChatCtx, type BwsConte
 
 type Full = Extract<BwsContext, { restricted: false }>;
 const Row = ({ k, v, chip }: { k: string; v: React.ReactNode; chip?: React.ReactNode }) => v == null || v === '' ? null : <div className="bws-kv"><span className="k">{k}</span><b>{v}</b>{chip}</div>;
+const CALL_RESULT_FA: Record<string, string> = {
+  answered: 'جواب داد', no_answer: 'جواب نداد', 'no-answer': 'جواب نداد', missed: 'جواب نداد',
+  callback: 'گفت بعداً زنگ بزنید', wrong_number: 'شماره اشتباه', busy: 'اشغال', completed: 'انجام شد', failed: 'ناموفق',
+};
+const callResultFa = (r: string) => CALL_RESULT_FA[r] ?? (/^[a-z][a-z0-9_]*$/i.test(r) ? 'تماس' : r);
 
 export function FileBlock({ c }: { c: Full }) {
   const d = c.dossier;
@@ -42,9 +47,9 @@ export function CasesBlock({ c }: { c: Full }) {
 }
 export function CallsBlock({ c }: { c: Full }) {
   const items = [
-    ...c.calls.map((l) => ({ at: l.at, t: `${jDate(l.at)}${l.result ? ` · ${l.result}` : ''}`, s: l.note })),
-    ...c.invites.filter((i) => i.line).map((i) => ({ at: i.at, t: `${jDate(i.at)} · دعوت به بله`, s: i.line })),
-    ...c.explained.map((e) => ({ at: e.at, t: `${jDate(e.at)} · طرح‌های توضیح‌داده‌شده`, s: `${e.name}${e.by ? ` — ${e.by}` : ''}` })),
+    ...c.calls.map((l) => ({ at: l.at, t: l.result ? <>{jDate(l.at)}<Sep />{callResultFa(l.result)}</> : jDate(l.at), s: l.note })),
+    ...c.invites.filter((i) => i.line).map((i) => ({ at: i.at, t: <>{jDate(i.at)}<Sep />دعوت به بله</>, s: i.line })),
+    ...c.explained.map((e) => ({ at: e.at, t: <>{jDate(e.at)}<Sep />طرح‌های توضیح‌داده‌شده</>, s: `${e.name}${e.by ? ` — ${e.by}` : ''}` })),
   ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8);
   return <section className="bws-blk" aria-label="تماس‌ها"><h3>تماس‌ها و تاریخچه</h3>
     {items.length ? <ul className="bws-hist">{items.map((x, i) => <li key={i}><b>{x.t}</b>{x.s ? <span>{x.s}</span> : null}</li>)}</ul> : <p className="bws-mut">هنوز تماسی ثبت نشده است.</p>}

@@ -9,6 +9,7 @@ import './team-sales.css';
 import { AlertTriangle, Check, Clock, History, Lock, MessageSquare, Phone, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { GRADE_LETTERS } from '@/lib/credit-grade';
+import { formatMobileGrouped } from '@/lib/phone';
 import { fa, fetchCustomerIdentity, fmtDateTime, listCreditChecks, refreshCreditCheckStatus, renewCreditOtp, saveQuickCreditNationalCode, startCreditCheck,
   TeamSalesApiError, validateCreditOtp, type CreditCheckLite } from './api';
 
@@ -194,9 +195,10 @@ export function InstantCreditCheck({ customerId, onRank, embedded, hideRecent, i
     aria-disabled={!canStart} aria-describedby="cvH" onClick={() => { if (canStart) void start(); else setNidTouched(true); }}>{icon}{label}</button>;
   const scale = (rank: string) => <div className="gsc" aria-label={`رتبه ${rank} در مقیاس A تا E`}>{GRADE_LETTERS.map((l) =>
     <span key={l} className={`gl g${l}${rank[0] === l ? ' on' : ''}`} aria-hidden="true">{l}</span>)}</div>;
-  const resultCard = (c: CreditCheckLite, isRecent: boolean) => <div className="cvres" role="status" data-testid={isRecent ? 'cv-recent' : 'cv-result'} data-rank={c.scoreLabel}>
+  const resultCard = (c: CreditCheckLite, isRecent: boolean) => <div className="cvres" role="status" data-testid={isRecent ? 'cv-recent' : 'cv-result'} data-rank={c.scoreLabel} data-reused={c.reused || undefined}>
     <div className={`gbig g${c.scoreLabel![0]}`}><small>رتبه‌ی اعتباری</small><b>{c.scoreLabel}</b></div>
     <div className="gmeta">{scale(c.scoreLabel!)}
+      {c.reused ? <p className="cv-old" data-testid="cv-reused-badge"><History size={14} aria-hidden="true" /><span>قدیمی، {fmtDateTime(c.completedAt)}</span></p> : null}
       <p><Clock size={14} aria-hidden="true" /><span>{isRecent ? 'آخرین استعلام: ' : 'استعلام: '}{fmtDateTime(c.completedAt)}</span></p>
       <p className="sv"><Check size={14} aria-hidden="true" /><span>{isRecent ? 'در پرونده ذخیره است' : 'در پرونده ذخیره شد'}</span></p></div></div>;
 
@@ -225,7 +227,7 @@ export function InstantCreditCheck({ customerId, onRank, embedded, hideRecent, i
     {prevFail ? <p className="cvp"><History size={14} aria-hidden="true" /><span>تلاش قبلی، {fmtDateTime(prevFail)}: سرویس استعلام در دسترس نبود.</span></p> : null}</>;
   else if (st === 'otp') body = <>{nidRO}
     {consentAt ? <p className="cnsok"><Check size={14} aria-hidden="true" /><span>موافقت مشتری ثبت شد، {fmtDateTime(consentAt)}</span></p> : null}
-    {phone ? <p className="otto"><MessageSquare size={14} aria-hidden="true" /><span>کد یک‌بارمصرف ICS24 فرستاده شد به</span> <span className="ltr" dir="ltr" data-testid="cv-otp-phone">{fa(phone)}</span></p> : null}
+    {phone ? <p className="otto"><MessageSquare size={14} aria-hidden="true" /><span>کد یک‌بارمصرف اعتبارسنجی بانکی فرستاده شد به</span> <span className="ltr" dir="ltr" data-testid="cv-otp-phone">{formatMobileGrouped(phone)}</span></p> : null}
     <form className="cvo" data-testid="cv-otp" data-expired={expired || undefined} autoComplete="off" onSubmit={(e) => { e.preventDefault(); if (!expired) void submitOtp(); }}>
       <p className="oti" id="cvOI"><Phone size={14} aria-hidden="true" /><b>کد ارسال‌شده به مشتری را از او بپرسید و وارد کنید</b></p>
       <label className="flab" htmlFor="cvO">کد تأیید</label>
@@ -242,7 +244,7 @@ export function InstantCreditCheck({ customerId, onRank, embedded, hideRecent, i
           : <span>{expired ? 'زمان کد تمام شد' : 'زمان تمام شد؛ اگر کد نرسیده، دوباره بفرستید'}</span>}</span>
         <button type="button" className="ts-opt cvb gh" aria-disabled={left > 0 || undefined} onClick={() => void resend()} data-testid="cv-otp-resend"><RefreshCw size={16} aria-hidden="true" />ارسال دوباره</button>
         <button type="button" className="cvl" onClick={again} data-testid="cv-otp-cancel">انصراف</button>
-        <span className="ts-muted small">تعداد ارسال دوباره و تلاش محدود است.</span></div>
+        <span className="ts-muted small" data-testid="cv-otp-limit">تعداد ارسال دوباره و تلاش محدود است.</span></div>
     </form></>;
   else if (st === 'result' && res) body = <>{nidRO}{resultCard(res, false)}</>;
   else if (st === 'error') body = <>{nidRO}
