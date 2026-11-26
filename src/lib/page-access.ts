@@ -176,10 +176,10 @@ export function paWrite(key: string, actor: number, action: "grant" | "revoke" |
 }
 type LogRow = { id: number; at: string; actor_user_id: number; batch: string; action: string; page_key: string; subject_kind: string; subject_id: string; before_json: string; after_json: string; revert_of: string | null; reverted_by: string | null };
 export const paLog = (key: string, limit = 100): LogRow[] => queryRows<LogRow>("SELECT * FROM page_access_log WHERE page_key=? ORDER BY id DESC LIMIT ?", [key, limit]);
-/** Only the newest batch of a page may be reverted, and only if it is not itself a revert and not reverted yet. */
+/** Only the newest batch of a page may be reverted, including a revert (undo of that revert restores the previous state). A batch already marked reverted_by is not offered again. */
 export function paRevertable(key: string): LogRow[] | null {
   const last = queryRow<LogRow>("SELECT * FROM page_access_log WHERE page_key=? ORDER BY id DESC LIMIT 1", [key]);
-  if (!last || last.action === "revert" || last.reverted_by) return null;
+  if (!last || last.reverted_by) return null;
   return queryRows<LogRow>("SELECT * FROM page_access_log WHERE page_key=? AND batch=? ORDER BY id", [key, last.batch]);
 }
 /** Reverts the newest batch: every subject goes back to its «before» row; scope changes are returned for the caller to restore. */

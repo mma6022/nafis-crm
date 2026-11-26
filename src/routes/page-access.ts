@@ -232,13 +232,18 @@ router.get("/page-access/pages/:key/history", requireAuth, (req, res): void => {
   if (!admin(req, res)) return; const p = pageOf(req, res); if (!p) return;
   if (paGrantable(p) === "never") { res.json({ items: [], revertBatch: null }); return; }
   const names = roleNames(); const rev = paRevertable(p.key);
+  const snap = (x: { row?: { effect?: string; level?: PaLevel } | null; scope?: { level?: string | null } | null } | null) => {
+    const row = x?.row ?? null;
+    return { effect: (row?.effect === "allow" || row?.effect === "deny") ? row.effect : null, level: row?.effect === "allow" ? (row.level ?? null) : null, scope: x?.scope?.level ?? null };
+  };
   const items = paLog(p.key).map((r) => {
     const after = JSON.parse(r.after_json || "{}") as { row: { effect: string; level: PaLevel } | null; scope: { level: string | null } | null };
-    const before = JSON.parse(r.before_json || "{}") as { row: { effect: string; level: PaLevel } | null };
+    const before = JSON.parse(r.before_json || "{}") as { row: { effect: string; level: PaLevel } | null; scope: { level: string | null } | null };
     const subj = r.subject_kind === "role" ? { name: names.get(r.subject_id) ?? r.subject_id, id: null } : { name: nameOf(userRow(Number(r.subject_id))), id: Number(r.subject_id) };
     const lvl = after.row?.effect === "allow" ? after.row.level : before.row?.effect === "allow" ? before.row.level : null;
     return { id: r.id, batch: r.batch, at: r.at, actor: nameOf(userRow(r.actor_user_id)), action: r.action, subjectKind: r.subject_kind, subjectName: subj.name, subjectId: subj.id,
-      level: lvl, levelFa: lvl ? levelFa(lvl) : null, scope: after.scope?.level ?? null, reverted: Boolean(r.reverted_by), revertOf: r.revert_of };
+      level: lvl, levelFa: lvl ? levelFa(lvl) : null, scope: after.scope?.level ?? null, reverted: Boolean(r.reverted_by), revertOf: r.revert_of,
+      prior: snap(before), result: snap(after) };
   });
   res.json({ items, revertBatch: rev ? rev[0]!.batch : null, version: paVersion(p.key) });
 });

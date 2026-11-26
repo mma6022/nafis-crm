@@ -9,7 +9,7 @@ const { chromium } = require(pwPath);
 const srcDb = process.env.PA_SHOTS_DB || "/workspace/t861/masked.db";
 if (fs.realpathSync(srcDb) === "/var/lib/nafisvam/customers.db") throw new Error("refusing live DB");
 const uiDist = "/workspace/page-access/ui/artifacts/crm-dashboard/dist/public";
-const shotsDir = process.env.PA_SHOTS_OUT || "/workspace/page-access/shots-r2";
+const shotsDir = process.env.PA_SHOTS_OUT || "/workspace/page-access/shots-r3";
 fs.mkdirSync(shotsDir, { recursive: true });
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pa-shots-"));
 const dbPath = path.join(dir, "crm.db"); fs.copyFileSync(srcDb, dbPath); fs.chmodSync(dbPath, 0o600);
@@ -115,7 +115,15 @@ try {
     await shot(page, `pa-${tag}-11-history.png`);
     await page.locator('[data-testid="pa-revert"]').click(); await shot(page, `pa-${tag}-12-history-revert-confirm.png`);
     await page.locator('[data-testid="pa-revert-yes"]').click(); await sheet(page).locator(".pgac-hitem").first().getByText("تغییر قبلی برگشت").waitFor();
+    await sheet(page).locator('[data-testid="pa-revert"]').waitFor();
     await shot(page, `pa-${tag}-13-history-reverted.png`);
+    await page.locator('[data-testid="pa-revert"]').click();
+    await sheet(page).getByText("این برگرداندن لغو می‌شود").waitFor();
+    await shot(page, `pa-${tag}-20-revert-of-revert-confirm.png`);
+    await page.locator('[data-testid="pa-revert-yes"]').click();
+    await sheet(page).locator(".pgac-hitem").nth(1).getByText("برگردانده شد").waitFor();
+    await sheet(page).locator('[data-testid="pa-revert"]').waitFor();
+    await shot(page, `pa-${tag}-21-revert-of-revert-done.png`);
     // re-grant 6 for the next viewport run is not needed: undo already restored it. Leave state as is.
     await ctx.close();
     { // empty history

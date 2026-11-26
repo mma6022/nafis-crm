@@ -172,7 +172,18 @@ try {
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(queryRow("SELECT level FROM page_access_grants WHERE page_key='sales-reports' AND subject_id='2' AND revoked_at IS NULL").level, "view");
     const h2 = (await call("GET", "/page-access/pages/sales-reports/history", ADMIN)).body;
-    assert.equal(h2.items[0].action, "revert"); assert.equal(h2.items[1].reverted, true); assert.equal(h2.revertBatch, null, "a revert is not itself revertable");
+    assert.equal(h2.items[0].action, "revert"); assert.equal(h2.items[1].reverted, true);
+    assert.equal(h2.revertBatch, h2.items[0].batch, "a revert is itself revertable (undoes the undo)");
+    assert.equal(h2.items[0].prior.effect, "allow"); assert.equal(h2.items[0].prior.level, "manage");
+    assert.equal(h2.items[0].result.effect, "allow"); assert.equal(h2.items[0].result.level, "view");
+    const r2 = await call("POST", "/page-access/pages/sales-reports/revert", ADMIN, { batch: h2.revertBatch });
+    assert.equal(r2.status, 200, JSON.stringify(r2.body));
+    assert.equal(queryRow("SELECT level FROM page_access_grants WHERE page_key='sales-reports' AND subject_id='2' AND revoked_at IS NULL").level, "manage", "revert of revert restores the pre-revert state");
+    const h3 = (await call("GET", "/page-access/pages/sales-reports/history", ADMIN)).body;
+    assert.equal(h3.items[0].action, "revert"); assert.equal(h3.items[1].reverted, true); assert.equal(h3.items[1].action, "revert");
+    assert.equal(h3.revertBatch, h3.items[0].batch);
+    assert.equal((await call("POST", "/page-access/pages/sales-reports/revert", ADMIN, { batch: h3.items[2].batch })).status, 409, "older change is still not revertable");
+    // leave the grant at «manage» — the next case revokes it
   });
   await ok("revoke (برداشتن) closes the page again", async () => {
     const st = (await call("GET", "/page-access/pages/sales-reports", ADMIN)).body;
