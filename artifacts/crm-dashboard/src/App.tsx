@@ -67,6 +67,7 @@ import InstagramInbox from '@/pages/InstagramInbox';
 import MessengersPage from '@/pages/Messengers';
 import { SocialMonitorReports } from '@/features/SocialMonitorReports';
 import '@/features/social-monitor-reports.css';
+import { usePageAccessMe, paDecide } from '@/features/page-access/api';
 import { VoipProvider } from '@/components/voip/VoipProvider';
 import { AfterCallPopup } from '@/components/voip/AfterCallPopup';
 import { S132bLayer } from '@/features/voip-call/S132bLayer'; // SIMOTEL-132 B: renders nothing unless flag.simotel132b is on
@@ -188,9 +189,15 @@ function AdminOnlyRoute({ children }: { children: ReactNode }) {
   const { data: session, isLoading } = useGetAuthSession({
     query: { queryKey: getGetAuthSessionQueryKey(), retry: false },
   });
+  // «دسترسی این صفحه» v1 (flag.page_access_v1): a non-admin with a grant on this admin page may open it. OFF → same redirect as before.
+  const [paLoc] = useLocation();
+  const paMe = usePageAccessMe(Boolean(session?.user) && session?.user.role !== 'admin');
   if (isLoading) return <LoadingSplash />;
   if (!session?.user) return <Redirect to="/login" />;
-  if (session.user.role !== 'admin') return <Redirect to="/" />;
+  if (session.user.role !== 'admin') {
+    if (paMe.isLoading) return <LoadingSplash />;
+    if (paDecide(paMe.data, paLoc, [], false) !== true) return <Redirect to="/" />;
+  }
   return <>{children}</>;
 }
 
@@ -218,10 +225,17 @@ function PermissionRoute({ permission, children }: { permission: string | string
   const { data: session, isLoading } = useGetAuthSession({
     query: { queryKey: getGetAuthSessionQueryKey(), retry: false },
   });
+  const [paLoc] = useLocation();
+  const paMe = usePageAccessMe(Boolean(session?.user) && session?.user.role !== 'admin');
   if (isLoading) return <LoadingSplash />;
   if (!session?.user) return <Redirect to="/login" />;
   const needed = Array.isArray(permission) ? permission : [permission];
-  if (session.user.role !== 'admin' && !needed.some((p) => session.user.permissions?.includes(p))) return <Redirect to="/" />;
+  if (session.user.role !== 'admin') {
+    const today = needed.some((p) => session.user.permissions?.includes(p));
+    // «دسترسی این صفحه» v1: «بستن» closes, and a permission page opens only by its own grant / the role's own permission.
+    if (!today && paMe.isLoading) return <LoadingSplash />;
+    if (!(paDecide(paMe.data, paLoc, needed, today) ?? today)) return <Redirect to="/" />;
+  }
   return <>{children}</>;
 }
 

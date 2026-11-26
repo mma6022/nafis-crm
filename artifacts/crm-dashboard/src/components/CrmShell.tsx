@@ -24,6 +24,8 @@ import { useFloatingGuard } from './useFloatingGuard';
 import { usePageUsage } from '@/lib/page-usage';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { NotificationBell, NotificationProvider, NavNotificationBadge } from '@/site-notifications/NotificationBell';
+import { PageAccessButton, PageAccessChip } from '@/features/page-access/PageAccess';
+import { usePageAccessMe, paDecide } from '@/features/page-access/api';
 import { DiagnosticsProvider, DiagnosticsButton } from '@/diagnostics/DiagnosticsProvider';
 import { DiagnosticPageBoundary } from '@/diagnostics/DiagnosticPageBoundary';
 import { Modal } from './DataTools';
@@ -298,6 +300,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const SAM_FOLDED = ['/sales-teams', '/settings/default-owner', '/settings/call-queue', '/call-queue-discipline', '/daily-plans'];
   const mtMe = useSalesTeamsMe(Boolean(user) && !elLocked).data; // multi-team v1 — skip for locked experts (not an allowed shell endpoint)
   const spMe = useSalesPerformanceMe(Boolean(user)).data; // sales-performance v1
+  const paMe = usePageAccessMe(Boolean(user)).data; // «دسترسی این صفحه» v1 (flag OFF → {enabled:false})
   const skMe = useSalesKpiMe(Boolean(user)).data; // t886 sales KPI
   const mpFlags = useMyWorkFlags(user ? Number(user.id) : null, Boolean(user) && !panelMode);
   const mpOn = Boolean(mpFlags.data?.on);
@@ -325,7 +328,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
     document.documentElement.toggleAttribute('data-mc-on', mcOn);
     return () => document.documentElement.removeAttribute('data-mc-on');
   }, [mcOn]);
-  const navItems = allNavItems.filter(item => {
+  const navToday = (item: NavItem): boolean => {
     // Locked dock / «بیشتر»: hide any tab that is not in EL_ALLOWED_PAGES (no exception for /customers or /reminders, no «نمای کلی»).
     if (elLocked && elMe?.locked && !navHrefAllowedWhenLocked(item.href, elMe.allowedPages)) return false; // lockdown only removes items; the normal checks below still apply
     if (samOn && SAM_FOLDED.includes(item.href)) return false;
@@ -359,6 +362,13 @@ export function CrmShell({ children }: { children: ReactNode }) {
     if ('smartFiling' in item && item.smartFiling) return sfScope(user as { role?: string; salespersonId?: number | null } | undefined) !== null;
     const needed = ([] as string[]).concat((item as { permission?: string | string[] }).permission ?? []);
     return user?.role === 'admin' || needed.some((p) => user?.permissions?.includes(p));
+  };
+  // «دسترسی این صفحه» v1 (flag.page_access_v1, non-admins only): «بستن» hides the item, a grant shows it. OFF / admin → navToday unchanged.
+  const navItems = allNavItems.filter(item => {
+    const today = navToday(item);
+    if (isAdminUser || !paMe?.enabled) return today;
+    if ((elLocked && elMe?.locked) || cqRestricted || (samOn && SAM_FOLDED.includes(item.href))) return today && paDecide(paMe, item.href, [], today) !== false;
+    return paDecide(paMe, item.href, ([] as string[]).concat((item as { permission?: string | string[] }).permission ?? []), today) ?? today;
   }).map(item => (isAdminUser && item.adminLabel ? { ...item, label: item.adminLabel } : item));
   // Role layout (display only, AFTER the permission filter above): main items + collapsed «بیشتر». null = old grouped menu.
   const menuKind = menuKindFor(user as { role?: string | null; salespersonId?: number | null } | undefined);
@@ -578,7 +588,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
       <SsMain setMainEl={setMainEl} mainEl={mainEl} stickyTop={stickyTop}>
         <header className={`topbar ss-top${shCompact ? ' sh-compact' : ''}`} ref={setTopEl}>
           <Link href={navItems.some(i => i.href === '/today') ? '/today' : '/'} className="ss-brand" aria-label="گروه مالی نفیس — خانه"><img src={nafissLogoUrl} alt="" aria-hidden="true" /><small>پنل مشتریان</small></Link>
-          <div className="ss-ttl"><h1>{pageTitle}</h1>{shPage ? null : <p>امروز، تمرکز روی قدم بعدی مشتری است.</p>}</div>
+          <div className="ss-ttl"><h1>{pageTitle}</h1>{shPage ? null : <p>امروز، تمرکز روی قدم بعدی مشتری است.</p>}<PageAccessChip location={location} enabled={isAdminUser} /></div>
           <ShellDate />
           <div className="top-actions">
             {sf.openLists && !shCompact ? <SfSearchButton /> : null}
@@ -589,6 +599,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
             <span className={`ss-stx${health?.status === 'ok' ? '' : ' chk'}`} title="پشتیبانی تیم" data-testid="ss-health">{health?.status === 'ok' ? 'در دسترس' : 'در حال بررسی'}</span>
             {shCompact ? null : <DiagnosticsButton />}
             {canRem ? <button type="button" className="icon-button ss-rembtn" aria-label="ثبت یادآور" title="ثبت یادآور" onClick={headerReminder.open} data-testid="button-header-reminder"><Bell size={20} /></button> : null}
+            <PageAccessButton location={location} enabled={isAdminUser} />
             <NotificationBell user={user} />
             {hasAssistant && ssMobile ? <button type="button" className="icon-button ss-asttop" data-ss-ast="" aria-label={`چت دستیار (${astName})${astUnread ? `، ${faNum(astUnread)} پیام تازه` : ''}${astDnd ? '، مزاحم نشو روشن' : ''}`} onClick={openAst} data-testid="ss-ast-top">
               <span className="ss-ic ss-avx" aria-hidden="true">{astName.slice(0, 1)}{astUnread ? <b className="ss-bdg n">{faNum(astUnread)}</b> : null}{astDnd ? <span className="ss-moon"><Moon size={13} /></span> : null}</span></button> : null}
@@ -698,6 +709,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
           <div>
             <h1>{pageTitle}</h1>
             {shPage ? null : <p>امروز، تمرکز روی قدم بعدی مشتری است.</p>}
+            <PageAccessChip location={location} enabled={isAdminUser} />
           </div>
           <ShellDate />
           <div className="top-actions">
@@ -706,6 +718,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
             <VoipAnywhereFirstFormHost />
             {shCompact ? null : <DiagnosticsButton />}
             <div className="nas-slot nas-slot-top" ref={setAsTopSlot} />
+            <PageAccessButton location={location} enabled={isAdminUser} />
             <NotificationBell user={user} />
             {user?.role === 'admin' || user?.permissions?.includes('reminders.manage') ? <button type="button" className="icon-button" aria-label="ثبت یادآور" title="ثبت یادآور" onClick={headerReminder.open} data-testid="button-header-reminder"><Bell size={20} /></button> : null}
             <DropdownMenu dir="rtl">
