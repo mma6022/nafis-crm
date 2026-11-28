@@ -1739,11 +1739,15 @@ router.get(
 
     const idSearch = search ? customerSearchSql(search) : null;
     if (search && idSearch) {
-      const clause = idSearch.where(
-        "(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR c.phone LIKE ?)",
-        [`%${idSearch.text}%`, `%${idSearch.text}%`],
-        "c.id",
-      );
+      const searchDigits = idSearch.text.replace(/\D/g, "");
+      const namePhone = "(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR c.phone LIKE ?";
+      const existing = searchDigits.length >= 4
+        ? `${namePhone} OR crm_customer_national_code_key(c.national_code) LIKE ?)`
+        : `${namePhone})`;
+      const existingParams = searchDigits.length >= 4
+        ? [`%${idSearch.text}%`, `%${idSearch.text}%`, `%${searchDigits}%`]
+        : [`%${idSearch.text}%`, `%${idSearch.text}%`];
+      const clause = idSearch.where(existing, existingParams, "c.id");
       filters.push(clause.sql);
       params.push(...clause.params);
     }
