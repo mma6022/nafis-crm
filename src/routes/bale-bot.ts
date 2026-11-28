@@ -132,6 +132,8 @@ function botView(b: ReturnType<typeof botOfUser>) {
 }
 
 import { sabOn, sabQuickMessages } from "../lib/sales-admin-bale";
+import { baleShItemById, baleShOn, baleShReady } from "../lib/bale-sh-messages";
+import { shRender } from "../lib/social-hub";
 import { attachCustomerBotToChat, customerBotFlagsPayload, registerCustomerBaleRoutes } from "./customer-bale";
 import { registerSignReminderRoutes } from "./bale-sign-reminder";
 import { srChatView, srFlagOn } from "../lib/bale-sign-reminder";
@@ -243,15 +245,30 @@ export function createBaleBotRouter(): IRouter {
   });
 
   /* «مدیریت فروش» v1.3 canned messages: one tap sends at once (t358s1326) through the same queue as a typed message. OFF → 404. */
+  /* t978: when flag.bale_sh_messages_v1 is ON, also return social-hub ready messages in `ready` (sab `items` unchanged). */
   r.get("/bale-bot/quick", (_req, res) => {
-    if (!sabOn()) return fail(res, 404, "flag_off");
-    res.json({ items: sabQuickMessages().map((q) => ({ id: q.id, title: q.title })) });
+    if (!sabOn() && !baleShOn()) return fail(res, 404, "flag_off");
+    const body: { items: { id: string; title: string }[]; ready?: ReturnType<typeof baleShReady> } = {
+      items: sabOn() ? sabQuickMessages().map((q) => ({ id: q.id, title: q.title })) : [],
+    };
+    if (baleShOn()) body.ready = baleShReady(null);
+    res.json(body);
   });
   r.post("/bale-bot/chats/:id/quick/:qid", (req, res) => {
     if (!sabOn()) return fail(res, 404, "flag_off");
     const u = U(res); const c = writable(u, num(req.params.id), res); if (!c) return;
     const q = sabQuickMessages().find((x) => x.id === String(req.params.qid)); if (!q) return fail(res, 404, "not_found");
     res.json({ message: queueOut(c, u, { kind: "text", text: q.body.slice(0, BB_LIMITS.textMax), replyTo: null }) });
+  });
+  /* t978: send one social-hub ready message through the same outbox as a typed message. Flag OFF or unknown id → 404. */
+  r.post("/bale-bot/chats/:id/ready/:mid", (req, res) => {
+    if (!baleShOn()) return fail(res, 404, "flag_off");
+    const u = U(res); const c = writable(u, num(req.params.id), res); if (!c) return;
+    const item = baleShItemById(num(req.params.mid)); if (!item) return fail(res, 404, "not_found");
+    const cust = c.customer_id ? queryRow<{ name: string }>("SELECT name FROM customers WHERE id=?", [c.customer_id]) : null;
+    const text = shRender(item.body, { customer: cust?.name ?? "", expert: nameOf(u), plan: item.kind === "plan" ? (item.planTitle ?? "") : "" }).slice(0, BB_LIMITS.textMax);
+    if (!text.trim()) return fail(res, 400, "bad_text");
+    res.json({ message: queueOut(c, u, { kind: "text", text, replyTo: null }) });
   });
   r.post("/bale-bot/chats/:id/request-contact", (req, res) => {
     const u = U(res); const c = writable(u, num(req.params.id), res); if (!c) return;

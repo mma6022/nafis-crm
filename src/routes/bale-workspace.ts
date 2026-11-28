@@ -18,6 +18,7 @@ import {
   trainingDir, trainingList, trainingView, inSendHours,
 } from "../lib/bale-workspace";
 import { sabOn, sabQuickMessages } from "../lib/sales-admin-bale";
+import { baleShOn, baleShReady } from "../lib/bale-sh-messages";
 import { cpOn, cpView } from "../lib/credit-panel";
 import { buildDossier } from "../lib/customer-dossier";
 import { baleBotWorker } from "./bale-bot";
@@ -70,13 +71,14 @@ function context(u: BbUser, customerId: number) {
     stars: starsOf(customerId), dossier, credit, cases, calls, explained: explainedOf(customerId), invites: invitesOf(customerId),
   };
 }
-function assets(u: BbUser) {
+function assets(u: BbUser, customerId?: number | null) {
   return {
     quick: sabOn() ? sabQuickMessages().map(q => ({ id: q.id, title: q.title })) : [],
     plans: plans().filter(p => p.active && termsOf(p.id)).map(p => ({ id: p.id, name: p.name })),
     training: trainingList({ audience: "expert" }),
     customerTraining: trainingList({ audience: "customer" }),
     canManage: bwsCanManage(u),
+    ...(baleShOn() ? { ready: baleShReady(customerId ?? null) } : {}),
   };
 }
 
@@ -104,7 +106,7 @@ export function createBaleWorkspaceRouter(opts: { kick?: () => void } = {}): IRo
   /* الف: context column / tabs */
   r.get("/bale-workspace/chats/:id/context", (req, res) => {
     const u = U(res); const c = bwsChatFor(u, num(req.params.id)); if (!c) return fail(res, 404, "not_found");
-    res.json({ chatId: c.id, canSend: bwsBotSendable(c.bot_id), context: c.customer_id ? context(u, c.customer_id) : null, assets: assets(u) });
+    res.json({ chatId: c.id, canSend: bwsBotSendable(c.bot_id), context: c.customer_id ? context(u, c.customer_id) : null, assets: assets(u, c.customer_id) });
   });
   /* ج: stars (customer, 0 = clear) */
   r.post("/bale-workspace/chats/:id/stars", express.json({ limit: "2kb" }), (req, res) => {

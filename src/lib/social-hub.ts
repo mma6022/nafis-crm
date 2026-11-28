@@ -227,11 +227,13 @@ export function shPlans(): ShPlan[] {
   return queryRows<{ id: number; name: string | null; bank_name: string | null }>("SELECT id,name,bank_name FROM loan_plans WHERE active=1 ORDER BY id")
     .map((p) => ({ id: Number(p.id), name: withPlanPrefix(internalPlanLabel(p.name, p.bank_name)), publicLabel: planLabelForCustomer(p.bank_name), choiceLabel: planChoiceLabel(p.name, p.bank_name) }));
 }
-function planById(id: number | null | undefined): ShPlan | null {
+export function shPlanById(id: number | null | undefined): ShPlan | null {
   if (id == null) return null;
   const p = queryRow<{ id: number; name: string | null; bank_name: string | null }>("SELECT id,name,bank_name FROM loan_plans WHERE id=?", [id]);
   return p ? { id: Number(p.id), name: withPlanPrefix(internalPlanLabel(p.name, p.bank_name)), publicLabel: planLabelForCustomer(p.bank_name), choiceLabel: planChoiceLabel(p.name, p.bank_name) } : null;
 }
+const planById = shPlanById;
+
 export function shCurrentPlanId(customerId: number): number | null {
   const r = queryRow<{ plan_id: number | null }>(
     "SELECT plan_id FROM loan_applications WHERE customer_id=? AND deleted_at IS NULL AND plan_id IS NOT NULL ORDER BY COALESCE(updated_at,created_at) DESC, id DESC LIMIT 1", [customerId]);
