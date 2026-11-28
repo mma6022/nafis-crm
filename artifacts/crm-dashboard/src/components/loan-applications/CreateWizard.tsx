@@ -28,6 +28,7 @@ import "@/pages/loan-requests.css";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   useListCustomers,
+  type ListCustomersParams,
   getGetCustomerQueryKey,
   useGetAuthSession,
   getGetAuthSessionQueryKey,
@@ -217,8 +218,10 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   // FILES-SEARCH-FIX: a locked expert (expert_lockdown) cannot read GET /customers (403) → step 1 uses the incoming-call search instead.
   const lockdownMe = useLockdownMe();
   const elSearch = lockdownMe.data?.locked === true;
-  const { data: customersData, isLoading: loadingCustomers } = useListCustomers(
-    { limit: 50, search: search || undefined },
+  // t985: purpose=loan_request is required while flag.daily_plan is on and today's plan is started;
+  // otherwise GET /customers?search= returns 422 purpose_required and step 1 shows «مشتری یافت نشد».
+  const { data: customersData, isLoading: loadingCustomers, isError: customersError, refetch: refetchCustomers, error: customersQueryError } = useListCustomers(
+    { limit: 50, search: search || undefined, purpose: "loan_request" } as ListCustomersParams,
     { query: { queryKey: ["wizard-customers", search], enabled: lockdownMe.isFetched && !elSearch } }
   );
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -886,6 +889,9 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
                customers={customersData?.items || []} 
                otherOwnerPage={customersData}
                loading={loadingCustomers || !lockdownMe.isFetched}
+               searchError={customersError}
+               searchErrorMessage={customersQueryError instanceof Error ? customersQueryError.message : ''}
+               onRetrySearch={() => { void refetchCustomers(); }}
                elSearch={elSearch}
                selectedCustomer={selectedCustomer} 
                 setSelectedCustomer={selectCustomer} 
@@ -1161,7 +1167,7 @@ function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, on
 }
 
 // --- Step 1 ---
-function Step1Customer({ search, setSearch, customers, otherOwnerPage, loading, elSearch, selectedCustomer, setSelectedCustomer, onNext }: any) {
+function Step1Customer({ search, setSearch, customers, otherOwnerPage, loading, searchError, searchErrorMessage, onRetrySearch, elSearch, selectedCustomer, setSelectedCustomer, onNext }: any) {
   const [attempted, setAttempted] = useState(false);
   if (elSearch) return (
     <div className="lwz-step" data-testid="wizard-step-1">
@@ -1187,7 +1193,7 @@ function Step1Customer({ search, setSearch, customers, otherOwnerPage, loading, 
         <span className="lwz-sr">جستجوی مشتری</span>
         <input
           type="search"
-          placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)"
+          placeholder="جست‌وجو با نام، موبایل، کد ملی یا شناسه (#۱۲۳۴)"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           autoFocus
@@ -1197,6 +1203,12 @@ function Step1Customer({ search, setSearch, customers, otherOwnerPage, loading, 
       <div className="lwz-opts" role="radiogroup" aria-label="مشتریان" aria-describedby={attempted && !selectedCustomer ? 'err-selected-customer' : undefined}>
         {loading ? (
            <div className="lwz-loading" role="status">در حال جستجو...</div>
+        ) : searchError ? (
+          <div className="lwz-loading" role="alert" data-testid="wizard-customer-search-error">
+            {searchErrorMessage && searchErrorMessage !== 'Failed to fetch' ? searchErrorMessage : 'جستجوی مشتری انجام نشد.'}
+            {' '}
+            <button type="button" className="text-link" onClick={() => onRetrySearch?.()}>تلاش دوباره</button>
+          </div>
         ) : filteredCustomers.map((c: any) => (
           <label key={c.id} className={`lwz-opt${selectedCustomer?.id === c.id ? ' on' : ''}`} data-testid={`wizard-customer-option-${c.id}`}>
             <input type="radio" name="customer" checked={selectedCustomer?.id === c.id} onChange={() => setSelectedCustomer(c)} />
@@ -1208,11 +1220,11 @@ function Step1Customer({ search, setSearch, customers, otherOwnerPage, loading, 
             {c.verificationStatus === 'verified' ? <span className="lwz-ok lwz-badge"><CheckCircle2 size={16} aria-hidden="true" /> احراز شده</span> : <span className="lwz-muted lwz-badge">احراز نشده</span>}
           </label>
         ))}
-        {!loading && filteredCustomers.length === 0 && (
+        {!loading && !searchError && filteredCustomers.length === 0 && (
           <div className="lwz-loading">مشتری یافت نشد. مشتری جدید را از بخش «مشتریان» ثبت کنید.</div>
         )}
       </div>
-      {!loading ? <OtherOwnerResults page={otherOwnerPage} variant="inline" /> : null}
+      {!loading && !searchError ? <OtherOwnerResults page={otherOwnerPage} variant="inline" /> : null}
       {attempted && !selectedCustomer && <small role="alert" className="lwz-err" id="err-selected-customer" data-testid="error-selected-customer">برای ادامه یک مشتری را انتخاب کنید.</small>}
       <div className="form-footer">
         <span />

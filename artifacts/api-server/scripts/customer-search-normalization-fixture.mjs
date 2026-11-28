@@ -10,6 +10,8 @@ registerCustomerIdentityFunctions(db);
 db.exec("CREATE TABLE customers(name TEXT NOT NULL);");
 db.prepare("INSERT INTO customers(name) VALUES (?)").run("علي رضايي");
 db.prepare("INSERT INTO customers(name) VALUES (?)").run("محمد کاظمی");
+db.prepare("INSERT INTO customers(name) VALUES (?)").run("حديثه نمونه");
+db.prepare("INSERT INTO customers(name) VALUES (?)").run("ستایش هشی‌مند");
 
 const search = (term) => db.prepare(`
   SELECT name FROM customers
@@ -22,5 +24,11 @@ assert.deepEqual(search("علي"), ["علي رضايي"], "Arabic ya finds the s
 assert.deepEqual(search("رضایی"), ["علي رضايي"], "Persian ya works inside a longer name");
 assert.deepEqual(search("کاظمی"), ["محمد کاظمی"], "Persian kaf remains searchable");
 assert.equal(normalizePersianSearchText("يىك"), "ییک");
+assert.deepEqual(search("حدیثه"), ["حديثه نمونه"], "Persian yeh finds a name stored with Arabic yeh");
+assert.deepEqual(search("حديثه"), ["حديثه نمونه"], "Arabic yeh finds the same stored name");
+assert.deepEqual(search("هشیمند"), ["ستایش هشی‌مند"], "query without ZWNJ finds a name stored with ZWNJ");
+assert.deepEqual(search("هشی‌مند"), ["ستایش هشی‌مند"], "query with ZWNJ finds the same name");
+assert.equal(normalizePersianSearchText("هشی‌مند"), "هشیمند");
+assert.equal(normalizePersianSearchText("  علی   رضا  "), "علی رضا");
 db.close();
-console.log("PASS: customer-name searches match Arabic and Persian ya variants without changing stored names.");
+console.log("PASS: customer-name searches match Arabic and Persian ya variants, and ZWNJ, without changing stored names.");
