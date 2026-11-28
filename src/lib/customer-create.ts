@@ -1,6 +1,6 @@
 import { crmDb, execute, executeChanges, queryRow, queryRows } from "./crm-db";
 import { defaultOwnerDecision, logRuleAssignment, type RegistrationSource } from "./default-owner-rule";
-import { assignLeadOwner, mtFlagOn } from "./multi-team";
+import { assignLeadOwner, assignRegistrarTeamOwner, mtFlagOn, REGISTRAR_TEAM_OWNER_REASON, REGISTRAR_TEAM_OWNER_SOURCE } from "./multi-team";
 import { customerSourceFor } from "./registration-sources";
 import { recordUrgentChange } from "./customer-urgent";
 import { intakeValuesForCreate, type IntakeInput } from "./lead-intake";
@@ -90,12 +90,23 @@ export function insertCustomerRecord(input: CustomerCreateInput): number {
     : defaultOwnerDecision(input.registrationSource, input.registeredByUserId ?? null);
   let owner: number | null;
   let leadSplitApplied = false;
+  let registrarTeamApplied = false;
   if (!input.skipDefaultOwnerRule && mtFlagOn()) {
     const pri = input.priority === 1 || input.priority === 2 || input.priority === 3 ? input.priority : null;
-    owner = assignLeadOwner(pri, new Date(), "new_customers").salespersonId;
-    if (!(rule.apply && rule.ownerSalespersonId === owner)) {
-      rule = { apply: false, skip: "multi_team_lead_split" };
-      leadSplitApplied = true;
+    // t989: a team-member registrar's customer stays on that team (lead for none/P2/P3,
+    // P1 rotation for P1). The global new_customers split and conv-default-owner (always
+    // team 1 / Kazemi) only apply to system intakes and registrars who are not on a team.
+    const fromTeam = assignRegistrarTeamOwner(input.registeredByUserId ?? null, pri);
+    if (fromTeam) {
+      owner = fromTeam.salespersonId;
+      rule = { apply: false, skip: "registrar_team_owner" };
+      registrarTeamApplied = true;
+    } else {
+      owner = assignLeadOwner(pri, new Date(), "new_customers").salespersonId;
+      if (!(rule.apply && rule.ownerSalespersonId === owner)) {
+        rule = { apply: false, skip: "multi_team_lead_split" };
+        leadSplitApplied = true;
+      }
     }
   } else if (rule.apply) {
     owner = rule.ownerSalespersonId;
@@ -146,7 +157,13 @@ export function insertCustomerRecord(input: CustomerCreateInput): number {
     input.urgentReason?.reason ?? null, { reasonCode: input.urgentReason?.code ?? null });
   if (rule.apply) logRuleAssignment({ customerId: id, registrarUserId: input.registeredByUserId ?? null, source: input.registrationSource,
     ownerSalespersonId: rule.ownerSalespersonId, priority: input.priority ?? null });
-  else if (leadSplitApplied && owner != null) {
+  else if (registrarTeamApplied && owner != null) {
+    execute(`INSERT INTO customer_priority_history
+      (customer_id, old_priority, new_priority, old_salesperson_id, new_salesperson_id, actor_user_id, source, reason, created_at)
+      VALUES (?,?,?,?,?,?,?,?,?)`,
+      [id, input.priority ?? null, input.priority ?? null, null, owner, input.registeredByUserId ?? null,
+        REGISTRAR_TEAM_OWNER_SOURCE, REGISTRAR_TEAM_OWNER_REASON, createdAt]);
+  } else if (leadSplitApplied && owner != null) {
     execute(`INSERT INTO customer_priority_history
       (customer_id, old_priority, new_priority, old_salesperson_id, new_salesperson_id, actor_user_id, source, reason, created_at)
       VALUES (?,?,?,?,?,?,?,?,?)`,

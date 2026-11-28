@@ -691,6 +691,40 @@ export function assignLeadOwner(priority: CallPriority, now = new Date(), source
   return { team, salespersonId: owner };
 }
 
+export const REGISTRAR_TEAM_OWNER_SOURCE = "registrar_team_owner" as const;
+export const REGISTRAR_TEAM_OWNER_REASON = "تخصیص بر اساس تیم ثبت‌کننده" as const;
+
+/**
+ * t989: when a member of an enabled sales team registers a customer, ownership
+ * follows that team's priority owners (same rule as t868): none / P2 / P3 → the
+ * team lead (Khordkar on team 2, Kazemi on team 1); P1 → the team's P1 rotation.
+ * Does not consume the new_customers / site_leads intake-split cursor.
+ * Returns null for system intakes, users with no salesperson, and anyone who is
+ * not a member of an enabled team (e.g. a registrar or a trainee).
+ */
+export function assignRegistrarTeamOwner(
+  registrarUserId: number | null | undefined,
+  priority: CallPriority,
+): { team: SalesTeam; salespersonId: number } | null {
+  if (!mtFlagOn()) return null;
+  if (registrarUserId == null || !Number.isInteger(Number(registrarUserId)) || Number(registrarUserId) <= 0) return null;
+  migrateMultiTeam();
+  const u = queryRow<{ salesperson_id: number | null }>(
+    "SELECT salesperson_id FROM users WHERE id=?",
+    [Number(registrarUserId)],
+  );
+  if (u?.salesperson_id == null) return null;
+  const team = teamOfSalesperson(Number(u.salesperson_id));
+  if (!team || !team.enabled) return null;
+  const owner = priority === 1 && p1OwnerIds(team).length ? nextP1Owner(team) : ownerForPriority(team, priority);
+  if (owner == null) {
+    const fallback = noneOwnerId(team) ?? team.members[0]?.salespersonId;
+    if (fallback == null) return null;
+    return { team, salespersonId: fallback };
+  }
+  return { team, salespersonId: owner };
+}
+
 /* ---------------- trainees / EL map ---------------- */
 
 /** Legacy trainee list (flag OFF only). */
