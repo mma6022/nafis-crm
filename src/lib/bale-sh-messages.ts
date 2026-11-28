@@ -47,6 +47,8 @@ export type BaleShReady = {
   items: BaleShItem[];
   v11?: boolean;
   holdMs?: number;
+  /** v1.1: the active plans (for the type change in the preview) */
+  plans?: { id: number; name: string }[];
 };
 
 export function baleShReady(customerId?: number | null): BaleShReady {
@@ -58,9 +60,11 @@ export function baleShReady(customerId?: number | null): BaleShReady {
       try { currentPlanTitle = shPlanById(currentPlanId)?.name ?? null; } catch { currentPlanTitle = null; }
     }
   }
-  if (!tableReady()) return { currentPlanId, currentPlanTitle, items: [], ...(qrOn() ? { v11: true, holdMs: QR_HOLD_MS } : {}) };
   const v11 = qrOn();
-  const meta = v11 ? { v11: true, holdMs: QR_HOLD_MS } : {};
+  let activePlans: { id: number; name: string }[] = [];
+  if (v11) { try { activePlans = shPlans().map((p) => ({ id: p.id, name: p.name })); } catch { activePlans = []; } }
+  const meta = v11 ? { v11: true, holdMs: QR_HOLD_MS, plans: activePlans } : {};
+  if (!tableReady()) return { currentPlanId, currentPlanTitle, items: [], ...meta };
   let rows: { id: number; kind: string; plan_id: number | null; title: string; body: string; category?: string | null; show_today?: number }[] = [];
   try {
     rows = queryRows("SELECT * FROM sh_messages WHERE archived=0 ORDER BY sort, id");
