@@ -73,7 +73,7 @@ ok("direct send + undo toast; no composer fill (the old «درج در پیام»
 ok("every surface is gated on the server's v11 answer → flag OFF keeps the old UI", () => {
   assert.match(src("bale-workspace/Tray.tsx"), /a\?\.ready\?\.v11 \? a\.ready : null/);
   assert.match(src("bale-bot/BaleBotInbox.tsx"), /me\.quickReplies \? " qr11"/); assert.match(src("bale-bot/BaleBotInbox.tsx"), /me\.quickReplies \? <QrBar/);
-  assert.match(src("bale-bot/BaleBotCustomerSection.tsx"), /me\.quickReplies && c\.canOpen/);
+  assert.match(src("bale-bot/BaleBotCustomerSection.tsx"), /me\.quickReplies \? <FileReadyButton/);
   assert.match(src("social-hub/TodayBox.tsx"), /step === 1 && d\.v11/); assert.match(src("social-hub/Messages.tsx"), /const v11 = !!q\.data\.v11/);
   assert.match(src("quick-replies/ChatReady.tsx"), /ready\?\.v11 \? ready : null/);
 });
@@ -82,8 +82,29 @@ ok("the tray no longer reads sab.quick_messages while v1.1 is on; the old rows s
 });
 ok("settings: type cards with a hint, the plan only for «طرح‌ها», category sent only for free messages", () => {
   const m = src("social-hub/Messages.tsx");
-  assert.match(m, /data-testid="sh-msg-type"/); assert.match(m, /\.\.\.\(v11 && kind === 'free' \? \{ category: cat \} : \{\}\)/); assert.match(m, /kind === 'plan' \? <label className="sh-frow">/);
+  assert.match(m, /data-testid="sh-msg-type"/); assert.match(m, /\.\.\.\(v11 && kind === 'free' \? \{ category: cat \} : \{\}\)/); assert.match(m, /kind === 'plan' && v11 \? <div className="sh-frow qr-hub" data-testid="sh-msg-plan-picker">/);
   assert.deepEqual(M.QR_TABS.map((t) => M.QR_TAB_HINT[t.id]), ["وابسته به یک طرح", "پیام روزمره", "راهنمای مشتری"]);
+});
+ok("v1.1b: a free message moved to «طرح‌ها» gets the plan list at once and cannot be saved before a plan is chosen (expert preview and manager editor)", () => {
+  const t = src("quick-replies/ReadyTray.tsx"), m = src("social-hub/Messages.tsx");
+  assert.match(t, /useState<number \| null>\(cur === 'plans' \? item\.planId \?\? null : null\)/, "no plan is pre-chosen for a message that is not a plan message");
+  assert.match(t, /data-testid="qr-plan-picker"/); assert.match(t, /role="radiogroup" aria-labelledby="qr-pv-plan"/); assert.doesNotMatch(t, /<select/);
+  assert.match(t, /const needPlan = t === 'plans' && pid == null;[\s\S]*const ok = changed && !needPlan;/);
+  assert.match(t, /className="qr-btn qr-save" disabled=\{!ok \|\| saving\}/, "«ذخیرهٔ نوع پیام» is secondary (outlined), always shown, enabled only when the type changed and a plan is picked");
+  assert.doesNotMatch(t, /qr-btn pri qr-save/);
+  assert.match(m, /disabled=\{busy \|\| body\.length > 4096 \|\| \(v11 && kind === 'plan' && !plan\)\}/);
+});
+ok("v1.1b: customer file → a «پیام‌های آماده» button beside «باز کردن گفتگو» opens the tray as a side sheet; no fixed side panel; the list keeps the full width", () => {
+  const f = src("bale-bot/BaleBotCustomerSection.tsx"), c = src("quick-replies/ChatReady.tsx"), css = src("quick-replies/quick-replies.css");
+  assert.doesNotMatch(f, /qr-filewrap/); assert.doesNotMatch(css, /qr-filewrap/); assert.doesNotMatch(c, /export function FileReady\(/);
+  assert.match(f, /باز کردن گفتگو<\/Link>\{me\.quickReplies \? <FileReadyButton/);
+  assert.match(c, /پیام‌های آماده<\/button>/); assert.match(c, /role="dialog" aria-label="پیام‌های آماده"/);
+  assert.match(css, /\.qr-fsheet\{[^}]*min-width:min\(360px,100vw\)/);
+});
+ok("v1.1b: undo toast has no orphan dot; the seconds count down inside «برگرداندن»; wide screens place it above the dock beside the send box", () => {
+  const t = src("quick-replies/ReadyTray.tsx"), css = src("quick-replies/quick-replies.css");
+  assert.doesNotMatch(t, /qr-dot/); assert.doesNotMatch(css, /qr-dot/); assert.match(t, /className="qr-cd"/); assert.match(t, /bws-composer/);
+  assert.doesNotMatch(css, /\.qr-toast\{right:auto;left:24px/, "no longer over the dock's collapse button");
 });
 ok("no technical words or forbidden terms in the new UI; targets ≥44px; AA bubble tokens exactly as the design", () => {
   for (const f of files) assert.doesNotMatch(code(f), /sh_messages|quick_messages|flag\.|سپرده|برآورد|تخمین|لندتک|۲۹/, f);

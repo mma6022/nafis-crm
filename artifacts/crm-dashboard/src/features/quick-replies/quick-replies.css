@@ -69,20 +69,30 @@
 :is(.qr-panel,.qr-scrim,.qr-tabs,.qr-hub,.qr-wiz) .qr-cat.on{border-color:var(--nf-brand-600,#29369B);background:var(--nf-brand-50,#EEF0FA);box-shadow:0 0 0 1px var(--nf-brand-600,#29369B) inset}
 :is(.qr-panel,.qr-scrim,.qr-tabs,.qr-hub,.qr-wiz) .qr-cat.on b{color:var(--nf-brand-700,#212C85)}
 .qr-cats.sm .qr-cat{align-items:center;text-align:center;justify-content:center}
-.qr-planfld{margin-top:8px}
+.qr-planfld{margin-top:10px}
+.qr-plist{display:flex;flex-direction:column;gap:6px;max-height:197px;overflow-y:auto;overscroll-behavior:contain;padding:1px 2px;scroll-snap-type:y proximity;scrollbar-width:thin;scrollbar-color:var(--nf-line-strong,#C9CEDF) transparent}
+.qr-plist>*{flex:none;scroll-snap-align:start}
+.qr-plist::-webkit-scrollbar{width:6px}.qr-plist::-webkit-scrollbar-thumb{background:var(--nf-line-strong,#C9CEDF);border-radius:6px}
+:is(.qr-panel,.qr-scrim,.qr-tabs,.qr-hub,.qr-wiz) .qr-popt{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:8px 12px;border-radius:12px;border:1px solid var(--nf-line-strong,#C9CEDF);background:#fff;color:var(--nf-brand-900,#0B1450);font-family:inherit;font-weight:700;font-size:14px;line-height:1.5;text-align:right;cursor:pointer}
+:is(.qr-panel,.qr-scrim,.qr-tabs,.qr-hub,.qr-wiz) .qr-popt .qr-radio{flex:none;width:20px;height:20px;border-radius:50%;border:2px solid var(--nf-line-strong,#C9CEDF);background:#fff}
+:is(.qr-panel,.qr-scrim,.qr-tabs,.qr-hub,.qr-wiz) .qr-popt.on{border-color:var(--nf-brand-600,#29369B);background:var(--nf-brand-50,#EEF0FA);box-shadow:0 0 0 1px var(--nf-brand-600,#29369B) inset}
+:is(.qr-panel,.qr-scrim,.qr-tabs,.qr-hub,.qr-wiz) .qr-popt.on .qr-radio{border-color:var(--nf-brand-600,#29369B);background:radial-gradient(circle,var(--nf-brand-600,#29369B) 45%,#fff 50%)}
+:is(.qr-panel,.qr-scrim,.qr-tabs,.qr-hub,.qr-wiz) .qr-popt:focus-visible{outline:3px solid var(--nf-brand-200,#BCC3EC);outline-offset:1px}
+.qr-planhint{margin:10px 0 0;font-size:13px;line-height:1.7;color:var(--nf-ink-muted,#5F6B85)}
 .qr-planfld label{display:block;font-weight:800;font-size:14px;margin:0 0 6px}
 .qr-sel{width:100%;min-height:44px;border:1px solid var(--nf-line-strong,#C9CEDF);border-radius:12px;padding:0 12px;background:#fff;font:inherit;font-size:15px;color:var(--nf-ink,#0B1450)}
-.qr-save{width:100%;margin-top:10px}
+.qr-save{width:100%;margin-top:12px}
 .qr-sheet-acts{display:flex;gap:8px}
 .qr-sheet-acts .qr-btn{flex:1}
 @media (min-width:900px){.qr-scrim{align-items:center}.qr-sheet{border-radius:20px}}
 
 /* undo toast: ~5 s after a direct send */
 .qr-toast{position:fixed;z-index:95;left:16px;right:16px;margin-inline:auto;max-width:420px;bottom:calc(var(--bws-dock,0px) + 84px);display:flex;align-items:center;gap:8px;min-height:48px;padding:4px 8px 4px 16px;background:var(--nf-brand-900,#0B1450);color:#fff;border-radius:14px;box-shadow:0 8px 24px rgba(11,20,80,.28);font-weight:700;font-size:15px}
-.qr-toast .qr-dot{opacity:.6}
-.qr-toast button{min-height:44px;padding:0 14px;margin-inline-start:auto;border:0;border-radius:10px;background:rgba(255,255,255,.14);color:#fff;font-family:inherit;font-weight:800;font-size:14px;cursor:pointer}
+.qr-toast .qr-cd{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;margin-inline-start:8px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.2);font-size:13px;font-weight:800}
+.qr-toast button{display:inline-flex;align-items:center;min-height:44px;padding:0 14px;margin-inline-start:auto;border:0;border-radius:10px;background:rgba(255,255,255,.14);color:#fff;font-family:inherit;font-weight:800;font-size:14px;cursor:pointer}
 .qr-toast button:hover{background:rgba(255,255,255,.24)}
-@media (min-width:900px){.qr-toast{right:auto;left:24px;margin-inline:0;bottom:88px}}
+/* wide screens: above the dock (clear of its collapse button, which sits at the dock's start edge); normally placed beside the send box by script */
+@media (min-width:900px){.qr-toast{bottom:calc(var(--bws-dock-clear,122px) + 6px)}}
 @media (prefers-reduced-motion:no-preference){.qr-toast{animation:qrin .18s ease-out}@keyframes qrin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}}
 
 /* in the chat: mobile = under the thread above the composer; desktop (≥1024) = full-height panel in the context column */
@@ -95,10 +105,13 @@
     border-inline-end:0;margin-bottom:calc(var(--bws-dock-clear,76px) + var(--bws-arrow-clear,22px))}
 }
 .qr-side-slot{display:contents}
-/* customer file: thread beside the panel */
-.qr-filewrap{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:start}
-.qr-file .qr-panel.qr-file{border:1px solid var(--nf-line,#E3E6F0);border-radius:16px;max-height:640px;display:flex}
-@media (min-width:900px){.qr-filewrap{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)}.qr-file .qr-panel.qr-file{height:620px}}
+/* customer file: «پیام‌های آماده» next to «باز کردن گفتگو» opens the tray as a side sheet (min 360px); the thread list keeps the card's full width */
+.bbt .qr-fbtns{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
+.qr-fscrim{position:fixed;inset:0;z-index:92;background:rgba(11,20,80,.38);display:flex;justify-content:flex-start;direction:ltr}
+.qr-fsheet{direction:rtl;font-family:Vazirmatn,Tahoma,"Segoe UI",system-ui,sans-serif;display:flex;flex-direction:column;min-height:0;width:min(440px,100vw);min-width:min(360px,100vw);height:100dvh;background:#fff;box-shadow:8px 0 28px rgba(11,20,80,.2);overflow:hidden}
+.qr-fsheet .qr-panel{flex:1 1 auto;min-height:0}
+@media (min-width:900px){.qr-fscrim{background:rgba(11,20,80,.22)}}
+@media (prefers-reduced-motion:no-preference){.qr-fsheet{animation:qrslide .2s ease-out}@keyframes qrslide{from{transform:translateX(-24px);opacity:.6}to{transform:none;opacity:1}}}
 
 /* chat bubbles (t466u): calm neutral ground; customer = white with a thin right edge, expert = low-key brand tint with a left edge; AA text */
 .bbt.qr11{--chat-bg:#EEEFF5;--chat-in-bg:#FFFFFF;--chat-in-border:#D8DCE8;--chat-in-edge:#C9CEDF;--chat-in-text:#0B1450;--chat-out-bg:#C5CDED;--chat-out-border:#A8B0E0;--chat-out-edge:#5E6BC4;--chat-out-text:#0B1450;--chat-sys-bg:#FFFFFF;--chat-sys-text:#212C85}

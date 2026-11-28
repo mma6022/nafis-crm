@@ -85,19 +85,38 @@ export function ReadyTray({ ready, chatId, canSend, blockedHint, customer, exper
     {shown ? <PreviewSheet key={shown.id} item={shown} text={renderText(shown, vars)} plans={ready.plans ?? []} canSend={canSend && busy == null}
       onClose={() => setPrev(null)} onSend={() => { setPrev(null); void send(shown); }}
       onType={async (t, planId) => { try { await qrSetType(shown.id, t, planId); setPrev(null); setTab(t); setToast({ text: `پیام به «${QR_TAB_LABEL[t]}» رفت`, key: Date.now() }); onChanged(); } catch (e) { setToast({ text: qrErr(e), key: Date.now() }); } }} /> : null}
-    {toast ? createPortal(<div className={`qr-toast ${surface}`} role="status" aria-live="polite" key={toast.key} data-testid="qr-toast">
-      <span>{toast.text}</span>{toast.undo ? <><span className="qr-dot" aria-hidden="true">·</span><button type="button" onClick={() => void undo(toast.undo!)} data-testid="qr-undo">برگرداندن</button></> : null}
-    </div>, document.body) : null}
+    {toast ? createPortal(<UndoToast key={toast.key} toast={toast} surface={surface} ms={toast.undo ? Math.max(2000, hold - 1000) : 2600} onUndo={() => void undo(toast.undo!)} />, document.body) : null}
   </section>;
+}
+
+/** «ارسال شد» + «برگرداندن (۵)»: the seconds left tick down inside the button, so there is no separator dot. On a wide screen it floats just above the dock,
+ *  over the bottom of the thread beside the send box (never over the dock's collapse button); elsewhere it sits above the dock. */
+function UndoToast({ toast, surface, ms, onUndo }: { toast: Toast; surface: string; ms: number; onUndo: () => void }) {
+  const [left, setLeft] = useState(Math.ceil(ms / 1000));
+  const [pos, setPos] = useState<{ left: number; width: number; bottom: number } | null>(null);
+  useEffect(() => { if (!toast.undo) return; const t0 = Date.now(); const h = setInterval(() => setLeft(Math.max(0, Math.ceil((ms - (Date.now() - t0)) / 1000))), 250); return () => clearInterval(h); }, [toast.undo, ms]);
+  useEffect(() => {
+    if (window.innerWidth < 900) return setPos(null);
+    const c = document.querySelector<HTMLElement>('[data-testid=bws-composer]');
+    if (!c) return setPos(null);
+    const r = c.getBoundingClientRect();
+    if (r.width > 200 && r.top > 80) { const w = Math.min(420, r.width); setPos({ left: r.left + (r.width - w) / 2, width: w, bottom: Math.max(0, window.innerHeight - r.top + 8) }); }
+  }, [toast.key]);
+  return <div className={`qr-toast ${surface}${pos ? ' at-composer' : ''}`} role="status" aria-live="polite" data-testid="qr-toast" style={pos ? { left: pos.left, width: pos.width, bottom: pos.bottom, right: 'auto', marginInline: 0 } : undefined}>
+    <span>{toast.text}</span>
+    {toast.undo ? <button type="button" onClick={onUndo} data-testid="qr-undo">برگرداندن{left > 0 ? <span className="qr-cd" aria-label={`${fdig(left)} ثانیه مانده`}>{fdig(left)}</span> : null}</button> : null}
+  </div>;
 }
 
 function PreviewSheet({ item, text, plans, canSend, onClose, onSend, onType }: { item: QrItem; text: string; plans: { id: number; name: string }[]; canSend: boolean; onClose: () => void; onSend: () => void; onType: (t: QrTab, planId?: number | null) => Promise<void> }) {
   const cur = tabOf(item);
   const [t, setT] = useState<QrTab>(cur);
-  const [pid, setPid] = useState<number | null>(item.planId ?? plans[0]?.id ?? null);
+  // a plan is never pre-chosen for a message that is not a plan message yet: «طرح‌ها» shows the list at once and the save button waits for a pick
+  const [pid, setPid] = useState<number | null>(cur === 'plans' ? item.planId ?? null : null);
   const [saving, setSaving] = useState(false);
   const changed = t !== cur || (t === 'plans' && pid !== item.planId);
-  const ok = changed && (t !== 'plans' || pid != null);
+  const needPlan = t === 'plans' && pid == null;
+  const ok = changed && !needPlan;
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k); }, [onClose]);
   return createPortal(<div className="qr-scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} data-testid="qr-preview">
     <div className="qr-sheet" role="dialog" aria-modal="true" aria-labelledby="qr-pv-t" dir="rtl">
@@ -106,12 +125,13 @@ function PreviewSheet({ item, text, plans, canSend, onClose, onSend, onType }: {
       <div className="qr-full">{text}</div>
       <div className="qr-fld"><div className="qr-lab">نوع پیام</div>
         <div className="qr-cats sm" role="radiogroup" aria-label="تغییر نوع پیام" data-testid="qr-type">
-          {QR_TABS.map((x) => <button key={x.id} type="button" role="radio" aria-checked={t === x.id} className={`qr-cat${t === x.id ? ' on' : ''}`} onClick={() => setT(x.id)}><b>{x.label}</b></button>)}
+          {QR_TABS.map((x) => <button key={x.id} type="button" role="radio" aria-checked={t === x.id} className={`qr-cat${t === x.id ? ' on' : ''}`} onClick={() => setT(x.id)} data-type={x.id}><b>{x.label}</b></button>)}
         </div>
-        {t === 'plans' ? <div className="qr-planfld"><label htmlFor="qr-pv-plan">طرح</label>
-          {plans.length ? <select id="qr-pv-plan" className="qr-sel" value={pid ?? ''} onChange={(e) => setPid(Number(e.target.value))}>{plans.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
-            : <p className="qr-mut">طرح فعالی نیست.</p>}</div> : null}
-        {changed ? <button type="button" className="qr-btn pri qr-save" disabled={!ok || saving} onClick={async () => { setSaving(true); try { await onType(t, t === 'plans' ? pid : null); } finally { setSaving(false); } }} data-testid="qr-type-save">ذخیرهٔ نوع پیام</button> : null}
+        {t === 'plans' ? <div className="qr-planfld" data-testid="qr-plan-picker"><div className="qr-lab" id="qr-pv-plan">طرح را انتخاب کنید</div>
+          {plans.length ? <div className="qr-plist" role="radiogroup" aria-labelledby="qr-pv-plan">{plans.map((p) => <button key={p.id} type="button" role="radio" aria-checked={pid === p.id} className={`qr-popt${pid === p.id ? ' on' : ''}`} onClick={() => setPid(p.id)} data-plan-id={p.id}><span className="qr-radio" aria-hidden="true" /><span>{p.name}</span></button>)}</div>
+            : <p className="qr-mut">طرح فعالی نیست؛ پیام را نمی‌شود در «طرح‌ها» گذاشت.</p>}
+          {needPlan && plans.length ? <p className="qr-planhint" role="status">تا طرحی انتخاب نشود، نوع پیام ذخیره نمی‌شود.</p> : null}</div> : null}
+        <button type="button" className="qr-btn qr-save" disabled={!ok || saving} onClick={async () => { setSaving(true); try { await onType(t, t === 'plans' ? pid : null); } finally { setSaving(false); } }} data-testid="qr-type-save">ذخیرهٔ نوع پیام</button>
       </div>
       <div className="qr-sheet-acts"><button type="button" className="qr-btn" onClick={onClose}>بستن</button><button type="button" className="qr-btn pri" disabled={!canSend} onClick={onSend}>ارسال</button></div>
     </div>
