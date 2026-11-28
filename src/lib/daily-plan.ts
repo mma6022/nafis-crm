@@ -18,6 +18,8 @@ import { realCallSql } from "./real-call";
 import { getTeamSalesConfig, teamConfigFor } from "./team-sales";
 import { salesAssistScope, suggestionsFor } from "./sales-assist";
 import { tsOnSp } from "./today-split";
+import { dpSearchPurposeAllowed } from "./dp-search-purpose";
+export { DP_SEARCH_PURPOSES } from "./dp-search-purpose";
 
 /* ---------------- constants & names (final names for Armita: see DECISIONS) ---------------- */
 export const DP_TYPES = ["urgent", "due", "first", "followup", "loan_followup"] as const;
@@ -1255,11 +1257,13 @@ export function dpAfterFirstCallForm(user: CqUser, customerId: number, callLogId
   dpCloseDialWith(p, cid, { id: callLogId, created_at: now.toISOString() });
   return null;
 }
-/** GET /customers?search=… while the plan is active: only for incoming calls (purpose=incoming_call), else 422 purpose_required. */
+/** GET /customers?search=… while the plan is active: only allowed purposes.
+ *  incoming_call = «تماس ورودی داشتم»; loan_request = «درخواست تسهیلات» step 1 (t985).
+ *  Bare search (no purpose) stays blocked so the today list is not bypassed by a raw query. */
 export function dpSearchCheck(user: CqUser, q: any, now = new Date()): DpErr | null {
   const s = String(q?.search ?? "").trim(); if (!s) return null;
   if (!dpActiveFor(user, now)) return null;
-  return String(q?.purpose ?? "") === "incoming_call" ? null : err(422, "purpose_required", "جستجو فقط برای «تماس ورودی» است؛ کارهای امروز را از لیست برو.");
+  return dpSearchPurposeAllowed(q?.purpose) ? null : err(422, "purpose_required", "جستجو فقط برای «تماس ورودی» است؛ کارهای امروز را از لیست برو.");
 }
 /** R2 discipline on the plan (flag daily_plan_discipline): carried items still open today count as overdue. */
 export function dpOverdueExtra(user: CqUser, now = new Date()): number[] {

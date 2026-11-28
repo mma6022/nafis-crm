@@ -22,6 +22,7 @@ import { baleShOn, baleShReady } from "../lib/bale-sh-messages";
 import { cpOn, cpView } from "../lib/credit-panel";
 import { buildDossier } from "../lib/customer-dossier";
 import { baleBotWorker } from "./bale-bot";
+import { bfhCanViewWallet, bfhOn, bfhWallet } from "../lib/bale-fullheight";
 
 const ERR_FA: Record<string, string> = {
   not_enabled: "فضای کار بله برای شما روشن نیست.", forbidden: "دسترسی ندارید.", not_found: "پیدا نشد.", not_linked: "این گفتگو هنوز به پرونده‌ی مشتری وصل نیست.",
@@ -107,6 +108,16 @@ export function createBaleWorkspaceRouter(opts: { kick?: () => void } = {}): IRo
   r.get("/bale-workspace/chats/:id/context", (req, res) => {
     const u = U(res); const c = bwsChatFor(u, num(req.params.id)); if (!c) return fail(res, 404, "not_found");
     res.json({ chatId: c.id, canSend: bwsBotSendable(c.bot_id), context: c.customer_id ? context(u, c.customer_id) : null, assets: assets(u, c.customer_id) });
+  });
+  /* t984 «گفتگوهای بله تمام‌قد»: the customer's wallet, read-only (flag.bale_fullheight_v1; OFF = 404 like any unknown route).
+     Same visibility as the context column (bwsSeesCustomer) AND as GET /api/customers/:id/wallet (bfhCanViewWallet). Never creates an account, never writes. */
+  r.get("/bale-workspace/chats/:id/wallet", (req, res) => {
+    if (!bfhOn()) return fail(res, 404, "not_found");
+    const u = U(res); const c = bwsChatFor(u, num(req.params.id)); if (!c) return fail(res, 404, "not_found");
+    if (!c.customer_id) return fail(res, 409, "not_linked");
+    if (!bwsSeesCustomer(u, c.customer_id) || !bfhCanViewWallet(res.locals.authUser as AuthUser | undefined, c.customer_id)) return fail(res, 403, "forbidden");
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ chatId: c.id, ...bfhWallet(c.customer_id) });
   });
   /* ج: stars (customer, 0 = clear) */
   r.post("/bale-workspace/chats/:id/stars", express.json({ limit: "2kb" }), (req, res) => {
