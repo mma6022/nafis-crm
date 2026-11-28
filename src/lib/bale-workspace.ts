@@ -22,6 +22,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { crmDb, execute, executeChanges, queryRow, queryRows } from "./crm-db";
 import { isSalesManagerUser } from "./sales-manager";
+import { bfhOn } from "./bale-fullheight";
 import { BB_EXCLUDED_USER_IDS, BB_LIMITS, bbLog, bbUser, bbView, botById, botLive, botSends, chatName, filesDir, nameOf, normPhone, type BbUser } from "./bale-bot";
 
 export const BWS_FLAG = "flag.bale_workspace_v1";
@@ -81,13 +82,13 @@ export function bwsLog(userId: number | null, action: string, outcome: string, d
 }
 
 /* ---------------- people ---------------- */
-export type BwsMe = { on: true; userId: number; canManage: boolean; inbox: "all" | "own" | null; isExpert: boolean };
+export type BwsMe = { on: true; userId: number; canManage: boolean; inbox: "all" | "own" | null; isExpert: boolean; fullHeight?: true };
 export function bwsCanManage(u: BbUser | null | undefined): boolean {
   if (!u || u.active === 0 || BWS_NEVER_USER_IDS.includes(u.id)) return false;
   return u.role === "admin" || isSalesManagerUser(u); // effective role: admin + sales manager (= cqManager)
 }
 export function bwsMe(u: BbUser): BwsMe {
-  return { on: true, userId: u.id, canManage: bwsCanManage(u), inbox: bbView(u), isExpert: u.salesperson_id != null && !bwsCanManage(u) };
+  return { on: true, userId: u.id, canManage: bwsCanManage(u), inbox: bbView(u), isExpert: u.salesperson_id != null && !bwsCanManage(u), ...(bfhOn() ? { fullHeight: true as const } : {}) }; // t984: flag.bale_fullheight_v1
 }
 /** Own customer (expert) or any customer (sales manager / admin). Merged customers are never a target. */
 export function bwsCustomerAccess(u: BbUser, customerId: number): { id: number; name: string; phone: string | null; national_code: string | null; salesperson_id: number | null } | null {

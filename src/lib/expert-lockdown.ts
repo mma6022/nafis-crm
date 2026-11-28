@@ -200,7 +200,7 @@ const ALLOW: RegExp[] = [
   /^\/sales-fixes\/(search|my-customers|cases|me)$/,
   // «فضای کار بله» v1.0 (flag.bale_workspace_v1; OFF → the route 404s): own chats / own customers only, handlers re-check.
   // /bale-workspace/customers/<id>/… also goes through the single-customer rule below (path id). /admin/… is manager-only in the handler.
-  /^\/bale-workspace\/(me|plans|training|training\/\d+\/file|invites\/\d+|chats\/\d+\/(context|stars|plan-terms|invite|training\/\d+)|customers\/\d+\/(brief|invite))$/,
+  /^\/bale-workspace\/(me|plans|training|training\/\d+\/file|invites\/\d+|chats\/\d+\/(context|wallet|stars|plan-terms|invite|training\/\d+)|customers\/\d+\/(brief|invite))$/,
 ];
 /** REMINDER-68: the expert's own (not merged) customer — opens READ of the file/history/notes, «ثبت یادآور» and «ارتقا به اولویت ۱»
  *  for every own customer (not only today's list). The customers list/menu stays closed; other experts' customers stay 403/404. */
