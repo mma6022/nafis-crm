@@ -23,7 +23,7 @@ import '@/features/bale-workspace/bale-workspace.css';
 import { setBwsDockHint } from '@/features/bale-workspace/dock-hint';
 // t984 «گفتگوهای بله تمام‌قد» v1.1 (flag.bale_fullheight_v1, OFF by default): every use below is gated by bw.fh, so OFF renders exactly as before.
 import { WalletModal, HeadMenu } from '@/features/bale-fullheight/Wallet';
-import { ExpertDropdown, ChipRow, StatusChip, StarChip } from '@/features/bale-fullheight/ListHead';
+import { ExpertDropdown, ChipRow, StatusChip, StarChip, FhRowLabels } from '@/features/bale-fullheight/ListHead';
 import '@/features/bale-fullheight/bale-fullheight.css';
 
 function faChatPreview(text: string | null | undefined) {
@@ -193,7 +193,8 @@ function ListPane({ me, data, loading, sel, filter, setFilter, q, setQ, expert, 
           if (!linked(c)) tags.push(<span key="nl" className="chip r"><I n="user-x" />وصل‌نشده به مشتری</span>);
           if (otherFile(c)) tags.push(<span key="ot" className="exc">پرونده‌ی {c.customer?.expert}</span>);
         }
-        if ((me.view === 'all' || !c.mine) && c.expert.name) tags.push(<span key="ex" className="exc">{c.expert.name}</span>);
+        const expertName = ((me.view === 'all' || !c.mine) && c.expert.name) ? c.expert.name : null;
+        if (!fh && expertName) tags.push(<span key="ex" className="exc">{expertName}</span>);
         if (c.notices.some((n) => n.kind === 'mgr_wrote')) tags.push(<span key="mg" className="chip g"><I n="bell" />پیام مدیر</span>);
         const pvKind = c.lastPreview && PREV_IC[c.lastPreview] ? c.lastPreview : null;
         const showCid = !!c.customer && !c.pendingTypedPhone;
@@ -201,7 +202,7 @@ function ListPane({ me, data, loading, sel, filter, setFilter, q, setQ, expert, 
         return <li key={c.id} className={`cv-r${c.unread ? ' un' : ''}`} aria-current={c.id === sel ? true : undefined} onClick={() => nav(`/bale-bot/${c.id}`)}>
           <a className="cv-hit" href={`#${c.id}`} onClick={(e) => { e.preventDefault(); nav(`/bale-bot/${c.id}`); }} aria-label={`گفتگو با ${c.name}${c.unread ? `، ${fa(c.unread)} پیام خوانده‌نشده` : ''}`} />
           <Ava name={c.name} seed={c.id} /><span className="nmr"><Nm name={c.name} />{showCid ? <Cid id={c.customer!.id} toast={toast} /> : null}{c.stars ? <StarMark n={c.stars} small /> : null}</span><span className="tm">{bbListTime(c.lastAt)}</span>
-          <span className={fh ? 'pv pvf' : 'pv'}>{fh ? <span className="pt">{pvBody}</span> : pvBody}{fh && tags.length ? <span className="tg">{tags}</span> : null}</span>{c.unread ? <span className="ub" aria-hidden="true">{fa(c.unread)}</span> : null}
+          <span className={fh ? 'pv pvf' : 'pv'}>{fh ? <span className="pt">{pvBody}</span> : pvBody}{fh ? <FhRowLabels labels={tags} expert={expertName} isManager={me.view === 'all'} /> : null}</span>{c.unread ? <span className="ub" aria-hidden="true">{fa(c.unread)}</span> : null}
           {!fh && tags.length ? <span className="tg">{tags}</span> : null}
           {me.contactFeature && otherFile(c) && (c.customer?.phone || c.customer?.canOpen) ? <div className="bc-row-more">{c.customer!.phone ? <Ph phone={c.customer!.phone} toast={toast} /> : null}{c.customer!.canOpen ? <Link className="btn gh sm" href={`/customers/${c.customer!.id}`} onClick={(e) => e.stopPropagation()}><I n="file" />مشاهده‌ی پرونده</Link> : null}{c.customer!.expert ? <span className="bc-own">مسئول: {c.customer!.expert}</span> : null}</div> : null}</li>; })}</ul>
       : <div className="lempty"><b>گفتگویی پیدا نشد</b></div>}

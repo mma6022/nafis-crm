@@ -12,7 +12,7 @@ const FILTERS: [BfhFilter, string][] = [['all', 'همه'], ['in', 'واریز'],
 function BalanceLines({ w }: { w: BfhWallet | undefined }) {
   if (!w) return <span className="bfh-bal sk" aria-hidden="true" />;
   const credit = w.creditToman !== '0' && /^\d+$/.test(w.creditToman);
-  return <span className="bfh-bal"><b>{toman(w.cashToman)}</b>{credit ? <small>اعتباری: {toman(w.creditToman)}</small> : null}</span>;
+  return <span className="bfh-bal"><b className="bfh-num">{toman(w.cashToman)}</b>{credit ? <small className="bfh-num">اعتباری: {toman(w.creditToman)}</small> : null}</span>;
 }
 
 export function WalletButton({ chatId, onOpen }: { chatId: number; onOpen: () => void }) {
@@ -46,8 +46,8 @@ export function HeadMenu({ chatId, onWallet }: { chatId: number; onWallet: () =>
 function Row({ it, onPick }: { it: BfhItem; onPick: () => void }) {
   return <li><button type="button" className="bfh-wrow" onClick={onPick} data-testid="bfh-wallet-row">
     <span className="tp">{DIR_FA[it.dir]}<em>{WALLET_FA[it.wallet]}</em></span>
-    <span className={`amt ${it.dir === 'in' ? 'plus' : 'minus'}`}><bdi dir="ltr">{signed(it.dir, it.amountToman)}</bdi></span>
-    <span className="dt">{dayFa(it.at)}</span><span className="stt ok">موفق</span>
+    <span className={`amt bfh-num ${it.dir === 'in' ? 'plus' : 'minus'}`}>{signed(it.dir, it.amountToman)}</span>
+    <span className="dt">{dayFa(it.at)}</span>
     <span className="ds">{it.label}</span>
   </button></li>;
 }
@@ -55,11 +55,11 @@ function Row({ it, onPick }: { it: BfhItem; onPick: () => void }) {
 function Detail({ it }: { it: BfhItem }) {
   const kv = (k: string, v: React.ReactNode) => <div className="kv"><span className="k">{k}</span><span className="v">{v}</span></div>;
   return <div className="bfh-wdet" data-testid="bfh-wallet-detail">
-    <p className={`amt-lg ${it.dir === 'in' ? 'plus' : 'minus'}`}><bdi dir="ltr">{signed(it.dir, it.amountToman)}</bdi> <small>تومان</small></p>
+    <p className={`amt-lg bfh-num ${it.dir === 'in' ? 'plus' : 'minus'}`}>{signed(it.dir, it.amountToman)} <small>تومان</small></p>
     <p className="pill ok">موفق</p>
     {kv('نوع', DIR_FA[it.dir])}{kv('کیف پول', WALLET_FA[it.wallet])}{kv('تاریخ', dayTimeFa(it.at))}{kv('شرح', it.label)}
     {kv('شناسه', <span dir="ltr">#{faDigits(it.id)}</span>)}
-    {it.balanceAfterToman != null ? kv('مانده پس از تراکنش', toman(it.balanceAfterToman)) : null}
+    {it.balanceAfterToman != null ? kv('مانده پس از تراکنش', <span className="bfh-num">{toman(it.balanceAfterToman)}</span>) : null}
   </div>;
 }
 
@@ -84,7 +84,7 @@ export function WalletModal({ chatId, onClose }: { chatId: number; onClose: () =
         <button ref={closeRef} type="button" className="bfh-x" onClick={onClose} aria-label="بستن" data-testid="bfh-wallet-close">×</button>
       </div>
       {pick ? <Detail it={pick} /> : <>
-        {w ? <div className="bfh-sum"><span>موجودی نقدی<b>{toman(w.cashToman)}</b></span><span>اعتبار تسهیلات<b>{toman(w.creditToman)}</b></span></div> : null}
+        {w ? <div className="bfh-sum"><span>موجودی نقدی<b className="bfh-num">{toman(w.cashToman)}</b></span><span>اعتبار تسهیلات<b className="bfh-num">{toman(w.creditToman)}</b></span></div> : null}
         {state === 'list' ? <div className="bfh-wf" role="radiogroup" aria-label="نوع تراکنش">{FILTERS.map(([v, t]) => <button key={v} type="button" role="radio" aria-checked={f === v} className="chip" onClick={() => setF(v)} data-testid={`bfh-wallet-f-${v}`}>{t}</button>)}</div> : null}
         {state === 'load' ? <div className="bfh-wload" role="status" aria-busy="true" data-testid="bfh-wallet-loading"><div className="sk" aria-hidden="true"><i /><i /><i /></div><h3>در حال آماده شدن</h3></div> : null}
         {state === 'err' ? <div className="bfh-wempty" role="alert" data-testid="bfh-wallet-error"><h3>دریافت کیف پول ممکن نشد</h3><p>اتصال را بررسی کنید و دوباره امتحان کنید.</p><button type="button" className="btn gh sm" onClick={() => void q.refetch()}>تلاش دوباره</button></div> : null}

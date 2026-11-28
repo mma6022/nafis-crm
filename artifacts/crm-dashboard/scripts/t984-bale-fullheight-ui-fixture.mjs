@@ -18,6 +18,23 @@ ok("thousands separator is «٬» (U+066C) with Persian digits; big values keep 
   assert.equal(M.tomanDigits("12x"), "—"); assert.equal(M.tomanDigits(null), "—");
   assert.ok(!M.tomanDigits("1250000").includes(",") && !M.tomanDigits("1250000").includes("،"));
   assert.equal(M.toman("1500"), "۱٬۵۰۰ تومان"); assert.equal(M.toman("abc"), "—");
+  // Latin or already-grouped input still comes out with U+066C only
+  assert.equal(M.tomanDigits("8,000,000"), "۸٬۰۰۰٬۰۰۰");
+  assert.equal(M.tomanDigits("۸,۰۰۰,۰۰۰"), "۸٬۰۰۰٬۰۰۰");
+  const out = M.toman("8000000");
+  assert.ok(out.includes("\u066C"), out);
+  assert.ok(!out.includes("\u002C") && !out.includes(","), out);
+});
+ok("packLabels: a label is shown in full or not at all; expert is kept only in the manager view when space is tight", () => {
+  const L = (kind, width, id) => ({ kind, width, id });
+  const lead = L("other", 120, "lead"); const exp = L("expert", 80, "ex"); const extra = L("other", 100, "x");
+  assert.deepEqual(M.packLabels([lead, exp], 400, true).map((x) => x.id), ["lead", "ex"]);
+  assert.deepEqual(M.packLabels([lead, exp], 400, false).map((x) => x.id), ["lead", "ex"]);
+  // 120+4+80 = 204 > 150 → not manager: drop expert; manager: keep expert, drop lead (expert packed first)
+  assert.deepEqual(M.packLabels([lead, exp], 150, false).map((x) => x.id), ["lead"]);
+  assert.deepEqual(M.packLabels([lead, exp], 150, true).map((x) => x.id), ["ex"]);
+  assert.deepEqual(M.packLabels([lead, extra, exp], 100, true).map((x) => x.id), ["ex"]); // expert fits, others do not
+  assert.deepEqual(M.packLabels([lead, exp], 70, false).map((x) => x.id), []); // lead itself 120 > 70
 });
 ok("signed amount: + deposit, − withdrawal", () => { assert.equal(M.signed("in", "5000"), "+۵٬۰۰۰"); assert.equal(M.signed("out", "5000"), "−۵٬۰۰۰"); });
 const items = [{ id: 3, dir: "in" }, { id: 2, dir: "out" }, { id: 1, dir: "in" }];
@@ -58,6 +75,26 @@ ok("wallet window: back button in the same window, empty + loading states, Esc h
   for (const t of ["bfh-wallet-back", "bfh-wallet-empty", "bfh-wallet-loading", "bfh-head-menu"]) assert.ok(w.includes(t), t);
   assert.match(w, /key === 'Escape'/); assert.match(w, /aria-modal="true"/);
   assert.match(code("bale-workspace/Context.tsx"), /!only \? <BfhWalletSlot/);
+});
+ok("list rows: labels never shrink; expert label is packed (full or hidden); filter chips scroll into view on Tab", () => {
+  const inbox = code("bale-bot/BaleBotInbox.tsx");
+  assert.match(inbox, /<FhRowLabels labels=\{tags\} expert=\{expertName\} isManager=\{me\.view === 'all'\} \/>/);
+  const h = code("bale-fullheight/ListHead.tsx");
+  assert.match(h, /scrollIntoView\(\{ inline: 'nearest'/);
+  assert.match(h, /onFocus=\{chipFocus\}/);
+  assert.match(h, /packLabels/);
+  const c = src("bale-fullheight/bale-fullheight.css");
+  assert.match(c, /labels never shrink|preview shrinks first/);
+  assert.match(c, /scroll-margin-inline:28px/);
+  assert.doesNotMatch(c, /pvf \.tg\{[^}]*max-width:66%/);
+});
+ok("wallet list rows have no «موفق» badge; the detail view keeps it; amounts use bfh-num / toman()", () => {
+  const w = code("bale-fullheight/Wallet.tsx");
+  assert.equal((w.match(/موفق/g) || []).length, 1);
+  assert.match(w, /className="pill ok">موفق</);
+  assert.doesNotMatch(w, /stt ok/);
+  assert.match(w, /className="bfh-num"/);
+  assert.match(code("bale-workspace/Context.tsx"), /bfhToman\(d\.amountToman\)/);
 });
 ok("css: scoped to .bw-fh / .bfh-*; quick-replies tray (.bqr) untouched; mobile sheet; no fixed 22px arrow gap", () => {
   const c = src("bale-fullheight/bale-fullheight.css").replace(/\/\*[\s\S]*?\*\//g, "");

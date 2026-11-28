@@ -1,7 +1,7 @@
 /* t984 §3: compact list header of «گفتگوهای بله» — the experts filter is a dropdown (label «کارشناس», default «همهٔ کارشناس‌ها»);
    status and star filters share ONE horizontally scrolling row with soft edge fades. Same filter state and server query as before. */
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { faDigits } from './model';
+import { faDigits, packLabels, type BfhLabelKind } from './model';
 import './bale-fullheight.css';
 
 export function ExpertDropdown({ experts, value, onChange }: { experts: { id: number; name: string }[]; value: number | ''; onChange: (n: number | '') => void }) {
@@ -48,7 +48,35 @@ export function Stars({ n }: { n: number }) {
   return <span className="bfh-stars" aria-hidden="true">{Array.from({ length: n }, (_, i) => <svg key={i} viewBox="0 0 24 24"><path d="M12 3.2l2.6 5.5 6 .8-4.4 4.1 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.5l6-.8z" /></svg>)}</span>;
 }
 
+const chipFocus = (e: { currentTarget: HTMLElement }) => { e.currentTarget.scrollIntoView({ inline: 'nearest', block: 'nearest' }); };
+
 export const StatusChip = ({ on, onClick, children, n }: { on: boolean; onClick: () => void; children: ReactNode; n?: number }) =>
-  <button type="button" role="radio" aria-checked={on} className={`bfh-chip${on ? ' on' : ''}`} onClick={onClick}>{children}{n ? <span className="n">{faDigits(n)}</span> : null}</button>;
+  <button type="button" role="radio" aria-checked={on} className={`bfh-chip${on ? ' on' : ''}`} onClick={onClick} onFocus={chipFocus}>{children}{n ? <span className="n">{faDigits(n)}</span> : null}</button>;
 export const StarChip = ({ on, onClick, stars, label, n, text }: { on: boolean; onClick: () => void; stars?: number; label: string; n?: number; text?: string }) =>
-  <button type="button" aria-pressed={on} aria-label={label} className={`bfh-chip st${on ? ' on' : ''}`} onClick={onClick}>{stars ? <Stars n={stars} /> : null}{text}{n ? <span className="n g">{faDigits(n)}</span> : null}</button>;
+  <button type="button" aria-pressed={on} aria-label={label} className={`bfh-chip st${on ? ' on' : ''}`} onClick={onClick} onFocus={chipFocus}>{stars ? <Stars n={stars} /> : null}{text}{n ? <span className="n g">{faDigits(n)}</span> : null}</button>;
+
+/** Labels never shrink. Preview (sibling .pt) shrinks first. If the row is still short: drop the expert label, except in the manager view where the expert label stays and later labels are dropped instead. */
+export function FhRowLabels({ labels, expert, isManager }: { labels: ReactNode[]; expert: string | null; isManager: boolean }) {
+  const row = useRef<HTMLSpanElement>(null);
+  const [shown, setShown] = useState<{ other: boolean[]; expert: boolean } | null>(null);
+  useLayoutEffect(() => {
+    const el = row.current; const parent = el?.parentElement; if (!el || !parent) return;
+    const measure = () => {
+      const kids = [...el.querySelectorAll<HTMLElement>(':scope > [data-bfh-lab]')]; // measure content width even when a label is packed off (data-off is visually hidden, not display:none)
+      const items = kids.map((n) => ({ kind: (n.dataset.bfhLab === 'expert' ? 'expert' : 'other') as BfhLabelKind, width: n.scrollWidth, i: Number(n.dataset.i) }));
+      const packed = packLabels(items, parent.clientWidth, isManager);
+      const keepO = labels.map((_, i) => packed.some((p) => p.kind === 'other' && p.i === i));
+      const keepE = packed.some((p) => p.kind === 'expert');
+      setShown((p) => (p && p.expert === keepE && p.other.length === keepO.length && p.other.every((v, i) => v === keepO[i]) ? p : { other: keepO, expert: keepE }));
+    };
+    measure();
+    const ro = new ResizeObserver(measure); ro.observe(parent); ro.observe(el);
+    return () => ro.disconnect();
+  }, [labels, expert, isManager]);
+  if (!labels.length && !expert) return null;
+  return <span className="tg" ref={row} data-testid="bfh-row-labels">
+    {labels.map((n, i) => <span key={i} data-bfh-lab="other" data-i={i} data-off={shown && !shown.other[i] ? true : undefined}>{n}</span>)}
+    {expert ? <span data-bfh-lab="expert" data-i={-1} className="exc" data-testid="bfh-row-expert" data-off={shown && !shown.expert ? true : undefined}>{expert}</span> : null}
+  </span>;
+}
+

@@ -5,6 +5,7 @@ import { Link } from 'wouter';
 import { colourClass, CreditCard } from '@/features/credit-panel/CreditCard';
 import { useBw } from './inbox';
 import { WalletButton } from '@/features/bale-fullheight/Wallet';
+import { toman as bfhToman } from '@/features/bale-fullheight/model';
 import { fd, faNum, jDate, toman, type BwsAssets, type BwsChatCtx, type BwsContext } from './api';
 
 type Full = Extract<BwsContext, { restricted: false }>;
@@ -17,11 +18,13 @@ const callResultFa = (r: string) => CALL_RESULT_FA[r] ?? (/^[a-z][a-z0-9_]*$/i.t
 
 export function FileBlock({ c }: { c: Full }) {
   const d = c.dossier;
+  const fh = useBw().fh;
+  const amount = d?.amountToman ? (fh ? <span className="bfh-num">{bfhToman(d.amountToman)}</span> : `${faNum(d.amountToman)} تومان`) : null;
   return <section className="bws-blk" aria-label="پرونده‌ی مشتری"><h3>پروندهٔ مشتری</h3>
     {d && (d.job || d.purpose || d.amountToman || d.guarantor) ? <>
       <Row k="شغل" v={d.job} chip={d.fromSite ? <span className="bws-chip">از سایت</span> : null} />
       <Row k="برای" v={d.purpose} />
-      <Row k="مبلغ" v={d.amountToman ? `${faNum(d.amountToman)} تومان` : null} />
+      <Row k="مبلغ" v={amount} />
       <Row k="ضامن" v={d.guarantor} />
     </> : <p className="bws-mut">هنوز چیزی در پرونده ثبت نشده است.</p>}
   </section>;
