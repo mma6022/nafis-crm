@@ -716,7 +716,9 @@ export function assignRegistrarTeamOwner(
   if (u?.salesperson_id == null) return null;
   const team = teamOfSalesperson(Number(u.salesperson_id));
   if (!team || !team.enabled) return null;
-  const owner = priority === 1 && p1OwnerIds(team).length ? nextP1Owner(team) : ownerForPriority(team, priority);
+  // Mohammad (t989s3674): a P1 customer stays with the registrar himself (no P1 rotation).
+  if (priority === 1) return { team, salespersonId: Number(u.salesperson_id) };
+  const owner = ownerForPriority(team, priority);
   if (owner == null) {
     const fallback = noneOwnerId(team) ?? team.members[0]?.salespersonId;
     if (fallback == null) return null;

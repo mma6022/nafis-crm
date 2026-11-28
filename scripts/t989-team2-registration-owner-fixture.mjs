@@ -125,7 +125,7 @@ ok("Aslanian P2 and P3 also go to Khordkar", () => {
   assert.equal(Number(h.new_salesperson_id), KHORDKAR_SP);
 });
 
-ok("Aslanian P1 stays with Aslanian (team 2's only P1 owner)", () => {
+ok("Aslanian P1 stays with Aslanian himself (registrar owns his own P1)", () => {
   const id = create({ registeredByUserId: ASLANIAN_USER, priority: 1 });
   assert.equal(ownerOf(id), ASLANIAN_SP);
   const h = firstHist(id);
@@ -146,11 +146,15 @@ ok("Hasani none and P3 (team 1) still go to Kazemi", () => {
   assert.equal(Number(h.new_salesperson_id), KAZEMI_SP);
 });
 
-ok("Hasani / Ghasemi P1 stay on team 1 P1 owners", () => {
+ok("Hasani / Ghasemi P1 stay with the registrar himself (no P1 rotation)", () => {
   const a = ownerOf(create({ registeredByUserId: HASANI_USER, priority: 1 }));
   const b = ownerOf(create({ registeredByUserId: GHASEMI_USER, priority: 1 }));
-  assert.ok([3, 4].includes(a), `Hasani P1 owner ${a}`);
-  assert.ok([3, 4].includes(b), `Ghasemi P1 owner ${b}`);
+  assert.equal(a, queryRow("SELECT salesperson_id s FROM users WHERE id=?", [HASANI_USER]).s, `Hasani P1 owner ${a}`);
+  assert.equal(b, queryRow("SELECT salesperson_id s FROM users WHERE id=?", [GHASEMI_USER]).s, `Ghasemi P1 owner ${b}`);
+});
+
+ok("Khordkar's own P1 stays with Khordkar", () => {
+  assert.equal(ownerOf(create({ registeredByUserId: KHORDKAR_USER, priority: 1 })), KHORDKAR_SP);
 });
 
 ok("Sarina (registrar, no team) still follows the 100% team-1 lead split → Kazemi", () => {
