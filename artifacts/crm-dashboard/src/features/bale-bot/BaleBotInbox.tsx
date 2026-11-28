@@ -1,5 +1,6 @@
 /* bale v1.1 «گفتگوی بله داخل پنل کارشناس»: inbox (list · chat · customer pane), composer, link/lead modals.
-   Design: nafis-design/screens/bale (45 scenes). Nothing here ever sends without a click on «ارسال»/«ثبت»:
+   Design: nafis-design/screens/bale (45 scenes). Nothing here ever sends without an explicit expert action:
+   desktop Enter or a click on «ارسال»/«ثبت» sends (t992); Shift+Enter and touch Enter insert a newline;
    canned replies only fill the composer; «درخواست شماره» is an explicit expert action. */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'wouter';
@@ -11,6 +12,7 @@ import { SignReminderActs, SignReminderBanner, SignReminderSys, signStatusLabel 
 import { bbFetch, BbError, useBaleBotMe, bbListTime, bbTime, bbDay, bbDayKey, bbSize, bbDur, fa, fd, toLatin, PHONE_OK, bbUrl,
   type BbMe, type BbChat, type BbChats, type BbMessage } from './api';
 import { I, Ava, Nm, Cid, Ph, Uname, Unverified, useToast, Steps, Modal, copyText, FaPhones, faPhoneString } from './ui';
+import { handleBaleComposerEnter } from './composer-enter';
 import { CustomerNameEdit } from '@/features/customer-name-edit/CustomerNameEdit';
 // «فضای کار بله» v1.0 (flag.bale_workspace_v1, OFF by default): every hook below is inert while me.workspace is absent.
 import { useBwsMe, useChatCtx } from '@/features/bale-workspace/api';
@@ -435,6 +437,7 @@ function Composer({ me, chat, reply, edit, clear, toast, err, refresh }: { me: B
   const [cq, setCq] = useState('');
   const [file, setFile] = useState<{ f: File; kind: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const sendingRef = useRef(false);
   const [rec, setRec] = useState<{ r: MediaRecorder; start: number; chunks: Blob[] } | null>(null);
   const [recS, setRecS] = useState(0); const [recB, setRecB] = useState(0);
   const pick = useRef<HTMLInputElement>(null); const kindRef = useRef('document');
@@ -469,14 +472,18 @@ function Composer({ me, chat, reply, edit, clear, toast, err, refresh }: { me: B
   const limit = file ? (file.kind === 'photo' ? L.photoBytes : L.fileBytes) : 0;
   const tooBig = !!file && file.f.size > limit;
   const canSend = !busy && !tooBig && (file ? true : text.trim().length > 0 && n <= L.textMax);
+  const onComposerKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const coarse = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
+    handleBaleComposerEnter(e, { coarsePointer: coarse, canSend }, () => { void send(); });
+  };
   const send = async () => {
-    if (!canSend) return; setBusy(true);
+    if (!canSend || sendingRef.current) return; sendingRef.current = true; setBusy(true);
     try {
       if (edit) { await bbFetch(`/bale-bot/messages/${edit.id}/edit`, { body: { text } }); toast('پیام ویرایش شد'); }
       else if (file) await bbFetch(`/bale-bot/chats/${chat.id}/files`, { raw: file.f, headers: { 'Content-Type': file.f.type || 'application/octet-stream', 'x-kind': file.kind, 'x-file-name': encodeURIComponent(file.f.name), 'x-caption': encodeURIComponent(text) } });
       else await bbFetch(`/bale-bot/chats/${chat.id}/messages`, { body: { text, replyTo: reply?.id ?? null } });
       setText(''); setFile(null); clear(); refresh();
-    } catch (e) { err(e); } finally { setBusy(false); }
+    } catch (e) { err(e); } finally { sendingRef.current = false; setBusy(false); }
   };
   const startRec = async () => {
     try {
@@ -514,11 +521,11 @@ function Composer({ me, chat, reply, edit, clear, toast, err, refresh }: { me: B
       <button className="ib" type="button" aria-label="پاسخ‌های آماده" aria-expanded={pop === 'canned'} onClick={() => setPop(pop === 'canned' ? null : 'canned')}><I n="note" /></button>
       {bw.on ? <span className="sp" /> : null}
       {bw.on ? null : <textarea className={`ta3${n > 600 ? ' lng' : ''}`} rows={1} aria-label={`پیام به ${chat.name}`} placeholder={file ? 'توضیح (اختیاری)' : 'پیام بنویسید'} value={text} onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void send(); } }} />}
+        onKeyDown={onComposerKey} data-enter-send="1" />}
       {!n && !file && !edit && typeof MediaRecorder !== 'undefined' ? <button className="ib" type="button" aria-label="ضبط پیام صوتی" onClick={startRec}><I n="mic" /></button> : null}
       <button className="snd" type="button" aria-label={edit ? 'ذخیره‌ی ویرایش' : 'ارسال'} aria-disabled={!canSend} onClick={send}><I n={edit ? 'check' : 'send'} /></button></>;
   const ta = <textarea ref={taRef} className={`ta3${n > 600 ? ' lng' : ''}`} rows={1} aria-label={`پیام به ${chat.name}`} placeholder={file ? 'توضیح (اختیاری)' : 'پیام بنویسید'} value={text} onChange={(e) => setText(e.target.value)}
-        onInput={growComposer} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void send(); } }} data-testid="bws-composer" />;
+        onInput={growComposer} onKeyDown={onComposerKey} data-enter-send="1" data-testid="bws-composer" />;
   return <div className="cz">{top}{!bw.on && !top && !rec && !edit && !file ? (me.quickReplies ? <QrBar chat={chat} me={me} refresh={refresh} /> : <QuickBar chatId={chat.id} toast={toast} err={err} refresh={refresh} />) : null}
     {bw.on && !rec ? ta : null}
     <div className={bw.on ? 'row crowbar' : 'row'}>{row}</div>
