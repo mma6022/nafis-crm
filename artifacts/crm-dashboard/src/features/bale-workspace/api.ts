@@ -5,6 +5,7 @@ import { bbFetch } from '@/features/bale-bot/api';
 import { formatMobileGrouped } from '@/lib/phone';
 
 export type BwsMe = { on: true; userId: number; canManage: boolean; inbox: 'all' | 'own' | null; isExpert: boolean; noBaleText: string };
+import type { QrReady } from '@/features/quick-replies/api';
 export type BwsInvite = { id: number; at: string; bale: 'queued' | 'sent' | 'no_bale' | 'not_connected' | 'blocked' | 'failed'; sms: 'sent' | 'failed' | 'not_configured' | 'disabled'; by: string | null; error: string | null; line: string | null };
 export type BwsTraining = { id: number; title: string; kind: 'file' | 'video' | 'link'; url: string; fileName: string | null; size: number | null; audience: 'customer' | 'expert'; planScope: 'all' | 'selected'; planIds: number[]; plansLabel: string; active: boolean; at: string };
 export type BwsContext = {
@@ -18,7 +19,7 @@ export type BwsContext = {
   explained: { planId: number; name: string; at: string; by: string | null; messageId: number | null }[];
   invites: BwsInvite[];
 } | { restricted: true; customer: { id: number; name: string; expert: string | null } };
-export type BwsAssets = { quick: { id: string; title: string }[]; plans: { id: number; name: string }[]; training: BwsTraining[]; customerTraining: BwsTraining[]; canManage: boolean };
+export type BwsAssets = { quick: { id: string; title: string }[]; plans: { id: number; name: string }[]; training: BwsTraining[]; customerTraining: BwsTraining[]; canManage: boolean; ready?: QrReady };
 export type BwsChatCtx = { chatId: number; canSend: boolean; context: BwsContext | null; assets: BwsAssets };
 export type Audience = { who: 'messaged' | 'linked' | 'all'; stars: number[] | null; experts: number[] | null };
 export type Scenario = { id: number; name: string; kind: 'auto' | 'noreply' | 'bulk'; audience: Audience; cond: { hours?: number } | null; body: string; trainingFileId: number | null;

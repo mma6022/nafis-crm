@@ -43,7 +43,8 @@
     "test:plans-list-t859": "node --experimental-strip-types scripts/plans-list-t859-check.mjs",
     "test:board-default-t863": "node --experimental-strip-types scripts/board-default-t863-fixture.mjs",
     "test:military-female-t862": "node scripts/military-female-t862-ui-fixture.mjs",
-    "test:social-hub": "node scripts/social-hub-ui-fixture.mjs"
+    "test:social-hub": "node scripts/social-hub-ui-fixture.mjs",
+    "test:t979-quick-replies": "node --experimental-strip-types scripts/t979-quick-replies-ui-fixture.mjs"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

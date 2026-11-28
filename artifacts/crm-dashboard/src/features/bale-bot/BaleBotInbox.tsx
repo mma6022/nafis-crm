@@ -17,6 +17,7 @@ import { useBwsMe, useChatCtx } from '@/features/bale-workspace/api';
 import { BwInboxCtx, BW_OFF, useBw, BwHead, BwStarFilter, BwTabs, type BwTab } from '@/features/bale-workspace/inbox';
 import { BwContext } from '@/features/bale-workspace/Context';
 import { BwTray, ToolsButton } from '@/features/bale-workspace/Tray';
+import { QrBar } from '@/features/quick-replies/ChatReady';
 import { StarMark } from '@/features/bale-workspace/Stars';
 import '@/features/bale-workspace/bale-workspace.css';
 import { setBwsDockHint } from '@/features/bale-workspace/dock-hint';
@@ -105,7 +106,7 @@ function Inbox({ me }: { me: BbMe }) {
     reload: () => { void qc.invalidateQueries({ queryKey: ['bws-ctx'] }); refresh(); } } : BW_OFF;
   const askContact = async () => { if (!chat) return; try { await bbFetch(`/bale-bot/chats/${chat.id}/request-contact`, { body: {} }); toast('درخواست شماره فرستاده شد'); refresh(); } catch (e) { err(e); } };
 
-  return <BwInboxCtx.Provider value={bw}><div className={`bbt${me.contactFeature ? " bc-on" : ""}${me.customerBot?.any ? " cb-on" : ""}${ws ? ` bw-on bw-t-${sel != null && chat ? bwTab : 'chat'}` : ""}`} dir="rtl" data-testid="bale-bot-inbox">
+  return <BwInboxCtx.Provider value={bw}><div className={`bbt${me.contactFeature ? " bc-on" : ""}${me.customerBot?.any ? " cb-on" : ""}${me.quickReplies ? " qr11" : ""}${ws ? ` bw-on bw-t-${sel != null && chat ? bwTab : 'chat'}` : ""}`} dir="rtl" data-testid="bale-bot-inbox">
     {/* the floating «گزارش خطا» launcher sat on the bubbles of an open chat on phones; the top-bar bug icon stays */}
     <style>{'@media (max-width:1023px){body:has(.bbt .pg.chv) .diag-floating{display:none!important}}'}</style>
     <main className={`pg bbpg${mob === 'chat' ? ' chv' : ''}`}>
@@ -478,7 +479,7 @@ function Composer({ me, chat, reply, edit, clear, toast, err, refresh }: { me: B
     {tooBig ? <p className="aerr" role="alert"><I n="alert" />این فایل {sizeMB(file.f.size)} مگابایت است؛ بله {file.kind === 'photo' ? 'عکس' : 'فایل'} را تا {fa(limit / 1048576)} مگابایت می‌فرستد. فایل کوچک‌تری انتخاب کنید.</p> : null}</>;
   else if (reply) top = <div className="czs"><I n="reply" c="i0" /><span className="tx"><b>پاسخ به {reply.dir === 'in' ? chat.name : 'پیام خودتان'}</b><span>{reply.text ?? 'پیوست'}</span></span><button className="ib" type="button" aria-label="لغو پاسخ" onClick={clear}><I n="x" /></button></div>;
   else if (edit) top = <div className="czs"><I n="pen" c="i0" /><span className="tx"><b>ویرایش پیام</b><span>{edit.text}</span></span><button className="ib" type="button" aria-label="لغو ویرایش" onClick={clear}><I n="x" /></button></div>;
-  if (!top && bw.on && bw.tray && !rec && !edit) top = <BwTray chatId={chat.id} ctx={bw.ctx?.chatId === chat.id ? bw.ctx : undefined} initialSub={bw.sub} toast={toast} refresh={refresh} onClose={() => bw.setTray(false)} />;
+  if (!top && bw.on && bw.tray && !rec && !edit) top = <BwTray chatId={chat.id} ctx={bw.ctx?.chatId === chat.id ? bw.ctx : undefined} initialSub={bw.sub} expertName={me.name} toast={toast} refresh={refresh} onClose={() => bw.setTray(false)} />;
   const row = rec ? <><button className="ib" type="button" aria-label="لغو ضبط" onClick={() => stopRec(false)}><I n="trash" /></button><div className="rec" role="status" aria-label="در حال ضبط پیام صوتی"><span className="dot" /><b>{bbDur(recS)}</b><span className="wv" aria-hidden="true">{WV.map((v, i) => <i key={i} style={{ height: v }} className="on" />)}</span></div>
     <button className="snd" type="button" aria-label="پایان ضبط" onClick={() => stopRec(true)}><I n="check" /></button></>
     : <>{bw.on ? <ToolsButton open={bw.tray} onClick={() => { setPop(null); bw.setTray(!bw.tray); }} /> : null}<button className="ib" type="button" aria-label="پیوست" aria-expanded={pop === 'attach'} onClick={() => setPop(pop === 'attach' ? null : 'attach')} disabled={!!edit}><I n="clip" /></button>
@@ -490,7 +491,7 @@ function Composer({ me, chat, reply, edit, clear, toast, err, refresh }: { me: B
       <button className="snd" type="button" aria-label={edit ? 'ذخیره‌ی ویرایش' : 'ارسال'} aria-disabled={!canSend} onClick={send}><I n={edit ? 'check' : 'send'} /></button></>;
   const ta = <textarea ref={taRef} className={`ta3${n > 600 ? ' lng' : ''}`} rows={1} aria-label={`پیام به ${chat.name}`} placeholder={file ? 'توضیح (اختیاری)' : 'پیام بنویسید'} value={text} onChange={(e) => setText(e.target.value)}
         onInput={growComposer} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void send(); } }} data-testid="bws-composer" />;
-  return <div className="cz">{top}{!bw.on && !top && !rec && !edit && !file ? <QuickBar chatId={chat.id} toast={toast} err={err} refresh={refresh} /> : null}
+  return <div className="cz">{top}{!bw.on && !top && !rec && !edit && !file ? (me.quickReplies ? <QrBar chat={chat} me={me} refresh={refresh} /> : <QuickBar chatId={chat.id} toast={toast} err={err} refresh={refresh} />) : null}
     {bw.on && !rec ? ta : null}
     <div className={bw.on ? 'row crowbar' : 'row'}>{row}</div>
     <input ref={pick} type="file" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { const k = kindRef.current === 'document' && /^video\//.test(f.type) ? 'video' : kindRef.current === 'document' && /^image\//.test(f.type) ? 'photo' : kindRef.current; setFile({ f, kind: k }); setPop(null); } }} />

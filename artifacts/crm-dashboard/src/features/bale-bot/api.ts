@@ -21,7 +21,7 @@ export type SrView = {
   lastSentAt: string | null; lastSentFa: string | null; lockUntil: string | null; lockUntilFa: string | null;
   lockHours: number; reason: string | null; otherExpert: boolean; canOpenKeyCard?: boolean;
 };
-export type BbMe = { enabled: boolean; view: 'own' | 'all'; canManage: boolean; name: string; bot: BbBot; unread: number; limits: BbLimits; contactFeature?: boolean; customerBot?: BbCustomerBotFlags; signReminder?: boolean; workspace?: boolean };
+export type BbMe = { enabled: boolean; view: 'own' | 'all'; canManage: boolean; name: string; bot: BbBot; unread: number; limits: BbLimits; contactFeature?: boolean; customerBot?: BbCustomerBotFlags; signReminder?: boolean; workspace?: boolean; quickReplies?: boolean };
 export type BbCustomer = { id: number; name: string; phone: string | null; status: string | null; salespersonId: number | null; expert: string | null; restricted: boolean; canOpen: boolean } | null;
 export type BbNotice = { id: number; kind: string; at: string; actor: string | null };
 export type BbChat = {

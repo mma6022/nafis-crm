@@ -1,5 +1,7 @@
 /* social-hub: identity + «ارسال پیام» on the today card (flag.social_hub_v1). */
 import { useState } from 'react';
+import { TabBar } from '@/features/quick-replies/TabBar';
+import { countByTab, inTab, loadTab, saveTab, QR_EMPTY, type QrTab } from '@/features/quick-replies/model';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { AlertCircle, Check, Clock, Copy, FileText, RefreshCw, Send } from 'lucide-react';
@@ -63,6 +65,7 @@ function SendWizard({ d, name, onClose, onSent }: { d: ShToday; name: string; on
   const qc = useQueryClient();
   const [step, setStep] = useState(d.plans.length ? 0 : 1); const [plan, setPlan] = useState<number | null>(d.currentPlanId ?? d.plans[0]?.id ?? null);
   const [msg, setMsg] = useState<number | null>(null); const [docs, setDocs] = useState<number[]>([]);
+  const [qTab, setQTab] = useState<QrTab | null>(null); // v1.1: the tab of the message step (null → the remembered tab / «طرح‌ها» for a plan with messages)
   const [err, setErr] = useState(''); const [busy, setBusy] = useState(false); const [unreach, setUnreach] = useState(!d.reachable); const [copied, setCopied] = useState(false);
   const p = d.plans.find((x) => x.id === plan) ?? null; const all = [...(p?.messages ?? []), ...d.free]; const m = all.find((x) => x.id === msg) ?? null;
   const recent = (d.recentMessageIds ?? []).includes(msg ?? -1);
@@ -81,6 +84,24 @@ function SendWizard({ d, name, onClose, onSent }: { d: ShToday; name: string; on
       : <><button type="button" className="sh-btn pri" disabled={step === 1 && !m} onClick={() => setStep(step + 1)} data-testid="sh-send-next">ادامه</button><button type="button" className="sh-btn ghost" onClick={() => (step === 0 || !d.plans.length ? onClose() : setStep(step - 1))}>{step === 0 || !d.plans.length ? 'انصراف' : 'قبلی'}</button></>}>
     {step === 0 ? <div className="sh-stack" role="radiogroup" aria-label="طرح">{d.plans.map((x) => <Radio key={x.id} on={plan === x.id} title={x.name} sub={x.current ? 'طرح فعلی مشتری' : `${fa(x.messages.length)} پیام`} onClick={() => { setPlan(x.id); setMsg(null); setDocs([]); }} />)}
       <Radio on={plan == null} title="بدون طرح" sub="فقط پیام‌های آزاد" onClick={() => { setPlan(null); setMsg(null); setDocs([]); }} /></div>
+    : step === 1 && d.v11 ? <div className="sh-stack qr-wiz" data-testid="sh-send-v11">
+      {(() => {
+        const planMsgs = p?.messages ?? []; const rows = [...planMsgs, ...d.free];
+        const saved = loadTab(); const tab: QrTab = qTab ?? ((saved === 'plans' || saved === 'general' || saved === 'educational') && (saved !== 'plans' || planMsgs.length) ? saved : planMsgs.length ? 'plans' : 'general');
+        const pick = (t: QrTab) => { setQTab(t); saveTab(t); };
+        const list = tab === 'plans' ? planMsgs : inTab(d.free, tab);
+        return <>
+          <TabBar value={tab} counts={countByTab(rows)} onChange={pick} />
+          {tab === 'plans' && p ? <span className="sh-chip tint" style={{ alignSelf: 'flex-start' }}>{p.name}</span> : null}
+          {list.length ? <div className="sh-stack" role="radiogroup" aria-label="پیام‌ها">{list.map((x) => <Radio key={x.id} on={msg === x.id} title={x.title} sub={shRenderPreview(x.body, { customer: d.customerName || name, expert: d.expertName, plan: x.kind === 'plan' ? (p?.choiceLabel || p?.publicLabel) : '' })} onClick={() => { setMsg(x.id); if (x.kind !== 'plan') setDocs([]); }} testId="sh-send-msg" />)}</div>
+            : <p className="sh-sub" style={{ margin: 0 }} data-testid={`sh-send-empty-${tab}`}>{tab === 'plans' && !p ? 'اول در قدم قبلی یک طرح انتخاب کنید.' : QR_EMPTY[tab].h}</p>}
+          {tab === 'plans' && p?.docs.length ? <><div className="sh-lbl">فایل‌های طرح (اختیاری)</div>{p.docs.map((f) => <div key={f.id} className="sh-stack" style={{ gap: 4 }}>
+            <CheckBox on={docs.includes(f.id)} label={`${f.title}، ${f.fileType === 'pdf' ? 'پی‌دی‌اف' : f.fileType === 'video' ? 'ویدیو' : 'تصویر'}، ${fileSize(f.sizeBytes)}`}
+              onChange={(v) => { if (f.tooBig) return; setDocs((s) => v ? [...s, f.id] : s.filter((z) => z !== f.id)); }} />
+            {f.tooBig ? <span className="sh-sub sh-failr">حجم فایل برای ارسال در بله زیاد است</span> : null}
+          </div>)}</> : null}
+        </>;
+      })()}</div>
     : step === 1 ? <div className="sh-stack">
       {p ? <><span className="sh-chip tint" style={{ alignSelf: 'flex-start' }}>{p.name}</span>{p.messages.length ? <><div className="sh-lbl">پیام‌های {p.name}</div>
         <div className="sh-stack" role="radiogroup" aria-label={`پیام‌های ${p.name}`}>{p.messages.map((x) => <Radio key={x.id} on={msg === x.id} title={x.title} sub={shRenderPreview(x.body, { customer: d.customerName || name, expert: d.expertName, plan: p.choiceLabel || p.publicLabel })} onClick={() => setMsg(x.id)} testId="sh-send-msg" />)}</div></>

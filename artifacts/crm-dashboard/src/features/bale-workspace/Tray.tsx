@@ -2,22 +2,31 @@
    Experts: quick messages, plan terms, customer training files, invite, stars, request contact. No bulk here (manager-only, «مدیریت فروش»). */
 import { Sep } from './Sep';
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { bbFetch } from '@/features/bale-bot/api';
 import { I } from '@/features/bale-bot/ui';
 import { StarPicker } from './Stars';
 import { InviteButton } from './Invite';
 import { bwsErr, fd, jDate, type BwsChatCtx } from './api';
+import { ReadyTray } from '@/features/quick-replies/ReadyTray';
 
 export function ToolsButton({ open, onClick }: { open: boolean; onClick: () => void }) {
   return <button className={`ib bws-tools${open ? ' on' : ''}`} type="button" aria-label="ابزار" aria-expanded={open} aria-controls="bws-tray" onClick={onClick} data-bws-tools="1" data-testid="bws-tools"><I n="grid" /></button>;
 }
-type Sub = null | 'plans' | 'train' | 'quick';
-export function BwTray({ chatId, ctx, initialSub = null, toast, refresh, onClose }: { chatId: number; ctx: BwsChatCtx | undefined; initialSub?: Sub; toast: (t: string) => void; refresh: () => void; onClose: () => void }) {
+type Sub = null | 'plans' | 'train' | 'quick' | 'tools' | 'ready';
+export function BwTray({ chatId, ctx, initialSub = null, expertName = null, toast, refresh, onClose }: { chatId: number; ctx: BwsChatCtx | undefined; initialSub?: Sub; expertName?: string | null; toast: (t: string) => void; refresh: () => void; onClose: () => void }) {
   const qc = useQueryClient(); const ref = useRef<HTMLDivElement>(null);
   const [sub, setSub] = useState<Sub>(initialSub); const [busy, setBusy] = useState<string | null>(null);
+  const qrRef = useRef(false); // v1.1: the panel is a work area; only «×» / Esc close it (tapping the thread must not)
+  const [bx, setBx] = useState<HTMLElement | null>(null);
+  useEffect(() => { // desktop: the panel takes the context column (full height); phones keep it under the thread
+    const mq = window.matchMedia('(min-width:1024px)');
+    const f = () => setBx(mq.matches ? document.querySelector<HTMLElement>('.bbt.bw-on .bx:not(.np)') : null);
+    f(); mq.addEventListener('change', f); return () => mq.removeEventListener('change', f);
+  }, []);
   useEffect(() => {
-    const h = (e: MouseEvent | TouchEvent) => { const t = e.target as HTMLElement; if (ref.current?.contains(t) || t.closest?.('[data-bws-tools]') || t.closest?.('.bws-sheet')) return; onClose(); };
+    const h = (e: MouseEvent | TouchEvent) => { if (qrRef.current) return; const t = e.target as HTMLElement; if (ref.current?.contains(t) || t.closest?.('[data-bws-tools]') || t.closest?.('.bws-sheet')) return; onClose(); };
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('mousedown', h); document.addEventListener('touchstart', h); document.addEventListener('keydown', k);
     return () => { document.removeEventListener('mousedown', h); document.removeEventListener('touchstart', h); document.removeEventListener('keydown', k); };
@@ -25,21 +34,34 @@ export function BwTray({ chatId, ctx, initialSub = null, toast, refresh, onClose
   useEffect(() => { const th = document.querySelector<HTMLElement>('.bbt .pane.ch > .th'); if (th) th.scrollTop = th.scrollHeight; }, []);
   const reload = () => { void qc.invalidateQueries({ queryKey: ['bws-ctx', chatId] }); refresh(); };
   const a = ctx?.assets; const c = ctx?.context && !ctx.context.restricted ? ctx.context : null; const canSend = !!ctx?.canSend;
+  const qr = a?.ready?.v11 ? a.ready : null; qrRef.current = !!qr;
+  const view: Sub = sub === 'tools' ? null : sub ?? (qr ? 'ready' : null);
+  const back = () => setSub(qr ? 'tools' : null);
+  const side = !!qr && view === 'ready' && !!bx;
+  useEffect(() => { const root = document.querySelector('.bbt'); if (!side || !root) return; root.classList.add('qr-open'); return () => root.classList.remove('qr-open'); }, [side]);
   const act = async (key: string, fn: () => Promise<unknown>, ok: string) => { setBusy(key); try { await fn(); toast(ok); reload(); } catch (e) { toast(bwsErr(e)); } finally { setBusy(null); } };
+  if (qr && view === 'ready') { // v1.1: the three-tab panel (design bale-quick-replies-tabs); sab.quick_messages is no longer read here
+    const panel = <ReadyTray surface="tray" ready={qr} chatId={chatId} canSend={canSend} blockedHint={canSend ? null : 'ارسال در این گفتگو الان ممکن نیست.'} customer={c?.customer.name ?? null} expert={expertName}
+      explained={c?.explained.map((e) => e.planId) ?? []} onChanged={reload} onSent={refresh} onClose={onClose}
+      headExtra={<button className="qr-link" type="button" onClick={() => setSub('tools')} data-testid="qr-tools">ابزارهای دیگر</button>} />;
+    return side ? createPortal(<div className="qr-side" id="bws-tray" ref={ref} role="region" aria-label="پیام‌های آماده" data-testid="bws-tray">{panel}</div>, bx!)
+      : <div className="qr-tray-in" id="bws-tray" ref={ref} role="region" aria-label="پیام‌های آماده" data-testid="bws-tray">{panel}</div>;
+  }
   return <div className="bws-tray" id="bws-tray" ref={ref} role="region" aria-label="ابزار گفتگو" data-testid="bws-tray">
-    {sub === 'plans' && c ? <PlanTerms chatId={chatId} explained={c.explained} toast={toast} onSent={() => { setSub(null); reload(); }} onBack={() => setSub(null)} /> : null}
-    {sub === 'train' && a ? <div className="bws-sub"><h4><button className="ib" type="button" aria-label="بازگشت" onClick={() => setSub(null)}><I n="back" /></button>فایل آموزشی برای مشتری</h4>
+    {sub === 'plans' && c ? <PlanTerms chatId={chatId} explained={c.explained} toast={toast} onSent={() => { back(); reload(); }} onBack={back} /> : null}
+    {sub === 'train' && a ? <div className="bws-sub"><h4><button className="ib" type="button" aria-label="بازگشت" onClick={back}><I n="back" /></button>فایل آموزشی برای مشتری</h4>
       <ul className="bws-pick">{a.customerTraining.map((t) => <li key={t.id}><button type="button" disabled={!canSend || busy != null} onClick={() => act(`t${t.id}`, () => bbFetch(`/bale-workspace/chats/${chatId}/training/${t.id}`, { body: {} }), `«${t.title}» فرستاده شد`)}>
         <b>{t.title}</b><span>{t.kind === 'link' ? 'پیوند' : t.kind === 'video' ? 'ویدیو' : 'فایل'}<Sep />{t.plansLabel}</span></button></li>)}</ul></div> : null}
-    {sub === 'quick' && a ? <div className="bws-sub"><h4><button className="ib" type="button" aria-label="بازگشت" onClick={() => setSub(null)}><I n="back" /></button>پیام‌های آماده ({fd(a.quick.length)})</h4>
+    {sub === 'quick' && a ? <div className="bws-sub"><h4><button className="ib" type="button" aria-label="بازگشت" onClick={back}><I n="back" /></button>پیام‌های آماده ({fd(a.quick.length)})</h4>
       <ul className="bws-pick" data-testid="bws-quick-all">{a.quick.map((q) => <li key={q.id}><button type="button" disabled={!canSend || busy != null} aria-busy={busy === q.id}
         onClick={() => act(q.id, () => bbFetch(`/bale-bot/chats/${chatId}/quick/${q.id}`, { body: {} }), `«${q.title}» فرستاده شد`)}><b>{q.title}</b><span>یک ضربه می‌فرستد</span></button></li>)}</ul></div> : null}
-    {!sub ? <>
-      {a?.quick.length ? <div className="bws-trow bws-qrow" role="group" aria-label="پیام‌های آماده؛ یک ضربه می‌فرستد"><span className="bws-lbl">پیام آماده</span>
+    {!view ? <>
+      {a?.quick.length && !qr ? <div className="bws-trow bws-qrow" role="group" aria-label="پیام‌های آماده؛ یک ضربه می‌فرستد"><span className="bws-lbl">پیام آماده</span>
         <div className="bws-qscroll">{a.quick.map((q) => <button key={q.id} type="button" className="qb" disabled={!canSend || busy != null} aria-busy={busy === q.id}
           onClick={() => act(q.id, () => bbFetch(`/bale-bot/chats/${chatId}/quick/${q.id}`, { body: {} }), `«${q.title}» فرستاده شد`)}>{q.title}</button>)}</div>
         {a.quick.length > 2 ? <button type="button" className="bws-qall" onClick={() => setSub('quick')} aria-label={`همهٔ پیام‌های آماده، ${fd(a.quick.length)} پیام`} data-testid="bws-quick-more">همه <small>{fd(a.quick.length)}</small></button> : null}</div> : null}
       <div className="bws-tgrid">
+        {qr ? <button type="button" className="bws-tile" onClick={() => setSub('ready')} data-testid="bws-tile-ready"><I n="note" /><b>پیام‌های آماده</b><small>{fd(qr.items.length)} پیام در سه زبانه</small></button> : null}
         {c && a?.plans.length ? <button type="button" className="bws-tile" disabled={!canSend} onClick={() => setSub('plans')} data-testid="bws-tile-plans"><I n="doc" /><b>شرایط طرح</b>{c.explained.length ? <small>{fd(c.explained.length)} طرح توضیح داده شده</small> : <small>انتخاب و ارسال</small>}</button> : null}
         {a?.customerTraining.length ? <button type="button" className="bws-tile" disabled={!canSend} onClick={() => setSub('train')} data-testid="bws-tile-train"><I n="book" /><b>فایل آموزشی</b><small>{fd(a.customerTraining.length)} فایل برای مشتری</small></button> : null}
         <button type="button" className="bws-tile" disabled={!canSend || busy != null} onClick={() => act('rc', () => bbFetch(`/bale-bot/chats/${chatId}/request-contact`, { body: {} }), 'درخواست شماره فرستاده شد')}><I n="contact" /><b>درخواست شماره</b><small>دکمهٔ اشتراک</small></button>
