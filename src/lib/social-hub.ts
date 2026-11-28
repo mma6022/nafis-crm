@@ -66,6 +66,8 @@ const setting = (k: string) => { try { return queryRow<{ value: string }>("SELEC
 export const shOn = () => setting(SH_FLAG) === "1";
 export const shPhoneOn = () => setting(SH_PHONE_FLAG) === "1";
 export const shSendOn = () => setting(SH_SEND_FLAG) === "1";
+/** t979 v1.1: «پیام‌های آماده» with three tabs (default OFF; same flag as lib/bale-sh-messages.ts). */
+export const shQrOn = () => setting("flag.quick_replies_v11") === "1";
 export const shAutoSendOn = () => setting(SH_AUTO_SEND_FLAG) === "1";
 /** Timestamp the auto-send flag last became ON. Used so turning it on never delivers rows queued from past plan picks. */
 export function shAutoSendOnAt(): string | null {
@@ -160,6 +162,7 @@ export function ensureSocialHubSchema(): void {
     CREATE TABLE IF NOT EXISTS sh_log(id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, user_id INTEGER, action TEXT NOT NULL, ref_id INTEGER, detail TEXT);
   `);
   shBotsArchiveMigration();
+  shMessagesCategoryMigration();
   const now = iso();
   // the one unified bot row; status stays 'draft' until a real connection exists (none in this build)
   execute("INSERT OR IGNORE INTO sh_bots(network,name,handle,unified,status,created_at,updated_at) VALUES('bale',?,NULL,1,'draft',?,?)", [SH_BOT_NAME, now, now]);
@@ -186,6 +189,14 @@ function shBotsArchiveMigration(): void {
       crmDb.exec("COMMIT");
     } catch (e) { try { crmDb.exec("ROLLBACK"); } catch { /* none open */ } throw e; }
   }
+}
+/** t979 v1.1: «نوع پیام» for free messages. Additive: one column on sh_messages, every existing row defaults to 'general'
+ *  (design §10: all current free messages → عمومی). Plan rows ignore it (their tab is «طرح‌ها»). Idempotent; never rewrites data. */
+export const SH_CATEGORIES = ["general", "educational"] as const;
+export type ShCategory = (typeof SH_CATEGORIES)[number];
+function shMessagesCategoryMigration(): void {
+  const cols = new Set(queryRows<{ name: string }>("PRAGMA table_info(sh_messages)").map((c) => c.name));
+  if (!cols.has("category")) crmDb.exec("ALTER TABLE sh_messages ADD COLUMN category TEXT NOT NULL DEFAULT 'general' CHECK(category IN ('general','educational'))");
 }
 export const _resetShSchemaForTests = () => { ready = false; };
 /** Audit: ids and codes only, never a phone, national id or message text. */
@@ -241,16 +252,19 @@ export function shCurrentPlanId(customerId: number): number | null {
 }
 
 /* ---------------- ready messages ---------------- */
-export type ShMessage = { id: number; kind: "free" | "plan"; planId: number | null; title: string; body: string; showToday: boolean; autoSend: boolean; isInitial: boolean; sort: number };
+export type ShTab = "plans" | "general" | "educational";
+export type ShMessage = { id: number; kind: "free" | "plan"; planId: number | null; title: string; body: string; showToday: boolean; autoSend: boolean; isInitial: boolean; sort: number; category: ShCategory; tab: ShTab };
 const msgView = (r: any): ShMessage => ({ id: Number(r.id), kind: r.kind, planId: r.plan_id == null ? null : Number(r.plan_id), title: r.title, body: r.body,
-  showToday: Number(r.show_today) === 1, autoSend: Number(r.auto_send) === 1, isInitial: Number(r.is_initial) === 1, sort: Number(r.sort) });
+  showToday: Number(r.show_today) === 1, autoSend: Number(r.auto_send) === 1, isInitial: Number(r.is_initial) === 1, sort: Number(r.sort),
+  category: r.category === "educational" ? "educational" : "general", tab: r.kind === "plan" ? "plans" : r.category === "educational" ? "educational" : "general" });
 export function shMessages() {
   const rows = queryRows<any>("SELECT * FROM sh_messages WHERE archived=0 ORDER BY sort, id").map(msgView);
   const plans = shPlans();
   return {
     free: rows.filter((m) => m.kind === "free"),
+    general: rows.filter((m) => m.tab === "general"), educational: rows.filter((m) => m.tab === "educational"),
     plans: plans.map((p) => ({ plan: p, messages: rows.filter((m) => m.kind === "plan" && m.planId === p.id) })),
-    vars: SH_VARS,
+    vars: SH_VARS, v11: shQrOn(),
   };
 }
 function parseMessage(body: any, existing?: ShMessage) {
@@ -264,23 +278,27 @@ function parseMessage(body: any, existing?: ShMessage) {
   if (kind === "plan" && (!Number.isSafeInteger(planId) || !planById(planId))) throw new ShError(400, "plan_required", "طرح را انتخاب کنید.", { field: "planId" });
   const showToday = body?.showToday === undefined ? (existing?.showToday ?? true) : Boolean(body.showToday);
   const autoSend = kind === "plan" && (body?.autoSend === undefined ? (existing?.autoSend ?? false) : Boolean(body.autoSend));
-  return { title, text, kind, planId, showToday, autoSend };
+  // t979 v1.1: category is only meaningful for free messages; absent → keep the existing one (new → general); an unknown value is refused.
+  const catIn = body?.category;
+  if (catIn !== undefined && catIn !== null && !(SH_CATEGORIES as readonly string[]).includes(String(catIn))) throw new ShError(400, "category_invalid", "نوع پیام را درست انتخاب کنید.", { field: "category" });
+  const category: ShCategory = kind === "plan" ? "general" : ((catIn ?? existing?.category ?? "general") as ShCategory);
+  return { title, text, kind, planId, showToday, autoSend, category };
 }
 export function shCreateMessage(u: AuthUser, body: any): ShMessage {
   const m = parseMessage(body); const now = iso();
   const sort = Number(queryRow<{ s: number }>("SELECT COALESCE(MAX(sort),0)+1 s FROM sh_messages")?.s ?? 1);
-  const id = execute("INSERT INTO sh_messages(kind,plan_id,title,body,show_today,auto_send,sort,created_by,created_at,updated_by,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-    [m.kind, m.planId, m.title, m.text, m.showToday ? 1 : 0, m.autoSend ? 1 : 0, sort, u.id, now, u.id, now]);
-  shLog(u.id, "message_create", Number(id), { kind: m.kind, planId: m.planId });
+  const id = execute("INSERT INTO sh_messages(kind,plan_id,title,body,show_today,auto_send,sort,created_by,created_at,updated_by,updated_at,category) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+    [m.kind, m.planId, m.title, m.text, m.showToday ? 1 : 0, m.autoSend ? 1 : 0, sort, u.id, now, u.id, now, m.category]);
+  shLog(u.id, "message_create", Number(id), { kind: m.kind, planId: m.planId, category: m.category });
   return msgView(queryRow("SELECT * FROM sh_messages WHERE id=?", [id]));
 }
 export function shUpdateMessage(u: AuthUser, id: number, body: any): ShMessage {
   const row = queryRow<any>("SELECT * FROM sh_messages WHERE id=? AND archived=0", [id]);
   if (!row) throw new ShError(404, "not_found", "این پیام پیدا نشد.");
   const m = parseMessage(body, msgView(row));
-  executeChanges("UPDATE sh_messages SET kind=?,plan_id=?,title=?,body=?,show_today=?,auto_send=?,updated_by=?,updated_at=? WHERE id=?",
-    [m.kind, m.planId, m.title, m.text, m.showToday ? 1 : 0, m.autoSend ? 1 : 0, u.id, iso(), id]);
-  shLog(u.id, "message_update", id, { showToday: m.showToday, autoSend: m.autoSend });
+  executeChanges("UPDATE sh_messages SET kind=?,plan_id=?,title=?,body=?,show_today=?,auto_send=?,category=?,updated_by=?,updated_at=? WHERE id=?",
+    [m.kind, m.planId, m.title, m.text, m.showToday ? 1 : 0, m.autoSend ? 1 : 0, m.category, u.id, iso(), id]);
+  shLog(u.id, "message_update", id, { showToday: m.showToday, autoSend: m.autoSend, category: m.category });
   return msgView(queryRow("SELECT * FROM sh_messages WHERE id=?", [id]));
 }
 export function shArchiveMessage(u: AuthUser, id: number) {
@@ -558,7 +576,7 @@ export function shTodayBox(u: AuthUser, customerId: number) {
   return { customerId, customerName: queryRow<{ name: string }>("SELECT name FROM customers WHERE id=?", [customerId])?.name ?? "", expertName: u.fullName || u.username,
     identity: shIdentity(customerId), reachable: gate.ok || gate.error !== "unreachable", botName: SH_BOT_NAME, botLink: shBotLink(),
     sendBlock: gate.ok ? null : { error: gate.error, message: gate.message, expertName: gate.expertName ?? null },
-    recentMessageIds: recentIds, baleFileMaxBytes: maxFile, currentPlanId: cur, plans, free: msgs.filter((m) => m.kind === "free"), sends };
+    recentMessageIds: recentIds, baleFileMaxBytes: maxFile, currentPlanId: cur, v11: shQrOn(), plans, free: msgs.filter((m) => m.kind === "free"), sends };
 }
 export function shSend(u: AuthUser, customerId: number, body: any, now = new Date()) {
   const msg = queryRow<any>("SELECT * FROM sh_messages WHERE id=? AND archived=0", [Number(body?.messageId)]);

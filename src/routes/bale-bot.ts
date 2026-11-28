@@ -132,7 +132,7 @@ function botView(b: ReturnType<typeof botOfUser>) {
 }
 
 import { sabOn, sabQuickMessages } from "../lib/sales-admin-bale";
-import { baleShItemById, baleShOn, baleShReady } from "../lib/bale-sh-messages";
+import { baleShItemById, baleShOn, baleShReady, baleShSetType, QrError, qrOn, QR_HOLD_MS } from "../lib/bale-sh-messages";
 import { shRender } from "../lib/social-hub";
 import { attachCustomerBotToChat, customerBotFlagsPayload, registerCustomerBaleRoutes } from "./customer-bale";
 import { registerSignReminderRoutes } from "./bale-sign-reminder";
@@ -225,10 +225,10 @@ export function createBaleBotRouter(): IRouter {
     if (!botLive(bot)) { fail(res, 409, "bot_off"); return null; }
     return c;
   };
-  const queueOut = (c: ChatRow, u: BbUser, o: { kind: string; text: string | null; replyTo?: number | null; keyboard?: string | null; file?: { name: string; mime: string; size: number; rel: string; sendAs: string } }) => {
-    const id = execute(`INSERT INTO bale_bot_messages(chat_row,dir,kind,text,reply_to,keyboard,file_name,mime,size,file_path,file_state,send_as,status,author_user_id,created_at)
-      VALUES(?,'out',?,?,?,?,?,?,?,?,?,?,'sending',?,?)`, [c.id, o.kind, o.text, o.replyTo ?? null, o.keyboard ?? null, o.file?.name ?? null, o.file?.mime ?? null, o.file?.size ?? null,
-      o.file?.rel ?? null, o.file ? "stored" : null, o.file?.sendAs ?? null, u.id, t()]);
+  const queueOut = (c: ChatRow, u: BbUser, o: { kind: string; text: string | null; replyTo?: number | null; keyboard?: string | null; holdUntil?: string | null; file?: { name: string; mime: string; size: number; rel: string; sendAs: string } }) => {
+    const id = execute(`INSERT INTO bale_bot_messages(chat_row,dir,kind,text,reply_to,keyboard,file_name,mime,size,file_path,file_state,send_as,status,author_user_id,created_at,retry_at)
+      VALUES(?,'out',?,?,?,?,?,?,?,?,?,?,'sending',?,?,?)`, [c.id, o.kind, o.text, o.replyTo ?? null, o.keyboard ?? null, o.file?.name ?? null, o.file?.mime ?? null, o.file?.size ?? null,
+      o.file?.rel ?? null, o.file ? "stored" : null, o.file?.sendAs ?? null, u.id, t(), o.holdUntil ?? null]);
     executeChanges("UPDATE bale_bot_chats SET last_at=?, last_preview=?, last_out=1 WHERE id=?", [t(), o.text ? o.text.replace(/\s+/g, " ").slice(0, 80) : o.kind === "photo" ? "عکس" : "فایل", c.id]);
     const ownerId = (c as any).owner_id as number;
     bbLog({ userId: u.id, botId: c.bot_id, chatRow: c.id, customerId: c.customer_id, action: "send.queue", outcome: "ok", detail: { kind: o.kind, byOwner: ownerId === u.id } });
@@ -260,7 +260,9 @@ export function createBaleBotRouter(): IRouter {
     const q = sabQuickMessages().find((x) => x.id === String(req.params.qid)); if (!q) return fail(res, 404, "not_found");
     res.json({ message: queueOut(c, u, { kind: "text", text: q.body.slice(0, BB_LIMITS.textMax), replyTo: null }) });
   });
-  /* t978: send one social-hub ready message through the same outbox as a typed message. Flag OFF or unknown id → 404. */
+  /* t978: send one social-hub ready message through the same outbox as a typed message. Flag OFF or unknown id → 404.
+     t979 v1.1 (flag.quick_replies_v11): «ارسال» sends directly, but the message is held QR_HOLD_MS (retry_at) so «برگرداندن» can still
+     take it back; the worker sends it right after the hold. With only the older flag the send is immediate, as in t978. */
   r.post("/bale-bot/chats/:id/ready/:mid", (req, res) => {
     if (!baleShOn()) return fail(res, 404, "flag_off");
     const u = U(res); const c = writable(u, num(req.params.id), res); if (!c) return;
@@ -268,7 +270,31 @@ export function createBaleBotRouter(): IRouter {
     const cust = c.customer_id ? queryRow<{ name: string }>("SELECT name FROM customers WHERE id=?", [c.customer_id]) : null;
     const text = shRender(item.body, { customer: cust?.name ?? "", expert: nameOf(u), plan: item.kind === "plan" ? (item.planTitle ?? "") : "" }).slice(0, BB_LIMITS.textMax);
     if (!text.trim()) return fail(res, 400, "bad_text");
-    res.json({ message: queueOut(c, u, { kind: "text", text, replyTo: null }) });
+    if (!qrOn()) return res.json({ message: queueOut(c, u, { kind: "text", text, replyTo: null }) });
+    const message = queueOut(c, u, { kind: "text", text, replyTo: null, holdUntil: new Date(Date.now() + QR_HOLD_MS).toISOString() });
+    setTimeout(() => kick(), QR_HOLD_MS + 400).unref?.();
+    res.json({ message, undoMs: QR_HOLD_MS });
+  });
+  /* t979 v1.1 (design §4): an expert changes a ready message's type from the preview: {tab:"plans"|"general"|"educational", planId?}. One tab only. */
+  r.post("/bale-bot/ready/:mid/type", express.json({ limit: "2kb" }), (req, res) => {
+    if (!qrOn()) return fail(res, 404, "flag_off");
+    const u = U(res);
+    try { res.json({ item: baleShSetType(u, num(req.params.mid), String(req.body?.tab ?? ""), req.body?.planId == null ? null : Number(req.body.planId)) }); }
+    catch (e) { if (e instanceof QrError) return fail(res, e.status, e.code); throw e; }
+  });
+  /* t979 v1.1: «برگرداندن» — only while the held message has not been picked up by the worker (retry_at still in the future, never tried).
+     The row was never sent, so it is removed and the chat preview is restored. Anything already sent → 409 already_sent (no Bale delete here). */
+  r.post("/bale-bot/messages/:id/undo", (req, res) => {
+    if (!qrOn()) return fail(res, 404, "flag_off");
+    const u = U(res); const x = ownOut(u, num(req.params.id)); if (!x) return fail(res, 404, "not_found");
+    if (!writable(u, x.c.id, res)) return;
+    if (Number(x.m.author_user_id) !== Number(u.id)) return fail(res, 403, "forbidden");
+    const n = executeChanges("DELETE FROM bale_bot_messages WHERE id=? AND dir='out' AND status='sending' AND error_code IS NULL AND COALESCE(tries,0)=0 AND retry_at IS NOT NULL AND retry_at>?", [x.m.id, t()]);
+    if (!n) return fail(res, 409, "already_sent");
+    const last = queryRow<any>("SELECT text, kind, dir, created_at FROM bale_bot_messages WHERE chat_row=? ORDER BY id DESC LIMIT 1", [x.c.id]);
+    executeChanges("UPDATE bale_bot_chats SET last_preview=?, last_out=? WHERE id=?", [last ? (last.text ? String(last.text).replace(/\s+/g, " ").slice(0, 80) : last.kind === "photo" ? "عکس" : "فایل") : null, last && last.dir === "out" ? 1 : 0, x.c.id]);
+    bbLog({ userId: u.id, botId: x.c.bot_id, chatRow: x.c.id, action: "send.undo", outcome: "ok" });
+    res.json({ ok: true, id: x.m.id });
   });
   r.post("/bale-bot/chats/:id/request-contact", (req, res) => {
     const u = U(res); const c = writable(u, num(req.params.id), res); if (!c) return;
