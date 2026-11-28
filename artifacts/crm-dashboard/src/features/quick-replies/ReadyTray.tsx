@@ -76,7 +76,7 @@ export function ReadyTray({ ready, chatId, canSend, blockedHint, customer, exper
         ? (groups.length ? groups.map((g) => <section key={g.planId} className={`qr-grp${g.open ? '' : ' closed'}`} data-plan={g.planId}>
             <button type="button" className="qr-ghd" aria-expanded={g.open} onClick={() => setToggled((s) => ({ ...s, [g.planId]: !g.open }))}>
               <span>{g.title.startsWith('طرح') ? g.title : `طرح ${g.title}`}</span><span className="qr-gc">{fdig(g.items.length)}</span>
-              {g.current ? <span className="qr-cur">طرح فعلی مشتری</span> : null}<I n="chev" c="qr-chev" />
+              {g.current ? <span className="qr-cur">طرح فعلی</span> : null}<I n="chev" c="qr-chev" />
             </button>
             {g.open ? <div className="qr-gbody">{g.items.map(card)}</div> : null}
           </section>) : q.trim() ? <div className="qr-empty" data-testid="qr-empty-search"><h3>چیزی پیدا نشد</h3><p>عبارت دیگری را جستجو کنید.</p></div> : empty('plans'))
