@@ -3,6 +3,8 @@
 import { Sep } from './Sep';
 import { Link } from 'wouter';
 import { colourClass, CreditCard } from '@/features/credit-panel/CreditCard';
+import { useBw } from './inbox';
+import { WalletButton } from '@/features/bale-fullheight/Wallet';
 import { fd, faNum, jDate, toman, type BwsAssets, type BwsChatCtx, type BwsContext } from './api';
 
 type Full = Extract<BwsContext, { restricted: false }>;
@@ -72,10 +74,17 @@ export function BwContext({ data, only, toast }: { data: BwsChatCtx | undefined;
   if (c.restricted) return <aside className={cls} aria-label="زمینه‌ی مشتری"><section className="bws-blk"><h3>پروندهٔ کارشناس دیگر</h3><p className="bws-mut">{c.customer.name}{c.customer.expert ? ` · کارشناس: ${c.customer.expert}` : ''}</p></section></aside>;
   return <aside className={only ? 'bws-ctx tab' : 'pane cp bws-ctx'} aria-label="زمینه‌ی مشتری" data-testid="bws-ctx">
     {!only ? <h2 className="bws-h2">زمینهٔ مشتری</h2> : <div className="bws-tabhd"><b>{c.customer.name}</b><span>#{fd(c.customer.id)}</span>{c.customer.expert ? <><Sep /><span>{c.customer.expert}</span></> : null}</div>}
+    {!only ? <BfhWalletSlot chatId={data.chatId} /> : null}
     {!only || only === 'file' ? <><FileBlock c={c} />{only ? <CasesBlock c={c} /> : null}</> : null}
     {!only || only === 'credit' ? <CreditBlock c={c} toast={toast} /> : null}
     {!only ? <CasesBlock c={c} /> : null}
     {!only || only === 'calls' ? <CallsBlock c={c} /> : null}
     {!only || only === 'file' ? <AssetsBlock a={data.assets} /> : null}
   </aside>;
+}
+
+/** t984: the «تراکنش‌های کیف پول» button (flag.bale_fullheight_v1 only; everyone who gets this full context may see it — the server decides the same way). */
+function BfhWalletSlot({ chatId }: { chatId: number }) {
+  const bw = useBw(); if (!bw.fh) return null;
+  return <WalletButton chatId={chatId} onOpen={() => bw.setWallet(true)} />;
 }

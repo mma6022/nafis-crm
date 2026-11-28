@@ -1,0 +1,175 @@
+/* «گفتگوهای بله تمام‌قد» v1.1 (t984, Armita bale-chat-fullheight) — flag.bale_fullheight_v1 (absent/OFF by default).
+   Everything is scoped to .bbt.bw-fh (inbox) / .bfh-* (new parts) / :root:has(.bbt.bw-fh) (the compact dock). Flag OFF → no class → no effect.
+   Does NOT touch the v1.1b quick-replies tray (.bqr-*). */
+
+/* ───────── 1. compact dock on this page + full-height columns ───────── */
+:root:has(.bbt.bw-fh){--ss-gap:6px}
+.bbt.bw-on.bw-fh{--bws-arrow-clear:0px;--bws-dock-clear:calc(var(--ss-dock-h,56px) + var(--ss-gap,6px) + 6px);--composer-min:46px;--composer-max:132px}
+@media (min-width:1024px){
+  /* the columns end just above the dock (no empty strip), each scrolls by itself */
+  .app-main .bbt.bw-on.bw-fh .pg.bbpg .bx>.pane,
+  .bbt.bw-on.bw-fh .bx>.pane,.bbt.bw-on.bw-fh .bx>.pane.ch,.bbt.bw-on.bw-fh .bx>.bws-ctx.pane,.bbt.bw-on.bw-fh .bx>.lst.pane{margin-bottom:var(--bws-dock-clear)}
+  .bbt.bw-on.bw-fh .bx>.lst.pane .cvl,.bbt.bw-on.bw-fh .bx>.lst.pane .lempty{flex:none;overflow:visible}
+  .bbt.bw-on.bw-fh .bx>.bws-ctx.pane{overflow-y:auto;overscroll-behavior:contain}
+
+  /* compact dock (desktop only; phones keep the full 64px tab bar) */
+  :root:has(.bbt.bw-fh) .ss-dock{padding:4px 8px;border-radius:20px;gap:0;align-items:center}
+  :root:has(.bbt.bw-fh) .ss-dock .ss-i{height:48px;min-height:0;gap:1px;justify-content:center}
+  :root:has(.bbt.bw-fh) .ss-dock .ss-ic{width:30px;height:26px;border-radius:9px;margin:0}
+  :root:has(.bbt.bw-fh) .ss-dock .ss-ic svg{width:18px;height:18px}
+  :root:has(.bbt.bw-fh) .ss-dock .ss-i:hover .ss-ic,:root:has(.bbt.bw-fh) .ss-dock .ss-i:focus-visible .ss-ic{transform:scale(1.08)}
+  :root:has(.bbt.bw-fh) .ss-dock .ss-i{width:auto;min-width:62px;padding:0 6px}
+  :root:has(.bbt.bw-fh) .ss-dock .ss-i>span:not(.ss-ic){font-size:12px;line-height:1.2;white-space:nowrap}
+  :root:has(.bbt.bw-fh) .ss-dock .ss-sep{height:28px;margin:0 4px}
+  :root:has(.bbt.bw-fh) .ss-dock .ss-p{height:40px;min-height:0;margin:0 4px;padding:0 14px;font-size:14px;border-radius:14px}
+  :root:has(.bbt.bw-fh) .ss-dock .ss-pi{width:26px;height:26px}
+  :root:has(.bbt.bw-fh) .ss-dock .ss-bdg{min-width:18px;height:18px;font-size:11px;top:-3px}
+  :root:has(.bbt.bw-fh) .dk-toggle{top:50%;bottom:auto;transform:translateY(-50%);inset-inline-start:calc(100% + 8px);inset-inline-end:auto}
+}
+
+/* ───────── 2. list column: header, experts dropdown, ONE scrolling filter row ───────── */
+.bbt.bw-fh .lst.pane{overflow:hidden}
+.bbt.bw-fh .lst .lh{flex:none;display:flex;flex-direction:column;gap:6px;padding:6px 12px 4px;border-bottom:1px solid var(--nf-line)}
+.bbt.bw-fh .lst .lh>*{flex:none}
+.bbt.bw-fh .lst .lh .r1{margin:0;min-height:32px}
+.bbt.bw-fh .lst .lh h2{font-size:17px;margin:0}
+.bbt.bw-fh .lst .lh .srch{margin:0;min-height:40px}
+.bbt.bw-fh .lst .lh .srch input{min-height:36px}
+.bbt.bw-fh .lst .lh .btn.lk{min-height:34px}
+.bbt .bfh-lbody{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.bbt.bw-fh .lst .lfoot{margin:0;padding:8px 14px 14px;font-size:12.5px;color:var(--nf-ink-muted)}
+
+.bbt .bfh-dd{position:relative}
+.bbt .bfh-ddb{all:unset;box-sizing:border-box;width:100%;min-height:42px;display:flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--nf-line-strong,#cdd5e3);border-radius:12px;background:#fff;cursor:pointer;font:inherit;color:var(--nf-ink)}
+.bbt .bfh-ddb:hover{background:var(--nf-surface)}
+.bbt .bfh-ddb:focus-visible,.bbt .bfh-ddm .opt:focus-visible,.bbt .bfh-chip:focus-visible,.bbt .bfh-walbtn:focus-visible,.bbt .bfh-hmb:focus-visible,.bbt .bfh-hmm button:focus-visible,.bbt .bfh-wrow:focus-visible,.bbt .bfh-back:focus-visible,.bbt .bfh-x:focus-visible,.bbt .bfh-wf .chip:focus-visible{outline:3px solid var(--nf-brand-600,#29369B);outline-offset:2px}
+.bbt .bfh-ddb .lab{font-size:13px;font-weight:700;color:var(--nf-ink-muted);flex:none}
+.bbt .bfh-ddb .val{flex:1;min-width:0;font-size:15px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bbt .bfh-ddb .chev{flex:none;color:var(--nf-ink-muted)}
+.bbt .bfh-ddb[aria-expanded=true] .chev{transform:rotate(180deg)}
+.bbt .bfh-ddm{position:absolute;z-index:40;inset-inline:0;top:calc(100% + 4px);max-height:min(320px,50dvh);overflow-y:auto;background:#fff;border:1px solid var(--nf-line);border-radius:14px;box-shadow:0 14px 34px rgba(11,20,80,.18);padding:6px}
+.bbt .bfh-ddm .opt{all:unset;box-sizing:border-box;width:100%;min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px;border-radius:10px;cursor:pointer;font:inherit;font-size:15px;font-weight:700;color:var(--nf-ink)}
+.bbt .bfh-ddm .opt:hover{background:var(--nf-surface)}
+.bbt .bfh-ddm .opt.on{background:var(--nf-brand-50,#eef0fb);color:var(--nf-brand-700,#212C85)}
+.bbt .bfh-ddm .tick{font-weight:800}
+
+.bbt .bfh-hs{position:relative;flex:none;margin-inline:-12px;min-width:0;max-width:calc(100% + 24px);overflow:hidden}
+.bbt .bfh-fl{display:flex;align-items:center;gap:6px;overflow-x:auto;overflow-y:hidden;padding:2px 12px;overscroll-behavior-x:contain;scroll-snap-type:x proximity;scroll-padding-inline:12px}
+.bbt .bfh-fl::after{content:"";flex:none;width:2px}
+.bbt .bfh-grp{display:contents}
+.bbt .bfh-div{flex:none;width:1px;height:22px;background:var(--nf-line);margin-inline:2px}
+.bbt .bfh-hs::before,.bbt .bfh-hs::after{content:"";position:absolute;top:0;bottom:0;width:26px;pointer-events:none;opacity:0;transition:opacity .15s;z-index:1}
+.bbt .bfh-hs::before{left:0;background:linear-gradient(to right,#fff 15%,rgba(255,255,255,0))}   /* fade at the physical left = RTL «more chips this way» side */
+.bbt .bfh-hs::after{right:0;background:linear-gradient(to left,#fff 15%,rgba(255,255,255,0))}
+.bbt .bfh-hs[data-fade-l]::before,.bbt .bfh-hs[data-fade-r]::after{opacity:1}
+.bbt .bfh-chip{all:unset;box-sizing:border-box;flex:none;scroll-snap-align:start;min-height:34px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;border:1px solid var(--nf-line-strong,#cdd5e3);border-radius:999px;background:#fff;cursor:pointer;font:inherit;font-size:14px;font-weight:700;color:var(--nf-ink-soft);white-space:nowrap}
+.bbt .bfh-chip:hover{background:var(--nf-surface)}
+.bbt .bfh-chip.on{background:var(--nf-brand-700,#212C85);border-color:var(--nf-brand-700,#212C85);color:#fff}
+.bbt .bfh-chip .n{min-width:20px;height:20px;padding:0 6px;border-radius:10px;display:inline-grid;place-items:center;font-size:12px;font-weight:800;background:var(--nf-brand-50,#eef0fb);color:var(--nf-brand-700,#212C85)}
+.bbt .bfh-chip .n.g{background:var(--nf-surface-2);color:var(--nf-ink-soft)}
+.bbt .bfh-chip.on .n{background:rgba(255,255,255,.22);color:#fff}
+.bbt .bfh-chip.st.on{background:#FFF6DD;border-color:#C9A227;color:#6b5200}
+.bbt .bfh-chip.st.on .n{background:#fff;color:#6b5200}
+.bbt .bfh-stars{display:inline-flex;gap:1px}
+.bbt .bfh-stars svg{width:14px;height:14px;fill:#E8B931;stroke:#C9A227;stroke-width:1.4;stroke-linejoin:round}
+
+/* ───────── 3. conversation rows: ~8 visible at 1280×800 ───────── */
+.bbt.bw-fh .cvl{padding:0}
+.bbt.bw-fh .cv-r{grid-template-columns:38px minmax(0,1fr) auto;gap:1px 10px;padding:5px 12px}
+.bbt.bw-fh .cv-r .ava{width:38px;height:38px;font-size:15px}
+.bbt.bw-fh .cv-r .nmr{font-size:15px;line-height:1.35}
+.bbt.bw-fh .cv-r .tm{font-size:12.5px;line-height:1.35}
+.bbt.bw-fh .cv-r .pv{font-size:13.5px;line-height:1.35}
+.bbt.bw-fh .cv-r .ub{position:absolute;inset-inline-start:34px;top:2px;z-index:1;grid-column:auto;height:18px;min-width:18px;font-size:11.5px;padding:0 5px;box-shadow:0 0 0 2px #fff}
+.bbt.bw-fh .cv-r[aria-current=true] .ub{box-shadow:0 0 0 2px var(--nf-brand-50)}
+.bbt.bw-fh .cv-r .cid{min-height:20px;padding:0 6px;font-size:12.5px;margin-inline-start:6px;line-height:20px}
+.bbt.bw-fh .cv-r .pvf{display:flex;align-items:center;gap:6px}
+.bbt.bw-fh .cv-r .pvf .pt{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.bbt.bw-fh .cv-r .pvf .tg{flex:none;display:flex;flex-wrap:nowrap;gap:4px;margin:0;max-width:66%;overflow:hidden}
+.bbt.bw-fh .cv-r .chip{min-height:20px;font-size:12px;padding:0 7px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;display:inline-block;line-height:20px;flex:none}
+.bbt.bw-fh .cv-r .chip .i{display:none}
+
+/* ───────── 4. chat column: compact header, send box stuck to the bottom ───────── */
+@media (min-width:1024px){.bbt.bw-fh .ch.pane{display:flex;flex-direction:column;min-height:0;overflow:hidden}}
+.bbt.bw-fh .ch .chh{flex:none;padding:8px 14px}
+.bbt.bw-fh .ch .th{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.bbt.bw-fh .ch .cz,.bbt.bw-fh .ch .bbcomp{flex:none;margin-top:auto}
+
+/* ───────── 5. wallet: context-column button ───────── */
+.bbt .bfh-walbtn{all:unset;box-sizing:border-box;width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:56px;padding:8px 14px;margin:0 0 12px;border:1px solid var(--nf-brand-200,#BCC3EC);border-radius:14px;background:var(--nf-brand-50,#eef0fb);cursor:pointer;font:inherit;color:var(--nf-brand-900,#0B1450)}
+.bbt .bfh-walbtn:hover{background:#e3e7f8}
+.bbt .bfh-walbtn .l{display:flex;flex-direction:column;gap:2px;min-width:0}
+.bbt .bfh-walbtn .l b{font-size:15px;font-weight:800}
+.bbt .bfh-walbtn .l span{font-size:12.5px;font-weight:600;color:var(--nf-ink-muted)}
+.bbt .bfh-bal{display:flex;flex-direction:column;align-items:flex-end;gap:1px;flex:none}
+.bbt .bfh-bal b{font-size:15px;font-weight:800;color:var(--nf-brand-700,#212C85);white-space:nowrap}
+.bbt .bfh-bal small{font-size:12px;font-weight:600;color:var(--nf-ink-muted);white-space:nowrap}
+.bbt .bfh-bal.sk{width:84px;height:20px;border-radius:8px;background:linear-gradient(90deg,var(--nf-surface-2) 25%,var(--nf-line) 50%,var(--nf-surface-2) 75%);background-size:200% 100%;animation:bfhsk 1.2s ease infinite}
+@keyframes bfhsk{to{background-position:-200% 0}}
+
+/* ───────── 6. wallet: header ⋯ menu (phones only) ───────── */
+.bbt .bfh-hm{display:none;position:relative;margin-inline-start:auto;flex:none}
+.bbt .bfh-hmb{width:44px;height:44px;display:grid;place-items:center;border-radius:12px;border:0;background:none;cursor:pointer;color:var(--nf-ink-soft)}
+.bbt .bfh-hmb:hover{background:var(--nf-surface-2)}
+.bbt .bfh-hmb .i{width:22px;height:22px}
+.bbt .bfh-hmm{position:absolute;z-index:70;left:0;right:auto;top:calc(100% + 4px);min-width:min(260px,calc(100vw - 24px));background:#fff;border:1px solid var(--nf-line);border-radius:14px;box-shadow:0 14px 34px rgba(11,20,80,.2);padding:6px}
+.bbt .bfh-hmm button{all:unset;box-sizing:border-box;width:100%;min-height:52px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 12px;border-radius:10px;cursor:pointer;font:inherit;font-size:15px}
+.bbt .bfh-hmm button:hover{background:var(--nf-surface)}
+@media (max-width:1023.98px){
+  .bbt .bfh-hm{display:block}
+  /* phones: the list scrolls in its own pane down to the tab bar; the empty «یک گفتگو را انتخاب کنید» pane never shows under it */
+  .app-main .bbt.bw-on.bw-fh .pg.bbpg .bx:not([data-m=chat])>.ch.pane,.bbt.bw-on.bw-fh .bx:not([data-m=chat])>.ch.pane{display:none}
+  .bbt.bw-on.bw-fh .bx{grid-template-columns:minmax(0,1fr)}
+  .bbt.bw-fh .lst .lh{min-width:0}
+}
+
+/* ───────── 7. wallet window (desktop) / bottom sheet (phones) ───────── */
+.bbt .bfh-scrim{position:fixed;inset:0;z-index:90;background:rgba(11,20,80,.45);display:flex;align-items:center;justify-content:center;padding:24px 16px calc(var(--ss-dock-h,56px) + var(--ss-gap,6px) + 16px)}
+.bbt .bfh-modal{width:100%;max-width:560px;max-height:100%;min-height:0;display:flex;flex-direction:column;overflow:hidden;background:#fff;border-radius:20px;box-shadow:0 24px 60px rgba(11,20,80,.3);direction:rtl}
+.bbt .bfh-grab{display:none}
+.bbt .bfh-mh{display:flex;align-items:center;gap:8px;padding:8px 8px 8px 16px;border-bottom:1px solid var(--nf-line);flex:none}
+.bbt .bfh-mh h2{margin:0;flex:1;font-size:18px;font-weight:800}
+.bbt .bfh-x{all:unset;box-sizing:border-box;width:44px;height:44px;display:grid;place-items:center;border-radius:12px;font-size:24px;line-height:1;color:var(--nf-ink-muted);cursor:pointer}
+.bbt .bfh-x:hover{background:var(--nf-surface-2)}
+.bbt .bfh-back{all:unset;box-sizing:border-box;min-height:44px;padding:0 12px 0 8px;border-radius:12px;display:inline-flex;align-items:center;gap:4px;font:inherit;font-size:14px;font-weight:800;color:var(--nf-brand-700,#212C85);cursor:pointer;flex:none}
+.bbt .bfh-back:hover{background:var(--nf-surface-2)}
+.bbt .bfh-back svg{width:18px;height:18px}
+.bbt .bfh-sum{display:flex;gap:12px;padding:12px 16px;background:var(--nf-brand-50,#eef0fb);flex:none}
+.bbt .bfh-sum span{flex:1;display:flex;flex-direction:column;gap:2px;font-size:13px;font-weight:700;color:var(--nf-ink-soft)}
+.bbt .bfh-sum b{font-size:16px;color:var(--nf-brand-700,#212C85)}
+.bbt .bfh-wf{display:flex;gap:6px;padding:10px 16px;flex:none}
+.bbt .bfh-wf .chip{all:unset;box-sizing:border-box;flex:1;min-height:44px;display:flex;align-items:center;justify-content:center;border:1px solid var(--nf-line-strong,#cdd5e3);border-radius:12px;font:inherit;font-size:15px;font-weight:700;color:var(--nf-ink-soft);cursor:pointer;background:#fff}
+.bbt .bfh-wf .chip[aria-checked=true]{background:var(--nf-brand-700,#212C85);border-color:var(--nf-brand-700,#212C85);color:#fff}
+.bbt .bfh-wlist{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;list-style:none;margin:0;padding:0 8px 16px}
+.bbt .bfh-wrow{all:unset;box-sizing:border-box;width:100%;display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:10px 12px;border-radius:12px;min-height:72px;line-height:1.4;border-bottom:1px solid var(--nf-line);cursor:pointer}
+.bbt .bfh-wrow:hover{background:var(--nf-surface)}
+.bbt .bfh-wrow .tp{font-size:14px;font-weight:800}
+.bbt .bfh-wrow .tp em{font-style:normal;font-weight:600;font-size:12.5px;color:var(--nf-ink-muted);margin-inline-start:8px}
+.bbt .bfh-wrow .amt{font-size:15px;font-weight:800;text-align:left}
+.bbt .bfh-wrow .amt.plus,.bbt .bfh-wdet .plus{color:var(--nf-success)}
+.bbt .bfh-wrow .amt.minus,.bbt .bfh-wdet .minus{color:var(--nf-danger)}
+.bbt .bfh-wrow .dt{font-size:12px;font-weight:700;color:var(--nf-ink-muted)}
+.bbt .bfh-wrow .stt{font-size:12px;font-weight:700;text-align:left;color:var(--nf-success)}
+.bbt .bfh-wrow .ds{grid-column:1/-1;font-size:13px;color:var(--nf-ink-muted)}
+.bbt .bfh-wnote{padding:10px 12px;font-size:12.5px;color:var(--nf-ink-muted);text-align:center}
+.bbt .bfh-wempty,.bbt .bfh-wload{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;padding:32px 16px;min-height:200px;color:var(--nf-ink-muted)}
+.bbt .bfh-wempty h3,.bbt .bfh-wload h3{margin:0;font-size:16px;font-weight:800;color:var(--nf-brand-900,#0B1450)}
+.bbt .bfh-wempty p{margin:0;font-size:14px}
+.bbt .bfh-wload .sk{width:100%;display:flex;flex-direction:column;gap:10px;padding:8px}
+.bbt .bfh-wload .sk i{display:block;height:64px;border-radius:12px;background:linear-gradient(90deg,var(--nf-surface-2) 25%,var(--nf-line) 50%,var(--nf-surface-2) 75%);background-size:200% 100%;animation:bfhsk 1.2s ease infinite}
+.bbt .bfh-wdet{padding:16px 20px 24px;overflow-y:auto;min-height:0}
+.bbt .bfh-wdet .amt-lg{font-size:28px;font-weight:800;margin:0 0 8px}
+.bbt .bfh-wdet .amt-lg small{font-size:14px;font-weight:700;color:var(--nf-ink-muted)}
+.bbt .bfh-wdet .pill{display:inline-flex;align-items:center;min-height:28px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:800;margin:0 0 16px;background:var(--nf-success-50);color:var(--nf-success)}
+.bbt .bfh-wdet .kv{display:flex;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid var(--nf-line);font-size:14px}
+.bbt .bfh-wdet .kv .k{color:var(--nf-ink-muted);font-weight:700;flex:none}
+.bbt .bfh-wdet .kv .v{font-weight:700;text-align:left;min-width:0;overflow-wrap:anywhere}
+@media (prefers-reduced-motion:reduce){.bbt .bfh-bal.sk,.bbt .bfh-wload .sk i{animation:none}}
+
+@media (max-width:1023.98px){
+  .bbt .bfh-scrim{align-items:flex-end;padding:0}
+  .bbt .bfh-modal{max-width:none;border-radius:20px 20px 0 0;max-height:calc(100dvh - 72px);padding-bottom:env(safe-area-inset-bottom,0px)}
+  .bbt .bfh-grab{display:block;width:40px;height:4px;border-radius:2px;background:var(--nf-line);margin:8px auto 0;flex:none}
+  .bbt .bfh-mh{border-bottom:0;padding-top:0}
+  .bbt .bfh-modal[data-state=list] .bfh-wlist{min-height:240px}
+}

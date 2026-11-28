@@ -5,8 +5,8 @@ import { StarPicker } from './Stars';
 import { fd, phoneFa, type BwsChatCtx } from './api';
 
 export type BwTab = 'chat' | 'file' | 'credit' | 'calls';
-export type BwInbox = { on: boolean; ctx?: BwsChatCtx; tray: boolean; setTray: (v: boolean) => void; sub: 'plans' | null; tab: BwTab; setTab: (t: BwTab) => void; star: string; setStar: (s: string) => void; reload: () => void };
-export const BW_OFF: BwInbox = { on: false, tray: false, setTray: () => {}, sub: null, tab: 'chat', setTab: () => {}, star: '', setStar: () => {}, reload: () => {} };
+export type BwInbox = { on: boolean; fh: boolean; wallet: boolean; setWallet: (v: boolean) => void; ctx?: BwsChatCtx; tray: boolean; setTray: (v: boolean) => void; sub: 'plans' | null; tab: BwTab; setTab: (t: BwTab) => void; star: string; setStar: (s: string) => void; reload: () => void };
+export const BW_OFF: BwInbox = { on: false, fh: false, wallet: false, setWallet: () => {}, tray: false, setTray: () => {}, sub: null, tab: 'chat', setTab: () => {}, star: '', setStar: () => {}, reload: () => {} };
 export const BwInboxCtx = createContext<BwInbox>(BW_OFF);
 export const useBw = () => useContext(BwInboxCtx);
 

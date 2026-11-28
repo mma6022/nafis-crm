@@ -21,6 +21,10 @@ import { QrBar } from '@/features/quick-replies/ChatReady';
 import { StarMark } from '@/features/bale-workspace/Stars';
 import '@/features/bale-workspace/bale-workspace.css';
 import { setBwsDockHint } from '@/features/bale-workspace/dock-hint';
+// t984 «گفتگوهای بله تمام‌قد» v1.1 (flag.bale_fullheight_v1, OFF by default): every use below is gated by bw.fh, so OFF renders exactly as before.
+import { WalletModal, HeadMenu } from '@/features/bale-fullheight/Wallet';
+import { ExpertDropdown, ChipRow, StatusChip, StarChip } from '@/features/bale-fullheight/ListHead';
+import '@/features/bale-fullheight/bale-fullheight.css';
 
 function faChatPreview(text: string | null | undefined) {
   if (!text) return text ?? null;
@@ -102,11 +106,14 @@ function Inbox({ me }: { me: BbMe }) {
   const first = listQ.data?.chats[0]?.id;
   useEffect(() => { if (me.contactFeature) return; if (sel == null && first != null && window.matchMedia('(min-width:1024px)').matches) nav(`/bale-bot/${first}`, { replace: true }); }, [sel, first, nav, me.contactFeature]);
   const err = (e: unknown) => toast(e instanceof BbError ? e.message : 'درخواست انجام نشد. دوباره تلاش کنید.');
-  const bw = ws ? { on: true, ctx: ctxQ.data, tray: bwTray, setTray: (v: boolean) => { setBwTray(v); if (!v) setBwSub(null); }, sub: bwSub, tab: bwTab, setTab: setBwTab, star, setStar,
+  const fh = ws && !!bwsMe.data?.fullHeight;
+  const [walletOpen, setWalletOpen] = useState(false);
+  useEffect(() => { setWalletOpen(false); }, [sel]);
+  const bw = ws ? { on: true, fh, wallet: walletOpen, setWallet: setWalletOpen, ctx: ctxQ.data, tray: bwTray, setTray: (v: boolean) => { setBwTray(v); if (!v) setBwSub(null); }, sub: bwSub, tab: bwTab, setTab: setBwTab, star, setStar,
     reload: () => { void qc.invalidateQueries({ queryKey: ['bws-ctx'] }); refresh(); } } : BW_OFF;
   const askContact = async () => { if (!chat) return; try { await bbFetch(`/bale-bot/chats/${chat.id}/request-contact`, { body: {} }); toast('درخواست شماره فرستاده شد'); refresh(); } catch (e) { err(e); } };
 
-  return <BwInboxCtx.Provider value={bw}><div className={`bbt${me.contactFeature ? " bc-on" : ""}${me.customerBot?.any ? " cb-on" : ""}${me.quickReplies ? " qr11" : ""}${ws ? ` bw-on bw-t-${sel != null && chat ? bwTab : 'chat'}` : ""}`} dir="rtl" data-testid="bale-bot-inbox">
+  return <BwInboxCtx.Provider value={bw}><div className={`bbt${me.contactFeature ? " bc-on" : ""}${me.customerBot?.any ? " cb-on" : ""}${me.quickReplies ? " qr11" : ""}${ws ? ` bw-on bw-t-${sel != null && chat ? bwTab : 'chat'}` : ""}${fh ? ' bw-fh' : ''}`} dir="rtl" data-testid="bale-bot-inbox">
     {/* the floating «گزارش خطا» launcher sat on the bubbles of an open chat on phones; the top-bar bug icon stays */}
     <style>{'@media (max-width:1023px){body:has(.bbt .pg.chv) .diag-floating{display:none!important}}'}</style>
     <main className={`pg bbpg${mob === 'chat' ? ' chv' : ''}`}>
@@ -134,6 +141,7 @@ function Inbox({ me }: { me: BbMe }) {
       <div className="cfb"><div className="ci"><I n="trash" /></div><h2 id="cft">پیام حذف شود؟</h2><ul id="cfd"><li>پیام برای مشتری هم در بله پاک می‌شود.</li><li>در CRM با برچسب «حذف شد» می‌ماند.</li></ul></div>
       <div className="mf"><button className="btn dng" type="button" onClick={async () => { const m = modal.m; setModal(null); try { await bbFetch(`/bale-bot/messages/${m.id}/delete`, { body: {} }); toast('پیام حذف شد'); refresh(); } catch (e) { err(e); } }}>حذف پیام</button>
         <button className="btn gh" type="button" onClick={() => setModal(null)}>انصراف</button></div></div></div> : null}
+    {fh && walletOpen && sel != null && chat?.customer && !chat.customer.restricted ? <WalletModal chatId={sel} onClose={() => setWalletOpen(false)} /> : null}
     {toastNode}
   </div></BwInboxCtx.Provider>;
 }
@@ -143,17 +151,34 @@ function ListPane({ me, data, loading, sel, filter, setFilter, q, setQ, expert, 
   const fb = (v: 'all' | 'unread' | 'unlinked' | 'pending', t: string, n: number) => <button key={v} className="fb" type="button" role="radio" aria-checked={filter === v} onClick={() => setFilter(v)}>{t}{n ? <span className="n">{fa(n)}</span> : null}</button>;
   const empty = data && data.counts.all === 0 && !q && filter === 'all' && !expert;
   const u = me.bot?.username;
+  const bw = useBw(); const fh = bw.fh;
+  const showExperts = me.view === 'all' || (data?.experts?.length ?? 0) > 0;
   return <section className="pane lst" aria-label="گفتگوها">
     {me.view === 'own' && me.bot?.status === 'err' ? <div className="offb" role="alert"><I n="alert" /><div><b>ربات شما قطع است</b><span>بله توکن ربات را قبول نکرد و پیام تازه نمی‌رسد. پیام‌های این مدت فقط ۲۴ ساعت روی بله می‌ماند؛ به مدیر سیستم بگویید توکن را عوض کند.</span></div></div> : null}
-    <div className="lh"><div className="r1"><h2>گفتگوهای بله</h2>{me.canManage ? <Link className="btn lk sm" href="/bale-bot/admin"><I n="shield" />ربات‌ها</Link> : null}</div>
-      {me.view === 'all' || (data?.experts?.length ?? 0) > 0 ? <div className="mgf" role="radiogroup" aria-label="کارشناس">
+    <div className="lh"><div className="r1"><h2>گفتگوهای بله</h2>{fh && me.view === 'own' && u ? <button className="btn lk sm" type="button" title={`ble.ir/${u}`} aria-label={`کپی لینک ربات من، ble.ir/${u}`} onClick={() => copyText(`https://ble.ir/${u}`, toast)}><I n="copy" />لینک ربات من</button> : null}{me.canManage ? <Link className="btn lk sm" href="/bale-bot/admin"><I n="shield" />ربات‌ها</Link> : null}</div>
+      {fh ? (showExperts ? <ExpertDropdown experts={data?.experts ?? []} value={expert} onChange={setExpert} /> : null)
+        : showExperts ? <div className="mgf" role="radiogroup" aria-label="کارشناس">
         <button className="fb" type="button" role="radio" aria-checked={expert === ''} onClick={() => setExpert('')}>همه‌ی کارشناس‌ها</button>
         {(data?.experts ?? []).map((e) => <button key={e.id} className="fb" type="button" role="radio" aria-checked={expert === e.id} onClick={() => setExpert(e.id)}>{e.name}</button>)}</div>
         : null}
-      {me.view === 'own' && u ? <div className="botl"><span className="lg-b"><I n="bale" /></span><span className="bk">ربات من</span><span className="u">@{u}</span><button className="btn lk sm" type="button" aria-label={`کپی لینک ربات من، ble.ir/${u}`} onClick={() => copyText(`https://ble.ir/${u}`, toast)}><I n="copy" />لینک ربات من</button></div> : null}
+      {!fh && me.view === 'own' && u ? <div className="botl"><span className="lg-b"><I n="bale" /></span><span className="bk">ربات من</span><span className="u">@{u}</span><button className="btn lk sm" type="button" aria-label={`کپی لینک ربات من، ble.ir/${u}`} onClick={() => copyText(`https://ble.ir/${u}`, toast)}><I n="copy" />لینک ربات من</button></div> : null}
       <label className="srch"><I n="search" /><input type="search" placeholder="جستجوی نام، نام کاربری یا شناسه" aria-label="جستجوی گفتگو" value={q} onChange={(e) => setQ(e.target.value)} /></label>
+      {fh ? <ChipRow label="فیلتر وضعیت و ستاره">
+        <span role="radiogroup" aria-label="فیلتر گفتگوها" className="bfh-grp">
+          <StatusChip on={filter === 'all'} onClick={() => setFilter('all')}>همه</StatusChip>
+          <StatusChip on={filter === 'unread'} onClick={() => setFilter('unread')} n={data?.counts.unread ?? 0}>خوانده‌نشده</StatusChip>
+          {me.contactFeature ? <StatusChip on={filter === 'pending'} onClick={() => setFilter('pending')} n={data?.counts.pending ?? data?.counts.unlinked ?? 0}>در انتظار شماره</StatusChip>
+            : <StatusChip on={filter === 'unlinked'} onClick={() => setFilter('unlinked')} n={data?.counts.unlinked ?? 0}>وصل‌نشده به مشتری</StatusChip>}
+        </span>
+        <span className="bfh-div" aria-hidden="true" />
+        <span role="group" aria-label="صافی ستاره" className="bfh-grp" data-testid="bws-starfilter">
+          {([['3', 3, 'سه ستاره'], ['2', 2, 'دو ستاره'], ['1', 1, 'یک ستاره']] as const).map(([v, n, l]) => <StarChip key={v} on={bw.star === v} onClick={() => bw.setStar(bw.star === v ? '' : v)} stars={n} label={l} n={data?.counts.stars?.[v]} />)}
+          <StarChip on={bw.star === '0'} onClick={() => bw.setStar(bw.star === '0' ? '' : '0')} label="بدون ستاره" text="بدون ستاره" n={data?.counts.stars?.['0']} />
+        </span>
+      </ChipRow> : <>
       <div className="flt" role="radiogroup" aria-label="فیلتر گفتگوها">{fb('all', 'همه', 0)}{fb('unread', 'خوانده‌نشده', data?.counts.unread ?? 0)}{me.contactFeature ? fb('pending', 'در انتظار شماره', data?.counts.pending ?? data?.counts.unlinked ?? 0) : fb('unlinked', 'وصل‌نشده به مشتری', data?.counts.unlinked ?? 0)}</div>
-      <BwStarFilter counts={data?.counts.stars} /></div>
+      <BwStarFilter counts={data?.counts.stars} /></>}</div>
+    <div className={fh ? 'bfh-lbody' : undefined}>
     {loading ? <><span className="bbsk" /><span className="bbsk" /></> : empty ? <div className="lempty"><b>هنوز گفتگویی نیست</b>از لحظه‌ی وصل شدن ربات، پیام‌های مشتری‌ها این‌جا می‌آید.</div>
       : data && data.chats.length ? <ul className="cvl" aria-label="گفتگوها">{data.chats.map((c) => {
         const tags: React.ReactNode[] = [];
@@ -172,14 +197,16 @@ function ListPane({ me, data, loading, sel, filter, setFilter, q, setQ, expert, 
         if (c.notices.some((n) => n.kind === 'mgr_wrote')) tags.push(<span key="mg" className="chip g"><I n="bell" />پیام مدیر</span>);
         const pvKind = c.lastPreview && PREV_IC[c.lastPreview] ? c.lastPreview : null;
         const showCid = !!c.customer && !c.pendingTypedPhone;
+        const pvBody = c.listTag ? c.listTag : <>{c.lastByManager ? 'مدیر: ' : c.lastOut ? 'شما: ' : ''}{pvKind ? <I n={PREV_IC[pvKind]} /> : null}{c.customerBot?.handoff && !c.customerBot.handoff.claimedBy ? 'واگذاری از پاسخ خودکار' : c.customerBot?.filing ? (c.customerBot.filing.stepLine.replace(/\d+/g, (d: string) => fa(d))) : (me.contactFeature && c.lastPreview && !pvKind ? faPhoneString(c.lastPreview) : faChatPreview(c.lastPreview))}</>;
         return <li key={c.id} className={`cv-r${c.unread ? ' un' : ''}`} aria-current={c.id === sel ? true : undefined} onClick={() => nav(`/bale-bot/${c.id}`)}>
           <a className="cv-hit" href={`#${c.id}`} onClick={(e) => { e.preventDefault(); nav(`/bale-bot/${c.id}`); }} aria-label={`گفتگو با ${c.name}${c.unread ? `، ${fa(c.unread)} پیام خوانده‌نشده` : ''}`} />
           <Ava name={c.name} seed={c.id} /><span className="nmr"><Nm name={c.name} />{showCid ? <Cid id={c.customer!.id} toast={toast} /> : null}{c.stars ? <StarMark n={c.stars} small /> : null}</span><span className="tm">{bbListTime(c.lastAt)}</span>
-          <span className="pv">{c.listTag ? c.listTag : <>{c.lastByManager ? 'مدیر: ' : c.lastOut ? 'شما: ' : ''}{pvKind ? <I n={PREV_IC[pvKind]} /> : null}{c.customerBot?.handoff && !c.customerBot.handoff.claimedBy ? 'واگذاری از پاسخ خودکار' : c.customerBot?.filing ? (c.customerBot.filing.stepLine.replace(/\d+/g, (d: string) => fa(d))) : (me.contactFeature && c.lastPreview && !pvKind ? faPhoneString(c.lastPreview) : faChatPreview(c.lastPreview))}</>}</span>{c.unread ? <span className="ub" aria-hidden="true">{fa(c.unread)}</span> : null}
-          {tags.length ? <span className="tg">{tags}</span> : null}
+          <span className={fh ? 'pv pvf' : 'pv'}>{fh ? <span className="pt">{pvBody}</span> : pvBody}{fh && tags.length ? <span className="tg">{tags}</span> : null}</span>{c.unread ? <span className="ub" aria-hidden="true">{fa(c.unread)}</span> : null}
+          {!fh && tags.length ? <span className="tg">{tags}</span> : null}
           {me.contactFeature && otherFile(c) && (c.customer?.phone || c.customer?.canOpen) ? <div className="bc-row-more">{c.customer!.phone ? <Ph phone={c.customer!.phone} toast={toast} /> : null}{c.customer!.canOpen ? <Link className="btn gh sm" href={`/customers/${c.customer!.id}`} onClick={(e) => e.stopPropagation()}><I n="file" />مشاهده‌ی پرونده</Link> : null}{c.customer!.expert ? <span className="bc-own">مسئول: {c.customer!.expert}</span> : null}</div> : null}</li>; })}</ul>
       : <div className="lempty"><b>گفتگویی پیدا نشد</b></div>}
-    {data && data.counts.all ? <p className="lfoot"><I n="clock" />فقط پیام‌هایی که به ربات داده می‌شود؛ پیام‌های شخصی بله این‌جا نیست.</p> : null}
+    {data && data.counts.all ? <p className="lfoot"><I n="clock" />{fh ? 'فقط پیام‌هایی که به ربات داده می‌شود در این فهرست است.' : 'فقط پیام‌هایی که به ربات داده می‌شود؛ پیام‌های شخصی بله این‌جا نیست.'}</p> : null}
+    </div>
   </section>;
 }
 
@@ -349,7 +376,7 @@ function ChatPane({ me, chat, messages, toast, err, refresh, onAsk, onSearch, on
     : <p>{chat.username ? <Uname u={chat.username} /> : 'بدون نام کاربری'}{(me.view === 'all' || !chat.mine) && chat.expert.name ? `، کارشناس: ${chat.expert.name}` : ''}</p>;
   return <section className="pane ch" aria-label={`گفتگو با ${chat.name}`}>
     <div className="chh"><button className="ib bkb" type="button" onClick={back} aria-label="برگشت به گفتگوها"><I n="next" /></button><Ava name={chat.name} seed={chat.id} />
-      <div className="t"><div className="nmr"><Nm name={chat.name} />{chat.customer && !chat.pendingTypedPhone ? <Cid id={chat.customer.id} toast={toast} /> : null}</div>{sub}<BwHead chatId={chat.id} toast={toast} /></div></div>
+      <div className="t"><div className="nmr"><Nm name={chat.name} />{chat.customer && !chat.pendingTypedPhone ? <Cid id={chat.customer.id} toast={toast} /> : null}</div>{sub}<BwHead chatId={chat.id} toast={toast} /></div>{bw.fh && bwc ? <HeadMenu chatId={chat.id} onWallet={() => bw.setWallet(true)} /> : null}</div>
     {(() => { const cb = chat.customerBot; const hasCb = !!(cb && !cb.restricted && (cb.handoff || cb.filing || (cb.tasks && cb.tasks.length)));
       const hasSr = !!(chat.signReminder?.enabled && chat.signReminder.state !== 'no_contract' && chat.signReminder.state !== 'hidden');
       if (hasCb || hasSr) return <CustomerBotBits chat={chat} toast={toast} refresh={refresh} err={err} where="meta" />;
