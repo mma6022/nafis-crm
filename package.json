@@ -107,6 +107,7 @@
     "test:bale-workspace": "node scripts/run-bale-workspace-fixture.mjs",
     "test:t978-bale-sh-messages": "node scripts/run-t978-bale-sh-messages-fixture.mjs",
     "test:t979-quick-replies": "node scripts/run-t979-quick-replies-fixture.mjs",
+    "test:t991-step2-repeat": "node scripts/run-bundled-fixture.mjs scripts/t991-step2-repeat-fixture.mjs",
     "test:t984-bale-fullheight": "node scripts/run-t984-bale-fullheight-fixture.mjs",
     "test:customer-patch-name-guard": "NODE_ENV=production node scripts/run-bundled-fixture.mjs scripts/customer-patch-name-guard-fixture.mjs",
     "test:customers-priority-kanban": "node scripts/run-bundled-fixture.mjs scripts/customers-priority-kanban-fixture.mjs",

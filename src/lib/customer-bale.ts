@@ -1166,7 +1166,45 @@ async function handleIdentitySteps(ctx: InboundCtx, f: FilingRow, t: string): Pr
   return send(ctx, identityStepsPrompt(f));
 }
 
-async function handleFilingInput(ctx: InboundCtx, f: FilingRow, t: string): Promise<CbReply> {
+/* ---------------- t991: never re-send an unchanged step prompt for free text ---------------- */
+
+/** A step prompt (e.g. «مرحله ۲ از ۷ — اعتبارسنجی») is sent when the filing enters or is resumed at that step.
+ *  Free text that is not a wizard action (an expert is talking to the customer, small talk, a voice note) must
+ *  not make the bot paste the same prompt again. The prompt is still repeated once after this quiet period,
+ *  so a customer who comes back days later is guided once, not on every message. */
+export const CB_STEP_PROMPT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
+
+/** True when `r` is the exact step prompt the bot already sent in this chat, no wizard state has changed since
+ *  (the text is derived from the state), and either an expert wrote after it or it is still inside the cooldown. */
+export function cbStepPromptAlreadySent(chat: { id: number }, r: { text: string }, at: string): boolean {
+  const text = faDigits(r.text);
+  const last = queryRow(
+    `SELECT id, text, created_at FROM bale_bot_messages
+      WHERE chat_row=? AND dir='out' AND author_user_id IS NULL AND text LIKE 'مرحله % از ۷%'
+      ORDER BY id DESC LIMIT 1`,
+    [chat.id],
+  ) as { id: number; text: string; created_at: string } | undefined;
+  if (!last || last.text !== text) return false;
+  const expert = queryRow(
+    "SELECT id FROM bale_bot_messages WHERE chat_row=? AND dir='out' AND author_user_id IS NOT NULL AND id>? LIMIT 1",
+    [chat.id, last.id],
+  );
+  if (expert) return true;
+  const age = Date.parse(at) - Date.parse(last.created_at);
+  return Number.isFinite(age) && age >= 0 && age < CB_STEP_PROMPT_COOLDOWN_MS;
+}
+
+/** Reply to free text with the current step prompt, once per step (see cbStepPromptAlreadySent). */
+function sendPromptOnce(ctx: InboundCtx, f: FilingRow, customerId: number): CbReply | null {
+  const r = filingPrompt(f, customerId);
+  if (cbStepPromptAlreadySent(ctx.chat, r, ctx.at ?? nowIso())) {
+    cbAudit("step_prompt_suppressed", ctx.chat.id, { filing: f.id, step: f.step, wait_kind: f.wait_kind });
+    return null;
+  }
+  return send(ctx, r);
+}
+
+async function handleFilingInput(ctx: InboundCtx, f: FilingRow, t: string): Promise<CbReply | null> {
   const at = ctx.at!;
   const customerId = ctx.customerId!;
 
@@ -1187,7 +1225,7 @@ async function handleFilingInput(ctx: InboundCtx, f: FilingRow, t: string): Prom
     if (t === CB_BTNS.continue) return send(ctx, filingPrompt(f, customerId));
   }
 
-  if (f.wait_kind === "identity") return send(ctx, filingPrompt(f, customerId));
+  if (f.wait_kind === "identity") return sendPromptOnce(ctx, f, customerId);
 
   if (f.step <= 2 && (t === CB_BTNS.sendCode || t.includes("موافقم"))) {
     const start = ctx.creditStartFn ? await ctx.creditStartFn() : "otp";
@@ -1250,7 +1288,8 @@ async function handleFilingInput(ctx: InboundCtx, f: FilingRow, t: string): Prom
     return send(ctx, filingPrompt(f, customerId));
   }
 
-  return send(ctx, filingPrompt(f, customerId));
+  // Free text that matched no wizard action: answer with the step prompt once, not on every message (t991).
+  return sendPromptOnce(ctx, f, customerId);
 }
 
 /** After filing fee is recorded on a plan/customer, create the application under the customer's salesperson. */
