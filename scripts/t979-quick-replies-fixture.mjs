@@ -105,6 +105,7 @@ await check("OFF (both flags absent): no ready, POST ready/type/undo are 404, no
   assert.equal((await call(EXPERT, "POST", `/bale-bot/chats/${linked}/ready/${idFreeA}`, {})).status, 404);
   assert.equal((await call(EXPERT, "POST", `/bale-bot/ready/${idFreeA}/type`, { tab: "educational" })).status, 404);
   assert.equal((await call(EXPERT, "POST", `/bale-bot/messages/1/undo`, {})).status, 404);
+  assert.equal((await call(EXPERT, "GET", "/bale-bot/me")).body.quickReplies, undefined);
   assert.ok(!colsOf().includes("category"), "the Bale read/flag paths never alter the table");
 });
 
@@ -147,6 +148,8 @@ await check("v1.1 ON: ready is exposed (implies the Bale list) with v11/holdMs; 
   assert.equal(by[idFreeHidden].showToday, false, "show_today=0 is still offered in the Bale tray (design §3); it only limits the wizard");
   assert.ok(!idsOf(r.items).includes(idPlanInactive) && !idsOf(r.items).includes(idArchived));
   assert.deepEqual(ctx.body.assets.quick, [{ id: "qabc1234", title: "پیش‌فرض sab" }], "sab.quick stays");
+  await new Promise((r) => setTimeout(r, 3200)); // /bale-bot/me is cached 3 s per user
+  const me = await call(EXPERT, "GET", "/bale-bot/me"); assert.equal(me.body.quickReplies, true, "the inbox learns the flag from /bale-bot/me");
   const q = await call(EXPERT, "GET", "/bale-bot/quick"); assert.equal(q.body.ready.v11, true); assert.deepEqual(q.body.items, [{ id: "qabc1234", title: "پیش‌فرض sab" }]);
 });
 

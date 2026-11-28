@@ -161,7 +161,7 @@ export function createBaleBotRouter(): IRouter {
       const extra = bvaOwnerUserIds(u);
       const unread = v === "all" ? queryRow<{ n: number }>("SELECT COUNT(*) n FROM bale_bot_chats WHERE unread>0")!.n
         : queryRow<{ n: number }>(`SELECT COUNT(*) n FROM bale_bot_chats c JOIN bale_bots b ON b.id=c.bot_id WHERE c.unread>0 AND b.user_id IN (${[u.id, ...extra].map(() => "?").join(",")})`, [u.id, ...extra])!.n;
-      return { enabled: true, view: v, canManage: bbCanManage(u), name: nameOf(u), bot: botView(botOfUser(u.id)), unread, limits: BB_LIMITS, contactFeature: bcFlagOn(), customerBot: customerBotFlagsPayload(), signReminder: srFlagOn(), ...(bwsOn() ? { workspace: true } : {}), ...(extra.length ? { viewAs: extra } : {}) };
+      return { enabled: true, view: v, canManage: bbCanManage(u), name: nameOf(u), bot: botView(botOfUser(u.id)), unread, limits: BB_LIMITS, contactFeature: bcFlagOn(), customerBot: customerBotFlagsPayload(), signReminder: srFlagOn(), ...(bwsOn() ? { workspace: true } : {}), ...(qrOn() ? { quickReplies: true } : {}), ...(extra.length ? { viewAs: extra } : {}) };
     }));
   });
 
